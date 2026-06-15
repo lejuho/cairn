@@ -1,0 +1,70 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/block-dangerous.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/track-failures.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/auto-format.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/check-context-budget.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/force-advisor-check.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/save-advisor-feedback.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/check-resolved-immutable.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/check-skill-loaded.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/check-cycle-cap.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
