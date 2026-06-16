@@ -1,0 +1,29 @@
+{
+  "name": "cairn",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.9.0",
+  "engines": {
+    "node": ">=22 <23",
+    "pnpm": "10.9.0"
+  },
+  "scripts": {
+    "dev": "corepack pnpm -r --parallel dev",
+    "build": "corepack pnpm -r build",
+    "typecheck": "corepack pnpm -r typecheck",
+    "lint": "corepack pnpm -r lint",
+    "test": "corepack pnpm -r test",
+    "test:integration": "corepack pnpm --filter @cairn/server test:integration",
+    "db:generate": "corepack pnpm --filter @cairn/server db:generate",
+    "db:migrate": "corepack pnpm --filter @cairn/server db:migrate",
+    "verify": "corepack pnpm lint && corepack pnpm typecheck && corepack pnpm test && corepack pnpm test:integration && corepack pnpm build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "eslint": "^9.18.0",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.19.0",
+    "vitest": "^2.1.8"
+  }
+}

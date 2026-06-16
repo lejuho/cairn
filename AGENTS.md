@@ -84,11 +84,25 @@
 
 ## Commands
 
-The stack is selected, but the application has not been scaffolded, so build,
-test, lint, migration, and deployment scripts do not exist yet. The scaffold
-cycle must create the pnpm workspace manifests and replace this paragraph with
-the exact root commands before feature implementation begins. Do not document
-commands that are not backed by package scripts.
+Root commands:
+
+```bash
+pnpm install
+pnpm dev
+pnpm build
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm test:integration
+pnpm db:generate
+pnpm db:migrate
+pnpm verify
+```
+
+`pnpm verify` runs lint, typecheck, unit tests, SQLite integration tests, and
+build. SQLite integration tests must use temporary database files only. If the
+shell does not expose a `pnpm` shim, run the same commands as
+`corepack pnpm <command>`.
 
 Current setup verification:
 

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Cairn">
+  <rect width="512" height="512" rx="96" fill="#0E1418" />
+  <circle cx="256" cy="256" r="152" fill="#E0B250" opacity="0.18" />
+  <path
+    d="M152 326c34-60 68-126 104-196 36 70 70 136 104 196H152Z"
+    fill="#E0B250"
+  />
+  <circle cx="256" cy="326" r="24" fill="#5BA88E" />
+</svg>

@@ -51,3 +51,16 @@
 # .DS_Store
 # .idea/
 # .vscode/
+
+# Node / build output
+node_modules/
+dist/
+coverage/
+.vite/
+
+# Local environment and databases
+.env
+.env.*
+*.sqlite
+*.sqlite3
+*.db

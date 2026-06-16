@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1781594767243,
+      "tag": "0000_perfect_kate_bishop",
+      "breakpoints": true
+    }
+  ]
+}
