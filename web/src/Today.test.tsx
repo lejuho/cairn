@@ -1,0 +1,235 @@
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Today } from "./Today.js";
+import type { TodaySurface } from "@cairn/shared";
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+const BASE_SURFACE: TodaySurface = {
+  date: "2026-06-16",
+  now: "2026-06-16T09:00:00.000Z",
+  state: "quiet",
+  nextEvent: null,
+  conflicts: [],
+  twoMinuteTasks: [],
+  watcherBubbles: [],
+  cards: []
+};
+
+function mockFetch(surface: TodaySurface) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      json: () => Promise.resolve({ ok: true, data: surface })
+    })
+  );
+}
+
+function mockFetchError(message = "서버 오류") {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockRejectedValue(new Error(message))
+  );
+}
+
+describe("Today — loading state", () => {
+  it("renders skeleton before fetch resolves", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockReturnValue(new Promise(() => {}))
+    );
+    render(<Today />);
+    expect(document.querySelector(".today-skel")).toBeInTheDocument();
+    expect(screen.getByLabelText("오늘 화면 불러오는 중")).toBeInTheDocument();
+  });
+});
+
+describe("Today — quiet state", () => {
+  beforeEach(() => mockFetch({ ...BASE_SURFACE, state: "quiet" }));
+
+  it("renders quiet card with testid and heading", async () => {
+    render(<Today />);
+    await waitFor(() => {
+      expect(screen.getByTestId("today-quiet")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("heading", { name: "오늘은 조용해" })).toBeInTheDocument();
+    expect(screen.getByText("새로 생기면 올려둘게. 닫고 네 일 해도 돼.")).toBeInTheDocument();
+  });
+});
+
+describe("Today — live state", () => {
+  it("renders next_event card", async () => {
+    const event = {
+      id: 1, title: "팀 회의",
+      start: "2026-06-16T10:00:00+00:00",
+      end: "2026-06-16T11:00:00+00:00",
+      threadId: null, type: null, location: null,
+      source: "cairn" as const, selfImposed: 1,
+      status: "planned" as const,
+      createdAt: null, updatedAt: null
+    };
+    mockFetch({
+      ...BASE_SURFACE, state: "live",
+      nextEvent: event,
+      cards: [{ kind: "next_event", event }]
+    });
+    render(<Today />);
+    await waitFor(() => {
+      expect(screen.getByText("팀 회의")).toBeInTheDocument();
+    });
+    expect(screen.getByText("다음 일정")).toBeInTheDocument();
+  });
+
+  it("renders conflict card", async () => {
+    const a = {
+      id: 1, title: "미팅 A",
+      start: "2026-06-16T10:00:00+00:00",
+      end: "2026-06-16T12:00:00+00:00",
+      threadId: null, type: null, location: null,
+      source: "cairn" as const, selfImposed: 1,
+      status: "planned" as const,
+      createdAt: null, updatedAt: null
+    };
+    const b = {
+      id: 2, title: "미팅 B",
+      start: "2026-06-16T11:00:00+00:00",
+      end: "2026-06-16T13:00:00+00:00",
+      threadId: null, type: null, location: null,
+      source: "cairn" as const, selfImposed: 1,
+      status: "planned" as const,
+      createdAt: null, updatedAt: null
+    };
+    mockFetch({
+      ...BASE_SURFACE, state: "live",
+      conflicts: [{ a, b }],
+      cards: [{ kind: "conflict", pair: { a, b } }]
+    });
+    render(<Today />);
+    await waitFor(() => {
+      expect(screen.getByText("충돌")).toBeInTheDocument();
+    });
+    expect(screen.getByText("미팅 A ↔ 미팅 B")).toBeInTheDocument();
+  });
+
+  it("renders watcher card", async () => {
+    const watcher = {
+      id: 1, label: "여권 갱신", threshold: "2026-06-10",
+      category: null, kind: "A" as const, armed: 1,
+      rule: null, lastFired: null, snoozedUntil: null, createdAt: null
+    };
+    mockFetch({
+      ...BASE_SURFACE, state: "live",
+      watcherBubbles: [watcher],
+      cards: [{ kind: "watcher", watcher }]
+    });
+    render(<Today />);
+    await waitFor(() => {
+      expect(screen.getByText("여권 갱신")).toBeInTheDocument();
+    });
+    expect(screen.getByText("기한")).toBeInTheDocument();
+  });
+
+  it("renders two_minute_task card with done button", async () => {
+    const task = {
+      id: 42, title: "빠른 답장", estMinutes: 2,
+      status: "todo" as const, threadId: null, due: null,
+      context: null, optional: 0, createdAt: null
+    };
+    mockFetch({
+      ...BASE_SURFACE, state: "live",
+      twoMinuteTasks: [task],
+      cards: [{ kind: "two_minute_task", task }]
+    });
+    render(<Today />);
+    await waitFor(() => {
+      expect(screen.getByText("빠른 답장")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "빠른 답장 완료" })).toBeInTheDocument();
+  });
+});
+
+describe("Today — error state", () => {
+  it("renders error message with retry button", async () => {
+    mockFetchError();
+    render(<Today />);
+    await waitFor(() => {
+      expect(screen.getByText("데이터를 불러오지 못했어")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "다시 시도" })).toBeInTheDocument();
+  });
+});
+
+describe("Today — two-minute task done action", () => {
+  it("calls PATCH and refetches on done click", async () => {
+    const task = {
+      id: 7, title: "메모 확인", estMinutes: 1,
+      status: "todo" as const, threadId: null, due: null,
+      context: null, optional: 0, createdAt: null
+    };
+    const patchFn = vi.fn().mockResolvedValue({ ok: true });
+    const liveSurface: TodaySurface = {
+      ...BASE_SURFACE, state: "live",
+      twoMinuteTasks: [task],
+      cards: [{ kind: "two_minute_task", task }]
+    };
+    const quietSurface: TodaySurface = { ...BASE_SURFACE, state: "quiet" };
+
+    let call = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+        if (opts?.method === "PATCH") {
+          return Promise.resolve({ ok: true, json: patchFn });
+        }
+        call++;
+        const data = call === 1 ? liveSurface : quietSurface;
+        return Promise.resolve({
+          json: () => Promise.resolve({ ok: true, data })
+        });
+      })
+    );
+
+    render(<Today />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "메모 확인 완료" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "메모 확인 완료" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("today-quiet")).toBeInTheDocument();
+    });
+  });
+});
+
+describe("Today — touch targets", () => {
+  it("done button has minHeight 44px via CSS class", async () => {
+    const task = {
+      id: 1, title: "T", estMinutes: 2,
+      status: "todo" as const, threadId: null, due: null,
+      context: null, optional: 0, createdAt: null
+    };
+    mockFetch({
+      ...BASE_SURFACE, state: "live",
+      twoMinuteTasks: [task],
+      cards: [{ kind: "two_minute_task", task }]
+    });
+    render(<Today />);
+    await waitFor(() => {
+      const btn = screen.getByRole("button", { name: "T 완료" });
+      expect(btn).toHaveClass("today-done-btn");
+    });
+  });
+
+  it("retry button has minHeight class", async () => {
+    mockFetchError();
+    render(<Today />);
+    await waitFor(() => {
+      const btn = screen.getByRole("button", { name: "다시 시도" });
+      expect(btn).toHaveClass("today-retry");
+    });
+  });
+});

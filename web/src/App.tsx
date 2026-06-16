@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { TodayQuiet } from "./TodayQuiet.js";
+import { Today } from "./Today.js";
 
 export function App() {
   const path = useMemo(() => window.location.pathname, []);
@@ -11,7 +11,7 @@ export function App() {
   }, []);
 
   if (path === "/" || path === "/today") {
-    return <TodayQuiet />;
+    return <Today />;
   }
 
   return (
