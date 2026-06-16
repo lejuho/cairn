@@ -407,3 +407,179 @@ describe("GET /api/today", () => {
     expect(res.json().error.code).toBe("VALIDATION_ERROR");
   });
 });
+
+// ── needs_review ──────────────────────────────────────────────────────────────
+
+// NOW: 2026-06-16T12:00:00+00:00 (UTC noon)
+// 36h window start: 2026-06-15T00:00:00+00:00
+const NR_NOW = "2026-06-16T12:00:00+00:00";
+const NR_DATE = "2026-06-16";
+
+function insertEndedEvent(
+  conn: SqliteConnection,
+  overrides: { end?: string; status?: string } = {}
+): number {
+  const end = overrides.end ?? "2026-06-16T10:00:00+00:00"; // 2h before NOW
+  const status = overrides.status ?? "planned";
+  const result = conn.sqlite
+    .prepare(
+      "INSERT INTO events (title, start, end, source, self_imposed, status) VALUES (?, ?, ?, 'cairn', 1, ?)"
+    )
+    .run("Past Event", "2026-06-16T09:00:00+00:00", end, status);
+  return Number(result.lastInsertRowid);
+}
+
+describe("GET /api/today — needs_review candidates", () => {
+  it("ended planned event with no annotation appears as needs_review", async () => {
+    const conn = makeTestDb();
+    insertEndedEvent(conn, { status: "planned" });
+    const app = buildServer(conn.db);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/today?date=${NR_DATE}&now=${encodeURIComponent(NR_NOW)}`
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.data.needsReviewEvents).toHaveLength(1);
+    expect(body.data.cards.some((c: { kind: string }) => c.kind === "needs_review")).toBe(true);
+    conn.sqlite.close();
+  });
+
+  it("ended confirmed event with no annotation appears as needs_review", async () => {
+    const conn = makeTestDb();
+    insertEndedEvent(conn, { status: "confirmed" });
+    const app = buildServer(conn.db);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/today?date=${NR_DATE}&now=${encodeURIComponent(NR_NOW)}`
+    });
+    expect(res.json().data.needsReviewEvents).toHaveLength(1);
+    conn.sqlite.close();
+  });
+
+  it("event with existing annotation is excluded", async () => {
+    const conn = makeTestDb();
+    const eventId = insertEndedEvent(conn);
+    conn.sqlite
+      .prepare("INSERT INTO annotations (event_id, reason_text) VALUES (?, ?)")
+      .run(eventId, "already annotated");
+    const app = buildServer(conn.db);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/today?date=${NR_DATE}&now=${encodeURIComponent(NR_NOW)}`
+    });
+    expect(res.json().data.needsReviewEvents).toHaveLength(0);
+    conn.sqlite.close();
+  });
+
+  it("future event is excluded", async () => {
+    const conn = makeTestDb();
+    insertEndedEvent(conn, { end: "2026-06-16T14:00:00+00:00" }); // 2h after NOW
+    const app = buildServer(conn.db);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/today?date=${NR_DATE}&now=${encodeURIComponent(NR_NOW)}`
+    });
+    expect(res.json().data.needsReviewEvents).toHaveLength(0);
+    conn.sqlite.close();
+  });
+
+  it("event older than 36 hours is excluded", async () => {
+    const conn = makeTestDb();
+    // 37h before NR_NOW
+    insertEndedEvent(conn, { end: "2026-06-14T23:00:00+00:00" });
+    const app = buildServer(conn.db);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/today?date=${NR_DATE}&now=${encodeURIComponent(NR_NOW)}`
+    });
+    expect(res.json().data.needsReviewEvents).toHaveLength(0);
+    conn.sqlite.close();
+  });
+
+  it.each(["done", "cancelled", "moved", "late"])(
+    "%s event is excluded from needs_review",
+    async (status) => {
+      const conn = makeTestDb();
+      insertEndedEvent(conn, { status });
+      const app = buildServer(conn.db);
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/today?date=${NR_DATE}&now=${encodeURIComponent(NR_NOW)}`
+      });
+      expect(res.json().data.needsReviewEvents).toHaveLength(0);
+      conn.sqlite.close();
+    }
+  );
+
+  it("limits candidates to 3, sorted most-recent-ended first", async () => {
+    const conn = makeTestDb();
+    // Insert 4 ended events at different times
+    const ends = [
+      "2026-06-16T08:00:00+00:00",
+      "2026-06-16T09:00:00+00:00",
+      "2026-06-16T10:00:00+00:00",
+      "2026-06-16T11:00:00+00:00" // most recent, should be first
+    ];
+    for (const end of ends) {
+      conn.sqlite
+        .prepare(
+          "INSERT INTO events (title, start, end, source, self_imposed, status) VALUES (?, ?, ?, 'cairn', 1, 'planned')"
+        )
+        .run(`Event ${end}`, "2026-06-16T07:00:00+00:00", end);
+    }
+    const app = buildServer(conn.db);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/today?date=${NR_DATE}&now=${encodeURIComponent(NR_NOW)}`
+    });
+    const events = res.json().data.needsReviewEvents as Array<{ end: string }>;
+    expect(events).toHaveLength(3);
+    // Most recent first
+    expect(events[0]!.end).toBe("2026-06-16T11:00:00+00:00");
+    expect(events[1]!.end).toBe("2026-06-16T10:00:00+00:00");
+    conn.sqlite.close();
+  });
+
+  it("needs_review cards appear after two_minute_task in card priority", async () => {
+    const conn = makeTestDb();
+    insertEndedEvent(conn);
+    // Insert a 2-min task
+    conn.sqlite
+      .prepare(
+        "INSERT INTO tasks (title, est_minutes, status) VALUES (?, ?, 'todo')"
+      )
+      .run("Quick task", 2);
+    const app = buildServer(conn.db);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/today?date=${NR_DATE}&now=${encodeURIComponent(NR_NOW)}`
+    });
+    const cards = res.json().data.cards as Array<{ kind: string }>;
+    const taskIdx = cards.findIndex((c) => c.kind === "two_minute_task");
+    const reviewIdx = cards.findIndex((c) => c.kind === "needs_review");
+    expect(taskIdx).toBeGreaterThanOrEqual(0);
+    expect(reviewIdx).toBeGreaterThan(taskIdx);
+    conn.sqlite.close();
+  });
+
+  it("Today route works without gateway (deterministic)", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db); // no gateway
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/today?date=${NR_DATE}&now=${encodeURIComponent(NR_NOW)}`
+    });
+    expect(res.statusCode).toBe(200);
+    conn.sqlite.close();
+  });
+});

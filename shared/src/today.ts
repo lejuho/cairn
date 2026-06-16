@@ -21,12 +21,14 @@ export const TodaySurfaceSchema = z.object({
   conflicts: z.array(ConflictPairSchema),
   twoMinuteTasks: z.array(TaskRowSchema),
   watcherBubbles: z.array(WatcherRowSchema),
+  needsReviewEvents: z.array(EventRowSchema),
   cards: z.array(
     z.discriminatedUnion("kind", [
       z.object({ kind: z.literal("conflict"), pair: ConflictPairSchema }),
       z.object({ kind: z.literal("watcher"), watcher: WatcherRowSchema }),
       z.object({ kind: z.literal("next_event"), event: EventRowSchema }),
-      z.object({ kind: z.literal("two_minute_task"), task: TaskRowSchema })
+      z.object({ kind: z.literal("two_minute_task"), task: TaskRowSchema }),
+      z.object({ kind: z.literal("needs_review"), event: EventRowSchema })
     ])
   )
 });

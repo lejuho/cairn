@@ -5,7 +5,8 @@ export function buildTodaySurface(
   now: string,
   dayEvents: EventRow[],
   twoMinuteTasks: TaskRow[],
-  watcherBubbles: WatcherRow[]
+  watcherBubbles: WatcherRow[],
+  needsReviewEvents: EventRow[]
 ): TodaySurface {
   const nextEvent = findNextEvent(dayEvents, now);
   const conflicts = findConflicts(dayEvents);
@@ -14,13 +15,14 @@ export function buildTodaySurface(
     ...conflicts.map((pair) => ({ kind: "conflict" as const, pair })),
     ...watcherBubbles.map((watcher) => ({ kind: "watcher" as const, watcher })),
     ...(nextEvent ? [{ kind: "next_event" as const, event: nextEvent }] : []),
-    ...twoMinuteTasks.map((task) => ({ kind: "two_minute_task" as const, task }))
+    ...twoMinuteTasks.map((task) => ({ kind: "two_minute_task" as const, task })),
+    ...needsReviewEvents.map((event) => ({ kind: "needs_review" as const, event }))
   ];
 
   const state =
     cards.length === 0 && nextEvent === null ? "quiet" : "live";
 
-  return { date, now, state, nextEvent, conflicts, twoMinuteTasks, watcherBubbles, cards };
+  return { date, now, state, nextEvent, conflicts, twoMinuteTasks, watcherBubbles, needsReviewEvents, cards };
 }
 
 function findNextEvent(events: EventRow[], now: string): EventRow | null {

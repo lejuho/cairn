@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import type { TodaySurface } from "@cairn/shared";
 
+type ReplyState = { text: string; error: string | null; submitting: boolean };
+
 type ViewState =
   | { tag: "loading" }
   | { tag: "quiet" }
@@ -33,8 +35,18 @@ async function markTaskDone(id: number): Promise<void> {
   if (!res.ok) throw new Error("완료 처리 실패");
 }
 
+async function submitAnnotation(eventId: number, text: string): Promise<void> {
+  const res = await fetch(`/api/events/${eventId}/annotations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text })
+  });
+  if (!res.ok) throw new Error("제출 실패");
+}
+
 export function Today() {
   const [view, setView] = useState<ViewState>({ tag: "loading" });
+  const [replyState, setReplyState] = useState<Record<number, ReplyState>>({});
 
   const refresh = useCallback(async () => {
     setView({ tag: "loading" });
@@ -53,6 +65,31 @@ export function Today() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const handleReply = useCallback(
+    async (eventId: number) => {
+      const rs = replyState[eventId] ?? { text: "", error: null, submitting: false };
+      if (!rs.text.trim()) return;
+      setReplyState((prev) => ({
+        ...prev,
+        [eventId]: { text: rs.text, error: null, submitting: true }
+      }));
+      try {
+        await submitAnnotation(eventId, rs.text);
+        await refresh();
+      } catch (e) {
+        setReplyState((prev) => ({
+          ...prev,
+          [eventId]: {
+            text: rs.text,
+            error: e instanceof Error ? e.message : "오류",
+            submitting: false
+          }
+        }));
+      }
+    },
+    [replyState, refresh]
+  );
 
   const handleDone = useCallback(
     async (taskId: number) => {
@@ -163,6 +200,57 @@ export function Today() {
                 >
                   완료 ✓
                 </button>
+              </li>
+            );
+          }
+
+          if (card.kind === "needs_review") {
+            const rs = replyState[card.event.id] ?? { text: "", error: null, submitting: false };
+            return (
+              <li key={`review-${card.event.id}`} className="today-card today-card--review" style={delay}>
+                <span className="card-chip">기록</span>
+                <p className="card-title">{card.event.title} — 어떻게 됐어?</p>
+                <p className="card-meta">
+                  {card.event.start?.slice(11, 16)} — {card.event.end?.slice(11, 16)}
+                </p>
+                <form
+                  className="today-reply-form"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void handleReply(card.event.id);
+                  }}
+                >
+                  <input
+                    className="today-reply-input"
+                    aria-label={`${card.event.title} 메모`}
+                    value={rs.text}
+                    onChange={(e) =>
+                      setReplyState((prev) => ({
+                        ...prev,
+                        [card.event.id]: {
+                          text: e.target.value,
+                          error: prev[card.event.id]?.error ?? null,
+                          submitting: false
+                        }
+                      }))
+                    }
+                    disabled={rs.submitting}
+                    placeholder="한 줄로 남겨줘"
+                  />
+                  <button
+                    type="submit"
+                    className="today-submit-btn"
+                    disabled={rs.submitting || !rs.text.trim()}
+                    aria-label={`${card.event.title} 메모 제출`}
+                  >
+                    {rs.submitting ? "..." : "→"}
+                  </button>
+                </form>
+                {rs.error && (
+                  <p className="today-reply-error" role="alert">
+                    {rs.error}
+                  </p>
+                )}
               </li>
             );
           }

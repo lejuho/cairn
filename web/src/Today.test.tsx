@@ -16,6 +16,7 @@ const BASE_SURFACE: TodaySurface = {
   conflicts: [],
   twoMinuteTasks: [],
   watcherBubbles: [],
+  needsReviewEvents: [],
   cards: []
 };
 
@@ -231,5 +232,113 @@ describe("Today — touch targets", () => {
       const btn = screen.getByRole("button", { name: "다시 시도" });
       expect(btn).toHaveClass("today-retry");
     });
+  });
+});
+
+const REVIEW_EVENT = {
+  id: 99,
+  title: "팀 회의",
+  start: "2026-06-16T09:00:00+09:00",
+  end: "2026-06-16T10:00:00+09:00",
+  threadId: null,
+  type: null,
+  location: null,
+  source: "cairn" as const,
+  selfImposed: 1,
+  status: "planned" as const,
+  createdAt: null,
+  updatedAt: null
+};
+
+describe("Today — needs_review card", () => {
+  it("renders needs_review card with chip and question", async () => {
+    mockFetch({
+      ...BASE_SURFACE,
+      state: "live",
+      needsReviewEvents: [REVIEW_EVENT],
+      cards: [{ kind: "needs_review", event: REVIEW_EVENT }]
+    });
+    render(<Today />);
+    await waitFor(() => {
+      expect(screen.getByText("기록")).toBeInTheDocument();
+    });
+    expect(screen.getByText("팀 회의 — 어떻게 됐어?")).toBeInTheDocument();
+    expect(screen.getByLabelText("팀 회의 메모")).toBeInTheDocument();
+  });
+
+  it("empty reply does not call fetch", async () => {
+    mockFetch({
+      ...BASE_SURFACE,
+      state: "live",
+      needsReviewEvents: [REVIEW_EVENT],
+      cards: [{ kind: "needs_review", event: REVIEW_EVENT }]
+    });
+    const fetchSpy = vi.fn().mockResolvedValue({
+      json: () => Promise.resolve({ ok: true, data: { ...BASE_SURFACE, state: "live", needsReviewEvents: [REVIEW_EVENT], cards: [{ kind: "needs_review", event: REVIEW_EVENT }] } })
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("팀 회의 메모")).toBeInTheDocument());
+
+    const submitBtn = screen.getByLabelText("팀 회의 메모 제출");
+    // Submit with empty input
+    fireEvent.click(submitBtn);
+
+    // fetch called only once for initial load, not for submit
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("valid reply posts to annotation API and refetches Today", async () => {
+    const quietSurface: TodaySurface = { ...BASE_SURFACE, state: "quiet" };
+    let callCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+        if (opts?.method === "POST") {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, data: {} }) });
+        }
+        callCount++;
+        const data = callCount === 1
+          ? { ...BASE_SURFACE, state: "live" as const, needsReviewEvents: [REVIEW_EVENT], cards: [{ kind: "needs_review" as const, event: REVIEW_EVENT }] }
+          : quietSurface;
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data }) });
+      })
+    );
+
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("팀 회의 메모")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText("팀 회의 메모"), { target: { value: "잘 됐어" } });
+    fireEvent.click(screen.getByLabelText("팀 회의 메모 제출"));
+
+    await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
+  });
+
+  it("failed submit keeps card visible and shows error", async () => {
+    const liveSurface: TodaySurface = {
+      ...BASE_SURFACE, state: "live",
+      needsReviewEvents: [REVIEW_EVENT],
+      cards: [{ kind: "needs_review", event: REVIEW_EVENT }]
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+        if (opts?.method === "POST") {
+          return Promise.resolve({ ok: false, json: () => Promise.resolve({ ok: false }) });
+        }
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: liveSurface }) });
+      })
+    );
+
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("팀 회의 메모")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText("팀 회의 메모"), { target: { value: "어쩌고" } });
+    fireEvent.click(screen.getByLabelText("팀 회의 메모 제출"));
+
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    // Card still visible
+    expect(screen.getByText("팀 회의 — 어떻게 됐어?")).toBeInTheDocument();
   });
 });
