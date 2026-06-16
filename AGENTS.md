@@ -192,6 +192,22 @@ bash .claude/hooks/check-marker-sync.sh
 
 ---
 
+## Context Discipline
+
+- Before broad repo search, check `docs/codebase-map.md` when it exists and use
+  it to narrow the first search/read scope.
+- If `docs/codebase-map.md` does not exist, create it before the next
+  non-trivial implementation cycle that would otherwise require broad repo
+  exploration.
+- After implementation changes that add, remove, or move packages, routes,
+  services, schemas, migrations, commands, external integrations, or major UI
+  surfaces, update `docs/codebase-map.md` in the same cycle.
+- Keep `docs/codebase-map.md` as a navigation catalog, not exhaustive prose:
+  package responsibilities, key entry points, route/service/schema locations,
+  external boundaries, and known “look here first” paths.
+
+---
+
 ## Cycle Workflow
 
 ### 구조
