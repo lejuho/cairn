@@ -89,8 +89,8 @@ Agent({
 | 작업 종류 | 로드할 skill 패턴 |
 |----------|-----------------|
 | 클래스 설계, 리팩토링, SOLID 적용 | `design-principles` |
-| Backend 작업 (controller/service/repository) | `backend-*` (예: `backend-spring`, `backend-fastapi`) |
-| Frontend 작업 (component/page) | `frontend-*` (예: `frontend-react`, `frontend-next`) |
+| Backend 작업 (route/service/repository/gateway) | `backend-*` (Cairn: `backend-fastify`) |
+| Frontend 작업 (component/page/PWA) | `frontend-*` (Cairn: `frontend-react-pwa`) |
 | 스마트 컨트랙트 작업 | `contract-*` (예: `contract-solidity`, `contract-anchor`) |
 | 아키텍처/구현 판단 | `advisor` (자동) |
 

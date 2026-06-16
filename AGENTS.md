@@ -9,26 +9,41 @@
 ## Architecture
 
 - **Type**: Web2, single-user local-first PWA
-- **Backend**: Always-on local API server on Mac Mini; framework, language,
-  and runtime version are not selected yet. It owns cron jobs, sync, LLM
-  routing, and push delivery. Do not assume Supabase or a cloud backend.
-- **Frontend**: React PWA, mobile-first (70% mobile), with installable shell,
-  recent-data cache, and push support. Framework and runtime version are not
-  selected yet.
-- **Storage**: One SQLite database file on the Mac Mini is the source of truth.
-  No object storage, Postgres, vector database, or data lake.
+- **Host**: Always-on Raspberry Pi. The PWA calls the API running on the Pi.
+- **Monorepo**: pnpm workspace with `web` (React client), `server` (local API),
+  and `shared` (TypeScript types and runtime schemas).
+- **Backend**: Fastify on Node.js LTS with TypeScript. It owns cron jobs, sync,
+  the LLM gateway, and push delivery. Do not assume Supabase or a cloud
+  backend.
+- **Frontend**: React + Vite + `vite-plugin-pwa`, mobile-first (70% mobile),
+  with an installable shell, recent-data cache, and push support.
+- **Storage**: One SQLite database file on the Raspberry Pi is the source of
+  truth. Access it with `better-sqlite3`; define schema and migrations with
+  Drizzle ORM and `drizzle-kit`. No object storage, Postgres, vector database,
+  or data lake.
+- **Testing**: Vitest across workspace packages. SQLite integration tests use
+  a real temporary database, not database mocks.
 - **Auth/Identity**: Single-user local deployment. Authentication is not
   selected yet; any internet-reachable deployment requires a minimum access
   boundary before exposure.
-- **LLM**: Local Gemma-class model for routine parsing and short descriptions;
-  frontier API only for heavier reasoning such as thread draft generation.
-  Exact local model/version and API provider are not selected yet.
+- **LLM**: External Grok through the existing OAuth-session proxy. Cairn does
+  not use a metered API key. The proxy remains a separate process on its own
+  port, keeps its current implementation language, and exposes a Cairn-only
+  OpenAI-compatible `/v1/chat/completions` endpoint. Its local default base URL
+  is `http://localhost:8000`; deployments override `LLM_PROXY_BASE_URL` with
+  the proxy's container-network address.
+- **LLM gateway**: `server` reaches Grok only through one gateway module. The
+  gateway owns bounded retries, timeout handling, and a rate-limit queue.
+  When the proxy is unavailable, push input is stored raw for later parsing
+  and generation requests fail gracefully without fabricated output.
+  The proxy endpoint and OpenAI-compatible request/response path have been
+  smoke-tested successfully, including proxy mock mode (`mock: true`).
 - **External dependencies**: Google Calendar API (inbound events), Gmail API
   (cancellation cost/refund parsing), optional Telegram bot or Web Push,
   optional n8n-style pipeline for v2 watcher-B collection.
-- **Deployment**: PWA calls the Mac Mini API. Remote access method
+- **Deployment**: PWA calls the Raspberry Pi API. Remote access method
   (Tailscale/VPN, tunnel, or port forwarding), offline write reconciliation,
-  and Mac Mini outage behavior remain undecided.
+  and Raspberry Pi outage behavior remain undecided.
 - **Chain**: N/A. Investment support is calendar/discipline tracking only;
   market prediction and trade recommendations are out of scope.
 
@@ -37,7 +52,10 @@
 ## Conventions
 
 - SQLite is the source of truth. Google Calendar is inbound for external
-  events and may later receive a one-way display mirror for Cairn events.
+  events. A later one-way display mirror requires its own explicitly planned
+  cycle; current sync work is inbound-only.
+- Define shared API payload types and runtime schemas in `shared`; Fastify
+  routes validate external input before passing it to services.
 - Persist enum values in lowercase as defined by the DDL (`planned`, `done`,
   `hard`, `inferred`, etc.). TypeScript may expose uppercase constant names,
   but their stored values must remain lowercase.
@@ -45,7 +63,9 @@
   hard; unknown values remain empty instead of being hallucinated.
 - Keep deterministic work deterministic. Conflict checks, feasibility,
   aggregation, graph traversal, watcher-A rules, and settlement are code/SQL,
-  not LLM calls. LLM use is limited to parsing and short explanations.
+  not LLM calls. They must remain available when the Grok proxy is down. LLM
+  use is limited to parsing, generation, and short explanations through the
+  server-side gateway.
 - Suggestions never mutate decisions automatically. Every recommendation
   includes a reason and requires user confirmation.
 - Use purpose-based routes from the product spec: `/today`, `/threads/[id]`,
@@ -56,18 +76,19 @@
   least 44px and reduced-motion preferences are honored.
 - Components favor tap or no action over typing. Free text is limited to push
   replies and natural-language thread creation.
-- Existing `backend-next` skill assumes Supabase and is not valid for Cairn's
-  confirmed SQLite architecture. Do not load it unless the skill is replaced
-  or amended in a future setup cycle.
+- Backend work loads `backend-fastify`; frontend work loads
+  `frontend-react-pwa`. The retired `backend-next` and `frontend-next` skills
+  must not be referenced by future plans.
 
 ---
 
 ## Commands
 
-The application has not been scaffolded, so package-manager, build, test,
-lint, migration, and deployment commands do not exist yet. The first
-implementation cycle must select the framework/toolchain and replace this
-paragraph with exact commands before implementation begins.
+The stack is selected, but the application has not been scaffolded, so build,
+test, lint, migration, and deployment scripts do not exist yet. The scaffold
+cycle must create the pnpm workspace manifests and replace this paragraph with
+the exact root commands before feature implementation begins. Do not document
+commands that are not backed by package scripts.
 
 Current setup verification:
 
@@ -99,8 +120,8 @@ bash .claude/hooks/check-marker-sync.sh
 | 작업 종류 | 참조 skill |
 |----------|-----------|
 | 클래스 설계, 리팩토링, SOLID | `.claude/skills/design-principles/SKILL.md` |
-| Backend (Spring/FastAPI/...) | `.claude/skills/<backend-*>/SKILL.md` |
-| Frontend (React/Next/...) | `.claude/skills/<frontend-*>/SKILL.md` |
+| Backend (Fastify/Drizzle/SQLite/LLM gateway) | `.claude/skills/backend-fastify/SKILL.md` |
+| Frontend (React/Vite/PWA) | `.claude/skills/frontend-react-pwa/SKILL.md` |
 | 스마트 컨트랙트 (Solidity/Anchor) | `.claude/skills/<contract-*>/SKILL.md` |
 
 해당 skill이 bundle에 없으면 → 새 cycle 진행 전에 skill 추가. 도메인 규칙이 AGENTS.md에 직접 박히지 않는다.
