@@ -141,22 +141,32 @@ describe("GCal sync: all-day event", () => {
       .prepare("SELECT start, end, type FROM events WHERE external_event_id = ?")
       .get("allday1") as { start: string; end: string; type: string };
 
-    // UTC+9 midnight for 2026-06-16 → 2026-06-15T15:00:00.000+00:00
-    expect(row.start).toContain("2026-06-15T15:00:00");
+    // Seoul midnight stored as local-offset form: 2026-06-16T00:00:00+09:00
+    expect(row.start).toMatch(/^2026-06-16T00:00:00\+09:00/);
     expect(row.type).toBe("all_day");
     conn.sqlite.close();
   });
 
-  it("allDayToMidnightRfc3339 produces correct UTC offset for Asia/Seoul", () => {
+  it("allDayToMidnightRfc3339 produces local-offset form for Asia/Seoul", () => {
     const result = allDayToMidnightRfc3339("2026-06-16", "Asia/Seoul");
-    // Seoul is UTC+9, midnight 2026-06-16 local = 2026-06-15T15:00:00Z
-    expect(result).toMatch(/^2026-06-15T15:00:00/);
+    // Seoul is UTC+9: local-offset form preserves the GCal date prefix
+    expect(result).toBe("2026-06-16T00:00:00+09:00");
   });
 
-  it("allDayToMidnightRfc3339 handles DST (US/Eastern summer)", () => {
+  it("allDayToMidnightRfc3339 handles DST negative offset (US/Eastern summer)", () => {
     // 2026-07-04 in America/New_York: EDT = UTC-4
     const result = allDayToMidnightRfc3339("2026-07-04", "America/New_York");
-    expect(result).toMatch(/^2026-07-04T04:00:00/);
+    expect(result).toBe("2026-07-04T00:00:00-04:00");
+  });
+
+  it("allDayToMidnightRfc3339 handles UTC timezone (+00:00)", () => {
+    const result = allDayToMidnightRfc3339("2026-06-16", "UTC");
+    expect(result).toBe("2026-06-16T00:00:00+00:00");
+  });
+
+  it("allDayToMidnightRfc3339 handles fractional offset (Asia/Kolkata +05:30)", () => {
+    const result = allDayToMidnightRfc3339("2026-06-16", "Asia/Kolkata");
+    expect(result).toBe("2026-06-16T00:00:00+05:30");
   });
 });
 
@@ -406,6 +416,44 @@ describe("GCal sync: Today surface integration", () => {
     // so it matches DATE and appears in the surface.
     expect(body.data.state).toBe("live");
     expect(body.data.cards.some((c: { kind: string }) => c.kind === "next_event")).toBe(true);
+    conn.sqlite.close();
+  });
+});
+
+describe("GCal sync: Today surface — all-day event", () => {
+  it("imported all-day event appears in GET /api/today on its GCal date", async () => {
+    const conn = makeTestDb();
+    const DATE = "2026-06-16";
+    const NOW = "2026-06-16T00:00:00+09:00";
+
+    const client = singlePageClient([
+      makeEvent({
+        id: "allday-today",
+        summary: "Public Holiday",
+        status: "confirmed",
+        start: { date: DATE },
+        end: { date: "2026-06-17" }
+      })
+    ]);
+
+    await syncGcalPrimary({ connection: conn, client, timeZone: "Asia/Seoul" });
+
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/today?date=${DATE}&now=${encodeURIComponent(NOW)}`
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.ok).toBe(true);
+    // All-day event stored as "2026-06-16T00:00:00+09:00" — prefix matches DATE.
+    expect(body.data.state).toBe("live");
+    const eventCards = body.data.cards.filter(
+      (c: { kind: string }) => c.kind === "next_event"
+    );
+    expect(eventCards.length).toBe(1);
+    expect(eventCards[0].event.title).toBe("Public Holiday");
     conn.sqlite.close();
   });
 });

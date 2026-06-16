@@ -86,7 +86,15 @@ export function allDayToMidnightRfc3339(date: string, timeZone: string): string 
   const noonUtc = Date.UTC(year, month - 1, day, 12, 0, 0);
   const utcMs = findMidnightUtcMs(year, month, day, timeZone, noonUtc);
 
-  return new Date(utcMs).toISOString().replace("Z", "+00:00");
+  // Output local-offset form so the date prefix matches the GCal date
+  // (e.g. "2026-06-16T00:00:00+09:00"), not the UTC equivalent.
+  const targetMidnightLocalMs = Date.UTC(year, month - 1, day, 0, 0, 0);
+  const offsetMinutes = Math.round((targetMidnightLocalMs - utcMs) / 60000);
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const absMin = Math.abs(offsetMinutes);
+  const hh = String(Math.floor(absMin / 60)).padStart(2, "0");
+  const mm = String(absMin % 60).padStart(2, "0");
+  return `${date}T00:00:00${sign}${hh}:${mm}`;
 }
 
 function findMidnightUtcMs(
