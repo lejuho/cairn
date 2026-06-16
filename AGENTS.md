@@ -104,6 +104,26 @@ build. SQLite integration tests must use temporary database files only. If the
 shell does not expose a `pnpm` shim, run the same commands as
 `corepack pnpm <command>`.
 
+### Google Calendar sync (one-shot, local)
+
+```bash
+# First-time authorization (opens browser, stores token in .cairn/)
+GCAL_CLIENT_ID=<id> GCAL_CLIENT_SECRET=<secret> pnpm gcal:auth
+
+# Incremental sync (uses stored token; full sync on first run)
+CAIRN_DB_PATH=/path/to/cairn.sqlite3 \
+  GCAL_CLIENT_ID=<id> GCAL_CLIENT_SECRET=<secret> \
+  pnpm gcal:sync
+```
+
+- Tokens and credentials are stored under `.cairn/` (gitignored).
+- `CAIRN_TOKEN_PATH` overrides the default `.cairn/gcal-token.json`.
+- `CAIRN_TIME_ZONE` overrides the default `Asia/Seoul` for all-day event mapping.
+- GCal sync is inbound-only (`source='gcal'`, `self_imposed=0`).
+- Sync state (`gcal.primary.syncToken`) is stored in the `params` table.
+- On `410 Gone`, sync token is cleared and a full resync runs automatically.
+- No cron — run manually or via an external scheduler.
+
 Current setup verification:
 
 ```bash

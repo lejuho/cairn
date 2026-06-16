@@ -17,6 +17,8 @@
     "test:integration": "corepack pnpm --filter @cairn/server test:integration",
     "db:generate": "corepack pnpm --filter @cairn/server db:generate",
     "db:migrate": "corepack pnpm --filter @cairn/server db:migrate",
+    "gcal:auth": "corepack pnpm --filter @cairn/server gcal:auth",
+    "gcal:sync": "corepack pnpm --filter @cairn/server gcal:sync",
     "verify": "corepack pnpm lint && corepack pnpm typecheck && corepack pnpm test && corepack pnpm test:integration && corepack pnpm build"
   },
   "devDependencies": {

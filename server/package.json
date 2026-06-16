@@ -6,18 +6,21 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint src drizzle.config.ts --max-warnings=0",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.scripts.json --noEmit",
+    "lint": "eslint src scripts drizzle.config.ts --max-warnings=0",
     "test": "vitest run --config vitest.config.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "gcal:auth": "tsx scripts/gcal-auth.ts",
+    "gcal:sync": "tsx scripts/gcal-sync.ts"
   },
   "dependencies": {
     "@cairn/shared": "workspace:*",
     "better-sqlite3": "^11.7.0",
     "drizzle-orm": "^0.38.4",
     "fastify": "^5.2.1",
+    "googleapis": "^173.0.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {

@@ -64,3 +64,6 @@ coverage/
 *.sqlite
 *.sqlite3
 *.db
+
+# Local GCal OAuth tokens and credentials
+.cairn/

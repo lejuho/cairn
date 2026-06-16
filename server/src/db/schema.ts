@@ -4,7 +4,8 @@ import {
   integer,
   primaryKey,
   sqliteTable,
-  text
+  text,
+  uniqueIndex
 } from "drizzle-orm/sqlite-core";
 
 const THREAD_STATUSES = ["active", "done", "paused", "dropped"] as const;
@@ -65,7 +66,12 @@ export const events = sqliteTable(
     cancelWindow: text("cancel_window"),
     refundCutoff: text("refund_cutoff"),
     createdAt: text("created_at").default(sql`(datetime('now'))`),
-    updatedAt: text("updated_at")
+    updatedAt: text("updated_at"),
+    externalCalendarId: text("external_calendar_id"),
+    externalEventId: text("external_event_id"),
+    externalIcalUid: text("external_ical_uid"),
+    externalEtag: text("external_etag"),
+    externalUpdated: text("external_updated")
   },
   (table) => [
     check("events_source_check", sql`${table.source} in (${enumSqlList(EVENT_SOURCES)})`),
@@ -74,7 +80,11 @@ export const events = sqliteTable(
     check("events_commitment_check", sql`${table.commitment} between 1 and 3`),
     check("events_reversible_check", sql`${table.reversible} in (0, 1)`),
     check("events_cancel_money_check", sql`${table.cancelMoney} >= 0`),
-    check("events_cancel_social_check", sql`${table.cancelSocial} between 0 and 3`)
+    check("events_cancel_social_check", sql`${table.cancelSocial} between 0 and 3`),
+    uniqueIndex("events_external_identity_idx").on(
+      table.externalCalendarId,
+      table.externalEventId
+    )
   ]
 );
 

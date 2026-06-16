@@ -8,6 +8,13 @@
       "when": 1781594767243,
       "tag": "0000_perfect_kate_bishop",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1781598793345,
+      "tag": "0001_faithful_purifiers",
+      "breakpoints": true
     }
   ]
 }
