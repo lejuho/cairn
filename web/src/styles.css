@@ -775,3 +775,169 @@ p {
     transition-duration: 1ms !important;
   }
 }
+
+/* ── App navigation ─────────────────────────────────────────────────────── */
+.app-nav {
+  width: 100%;
+  background: var(--surface-1, #fff);
+  border-bottom: 1px solid var(--border-subtle, #e5e5e5);
+}
+
+.app-nav-list {
+  display: flex;
+  gap: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  justify-content: center;
+}
+
+.app-nav-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 20px;
+  text-decoration: none;
+  font-size: 0.9rem;
+  color: var(--text-2, #555);
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.app-nav-link[aria-current="page"] {
+  color: var(--text-1, #111);
+  border-bottom-color: var(--accent, #4f6ef7);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-nav-link {
+    transition: none;
+  }
+}
+
+/* ── Today /input link ──────────────────────────────────────────────────── */
+.today-input-link {
+  display: inline-block;
+  margin-top: 12px;
+  font-size: 0.85rem;
+  color: var(--text-2, #555);
+  text-decoration: none;
+}
+
+.today-input-link:hover {
+  text-decoration: underline;
+}
+
+/* ── Input Hub ──────────────────────────────────────────────────────────── */
+.input-hub {
+  padding: 16px;
+  max-width: 480px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.input-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.input-section-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.input-field {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle, #e5e5e5);
+  border-radius: 8px;
+  font-size: 0.95rem;
+  background: var(--surface-1, #fff);
+  color: var(--text-1, #111);
+  box-sizing: border-box;
+  min-height: 44px;
+}
+
+.input-mode-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.input-tab {
+  padding: 8px 16px;
+  min-height: 44px;
+  border: 1px solid var(--border-subtle, #e5e5e5);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--text-2, #555);
+}
+
+.input-tab--active {
+  background: var(--accent, #4f6ef7);
+  color: #fff;
+  border-color: var(--accent, #4f6ef7);
+}
+
+.input-submit-btn {
+  padding: 10px 20px;
+  min-height: 44px;
+  background: var(--accent, #4f6ef7);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.input-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.input-error {
+  font-size: 0.85rem;
+  color: var(--cancelled, #e53935);
+}
+
+.input-saved {
+  font-size: 0.85rem;
+  color: var(--text-2, #555);
+}
+
+.input-loading {
+  font-size: 0.9rem;
+  color: var(--text-2, #555);
+}
+
+.input-unscheduled-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.input-unscheduled-item {
+  padding: 12px;
+  border: 1px solid var(--border-subtle, #e5e5e5);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.input-unscheduled-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 500;
+}

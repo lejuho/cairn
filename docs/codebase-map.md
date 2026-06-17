@@ -172,7 +172,18 @@ Entry and routing:
 
 - [web/src/App.tsx](/home/pi/cairn/web/src/App.tsx)
   - Redirects `/` to `/today`.
-  - Handles simple not-found surface.
+  - Renders `AppNav` on all primary routes.
+  - Handles simple not-found surface (nav still visible).
+  - Routes: `/today`, `/input`, `/threads`, `/threads/new`, `/threads/:id`.
+- [web/src/AppNav.tsx](/home/pi/cairn/web/src/AppNav.tsx)
+  - Shared top navigation bar (cycle 14). Links: Today (`/today`), 입력 (`/input`), 스레드 (`/threads`).
+  - `aria-current="page"` on active link. Touch targets ≥44px. Reduced-motion safe.
+- [web/src/InputHub.tsx](/home/pi/cairn/web/src/InputHub.tsx)
+  - `/input` pull-surface hub (cycle 14). Four states: loading, quiet, live, error.
+  - Quiet when `unscheduledEvents.length === 0`; live otherwise.
+  - Sections: quick capture (`POST /api/capture/flat-event`), manual add (event/task forms + optional thread picker), unscheduled events list.
+  - Unscheduled events: loads slot candidates via `GET /api/events/:id/slot-candidates`, schedules via `PATCH /api/events/:id/schedule`, refetches hub on success.
+  - Loads data concurrently: `GET /api/today` + `GET /api/threads` via `Promise.all`. Thread list degrades gracefully on failure.
 - [web/src/Today.tsx](/home/pi/cairn/web/src/Today.tsx)
   - Main Today screen.
   - Owns loading, quiet, live, error states.

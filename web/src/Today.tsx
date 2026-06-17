@@ -492,6 +492,7 @@ export function Today() {
             >
               + 추가
             </button>
+            <a href="/input" className="today-input-link">직접 입력하러 가기 →</a>
           </section>
           <form
             className="today-capture-form"
