@@ -336,13 +336,24 @@ describe("InputHub — local date for API requests", () => {
 // ── thread picker degrades gracefully ─────────────────────────────────────────
 
 describe("InputHub — thread picker degrades gracefully", () => {
-  it("renders without thread picker when threads fetch fails", async () => {
+  it("renders without thread picker when threads returns ok:false", async () => {
     vi.stubGlobal("fetch", vi.fn((url: string) => {
       if (url.includes("/api/threads")) return Promise.resolve({ json: () => Promise.resolve({ ok: false }) });
       return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
     }));
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    expect(screen.queryByLabelText("스레드")).not.toBeInTheDocument();
+  });
+
+  it("renders input sections when threads fetch rejects at network layer", async () => {
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      if (url.includes("/api/threads")) return Promise.reject(new Error("Network error"));
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
+    }));
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    expect(screen.getByLabelText("빠른 입력")).toBeInTheDocument();
     expect(screen.queryByLabelText("스레드")).not.toBeInTheDocument();
   });
 });

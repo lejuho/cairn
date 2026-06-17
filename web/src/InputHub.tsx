@@ -47,15 +47,19 @@ export function InputHub() {
     try {
       const now = localNowRfc3339();
       const date = localDateString();
-      const [todayRes, threadsRes] = await Promise.all([
+      const [todayRes, threadsResult] = await Promise.allSettled([
         fetch(`/api/today?date=${date}&now=${encodeURIComponent(now)}`),
         fetch("/api/threads")
       ]);
-      const todayBody = (await todayRes.json()) as { ok: boolean; data?: TodaySurface; error?: { message: string } };
-      const threadsBody = (await threadsRes.json()) as { ok: boolean; data?: ThreadSummary[]; error?: unknown };
+      if (todayRes.status === "rejected") throw new Error("로드 실패");
+      const todayBody = (await todayRes.value.json()) as { ok: boolean; data?: TodaySurface; error?: { message: string } };
       if (!todayBody.ok) throw new Error(todayBody.error?.message ?? "로드 실패");
+      let threads: ThreadSummary[] = [];
+      if (threadsResult.status === "fulfilled") {
+        const threadsBody = (await threadsResult.value.json()) as { ok: boolean; data?: ThreadSummary[] };
+        if (threadsBody.ok) threads = threadsBody.data ?? [];
+      }
       const unscheduled = todayBody.data!.unscheduledEvents ?? [];
-      const threads = threadsBody.ok ? (threadsBody.data ?? []) : [];
       if (unscheduled.length === 0) {
         setView({ tag: "quiet", threads });
       } else {
