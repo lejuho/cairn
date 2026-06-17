@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { EventRow, TodaySurface } from "@cairn/shared";
+import type { EventRow, PersonRow, TodaySurface } from "@cairn/shared";
 import { InputHub } from "./InputHub.js";
 
 afterEach(() => {
@@ -25,14 +25,16 @@ const SLOT_CANDIDATE = {
   reasons: ["09:00 — 빈 시간"], reasonCodes: ["free_window"]
 };
 
-function mockFetch(todaySurface: TodaySurface = QUIET_SURFACE, threads: unknown[] = []) {
+function mockFetch(todaySurface: TodaySurface = QUIET_SURFACE, threads: unknown[] = [], people: PersonRow[] = []) {
   vi.stubGlobal("fetch", vi.fn((url: string) => {
-    if (url.includes("/api/threads")) {
-      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: threads }) });
-    }
+    if (url.includes("/api/threads")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: threads }) });
+    if (url.includes("/api/people")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: people }) });
     return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: todaySurface }) });
   }));
 }
+
+const ALICE: PersonRow = { id: 1, name: "Alice", relation: null, channel: null };
+const BOB: PersonRow = { id: 2, name: "Bob", relation: "동료", channel: "kakao" };
 
 type MockCall = [string, RequestInit?];
 function getCalls(mock: ReturnType<typeof vi.fn>): MockCall[] {
@@ -330,6 +332,149 @@ describe("InputHub — local date for API requests", () => {
     const todayCall = calls.find(([u]) => typeof u === "string" && u.includes("/api/today"));
     expect(todayCall).toBeDefined();
     expect(todayCall![0]).toContain("date=2026-06-20");
+  });
+});
+
+// ── people checklist ──────────────────────────────────────────────────────────
+
+describe("InputHub — people checklist", () => {
+  it("people checklist hidden when no people exist", async () => {
+    mockFetch(QUIET_SURFACE, [], []);
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    expect(screen.queryByRole("group", { name: "참석자" })).not.toBeInTheDocument();
+  });
+
+  it("shows people checkboxes when people exist", async () => {
+    mockFetch(QUIET_SURFACE, [], [ALICE, BOB]);
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByRole("group", { name: "참석자" })).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText("Alice")).toBeInTheDocument();
+    expect(screen.getByLabelText("Bob")).toBeInTheDocument();
+  });
+
+  it("checked personId included in event POST payload", async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (url.includes("/api/threads")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url.includes("/api/people")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [ALICE] }) });
+      if (url.includes("/api/today")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true }) });
+    });
+    vi.spyOn(Date.prototype, "getTimezoneOffset").mockReturnValue(-540);
+    vi.stubGlobal("fetch", fetchMock);
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText("Alice")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("Alice"));
+    fireEvent.change(screen.getByLabelText("일정 제목"), { target: { value: "미팅" } });
+    fireEvent.change(screen.getByLabelText("시작 시간"), { target: { value: "2026-06-20T10:00" } });
+    fireEvent.change(screen.getByLabelText("종료 시간"), { target: { value: "2026-06-20T11:00" } });
+    fireEvent.click(screen.getByLabelText("일정 저장"));
+    await waitFor(() => {
+      const calls = getCalls(fetchMock);
+      const eventsCall = calls.find(([u]) => u === "/api/events");
+      expect(eventsCall).toBeDefined();
+      const body = JSON.parse(eventsCall![1]!.body as string);
+      expect(body.personIds).toEqual([1]);
+    });
+  });
+
+  it("unchecked person not included in POST payload", async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (url.includes("/api/threads")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url.includes("/api/people")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [ALICE] }) });
+      if (url.includes("/api/today")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true }) });
+    });
+    vi.spyOn(Date.prototype, "getTimezoneOffset").mockReturnValue(-540);
+    vi.stubGlobal("fetch", fetchMock);
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText("Alice")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("일정 제목"), { target: { value: "미팅" } });
+    fireEvent.change(screen.getByLabelText("시작 시간"), { target: { value: "2026-06-20T10:00" } });
+    fireEvent.change(screen.getByLabelText("종료 시간"), { target: { value: "2026-06-20T11:00" } });
+    fireEvent.click(screen.getByLabelText("일정 저장"));
+    await waitFor(() => {
+      const calls = getCalls(fetchMock);
+      const eventsCall = calls.find(([u]) => u === "/api/events");
+      expect(eventsCall).toBeDefined();
+      const body = JSON.parse(eventsCall![1]!.body as string);
+      expect(body.personIds).toBeUndefined();
+    });
+  });
+});
+
+// ── inline person creation ────────────────────────────────────────────────────
+
+describe("InputHub — inline person creation", () => {
+  it("'+ 사람 추가' button shows inline form", async () => {
+    mockFetch();
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "+ 사람 추가" }));
+    expect(screen.getByLabelText("새 사람 이름")).toBeInTheDocument();
+    expect(screen.getByLabelText("연락 채널")).toBeInTheDocument();
+  });
+
+  it("creating new person adds to checklist and auto-selects", async () => {
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes("/api/threads")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url === "/api/people" && init?.method === "POST") {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { person: { id: 5, name: "Charlie", relation: null, channel: "none" } } }) });
+      }
+      if (url.includes("/api/people")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url.includes("/api/today")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "+ 사람 추가" }));
+    fireEvent.change(screen.getByLabelText("새 사람 이름"), { target: { value: "Charlie" } });
+    fireEvent.click(screen.getByRole("button", { name: "추가" }));
+    await waitFor(() => {
+      expect(screen.getByLabelText("Charlie")).toBeInTheDocument();
+    });
+    const checkbox = screen.getByLabelText("Charlie") as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+    expect(screen.queryByLabelText("새 사람 이름")).not.toBeInTheDocument();
+  });
+
+  it("person creation error shows alert", async () => {
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes("/api/threads")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url === "/api/people" && init?.method === "POST") {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: false, error: { message: "이름 중복" } }) });
+      }
+      if (url.includes("/api/people")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url.includes("/api/today")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "+ 사람 추가" }));
+    fireEvent.change(screen.getByLabelText("새 사람 이름"), { target: { value: "Charlie" } });
+    fireEvent.click(screen.getByRole("button", { name: "추가" }));
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+    expect(screen.getByText("이름 중복")).toBeInTheDocument();
+    expect(screen.getByLabelText("새 사람 이름")).toBeInTheDocument();
+  });
+
+  it("취소 hides inline form", async () => {
+    mockFetch();
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "+ 사람 추가" }));
+    expect(screen.getByLabelText("새 사람 이름")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    expect(screen.queryByLabelText("새 사람 이름")).not.toBeInTheDocument();
   });
 });
 

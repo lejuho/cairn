@@ -1,0 +1,31 @@
+import { z } from "zod";
+import { EventRowSchema } from "./events.js";
+
+export const PersonChannelSchema = z.enum(["none", "kakao", "sms", "email", "telegram"]);
+export type PersonChannel = z.infer<typeof PersonChannelSchema>;
+
+export const PersonRowSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+  relation: z.string().nullable(),
+  channel: PersonChannelSchema.nullable()
+});
+export type PersonRow = z.infer<typeof PersonRowSchema>;
+
+export const CreatePersonRequestSchema = z.object({
+  displayName: z.string().min(1),
+  relation: z.string().optional(),
+  channel: PersonChannelSchema
+});
+export type CreatePersonRequest = z.infer<typeof CreatePersonRequestSchema>;
+
+export const EventPeopleResponseSchema = z.object({
+  event: EventRowSchema,
+  people: z.array(PersonRowSchema)
+});
+export type EventPeopleResponse = z.infer<typeof EventPeopleResponseSchema>;
+
+export const ReplaceEventPeopleRequestSchema = z.object({
+  personIds: z.array(z.number().int().positive())
+});
+export type ReplaceEventPeopleRequest = z.infer<typeof ReplaceEventPeopleRequestSchema>;

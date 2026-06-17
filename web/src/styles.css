@@ -941,3 +941,64 @@ p {
   font-size: 0.95rem;
   font-weight: 500;
 }
+
+.input-people-checklist {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.input-people-legend {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary, #666);
+  padding: 0 4px;
+}
+
+.input-person-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.input-add-person-btn {
+  background: none;
+  border: 1px dashed var(--color-border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.9rem;
+  color: var(--color-text-secondary, #666);
+  cursor: pointer;
+  min-height: 44px;
+  width: 100%;
+  text-align: left;
+}
+
+.input-new-person {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.input-new-person-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.input-cancel-btn {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  min-height: 44px;
+}

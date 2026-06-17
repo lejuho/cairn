@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { CreateEventRequestSchema } from "@cairn/shared";
 import { createEvent } from "../repositories/events.js";
+import { findPeopleByIds, replaceEventPeople } from "../repositories/people.js";
 import type { CairnDatabase } from "../db/index.js";
 
 export function registerEventRoutes(app: FastifyInstance, db: CairnDatabase): void {
@@ -22,7 +23,21 @@ export function registerEventRoutes(app: FastifyInstance, db: CairnDatabase): vo
     }
 
     try {
+      const personIds = parsed.data.personIds ?? [];
+      if (personIds.length > 0) {
+        const deduped = [...new Set(personIds)];
+        const found = findPeopleByIds(db, deduped);
+        if (found.length !== deduped.length) {
+          return reply.code(404).send({
+            ok: false,
+            error: { code: "NOT_FOUND", message: "one or more person ids not found" }
+          });
+        }
+      }
       const event = createEvent(db, parsed.data);
+      if (personIds.length > 0) {
+        replaceEventPeople(db, event.id, [...new Set(personIds)]);
+      }
       return reply.code(201).send({ ok: true, data: event });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

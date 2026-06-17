@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { EventRow, SlotCandidate, ThreadSummary, TodaySurface } from "@cairn/shared";
+import type { EventRow, PersonRow, SlotCandidate, ThreadSummary, TodaySurface } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString, localNowRfc3339 } from "./dateUtils.js";
 
 // ── types ────────────────────────────────────────────────────────────────────
@@ -12,7 +12,8 @@ type HubViewState =
 
 type CaptureState = { text: string; submitting: boolean; savedMsg: string | null; error: string | null };
 
-type EventForm = { title: string; start: string; end: string; threadId: string };
+type EventForm = { title: string; start: string; end: string; threadId: string; personIds: number[] };
+type NewPersonState = { show: boolean; name: string; channel: string; submitting: boolean; error: string | null };
 type TaskForm = { title: string; estMinutes: string; threadId: string };
 
 type FormSectionState = {
@@ -26,7 +27,7 @@ type FormSectionState = {
 
 type SlotMap = Record<number, { tag: "idle" } | { tag: "loading" } | { tag: "loaded"; candidates: SlotCandidate[] } | { tag: "error"; message: string }>;
 
-const EMPTY_EVENT: EventForm = { title: "", start: "", end: "", threadId: "" };
+const EMPTY_EVENT: EventForm = { title: "", start: "", end: "", threadId: "", personIds: [] };
 const EMPTY_TASK: TaskForm = { title: "", estMinutes: "", threadId: "" };
 
 
@@ -40,6 +41,8 @@ export function InputHub() {
     submitting: false, error: null, saved: false
   });
   const [slots, setSlots] = useState<SlotMap>({});
+  const [people, setPeople] = useState<PersonRow[]>([]);
+  const [newPerson, setNewPerson] = useState<NewPersonState>({ show: false, name: "", channel: "none", submitting: false, error: null });
   const savedMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadData = useCallback(async () => {
@@ -102,7 +105,7 @@ export function InputHub() {
     setForm((f) => ({ ...f, submitting: true, error: null, saved: false }));
     try {
       if (form.mode === "event") {
-        const { title, start, end, threadId } = form.eventForm;
+        const { title, start, end, threadId, personIds } = form.eventForm;
         if (!title.trim() || !start || !end) {
           setForm((f) => ({ ...f, submitting: false, error: "제목, 시작, 종료 시간을 입력해줘" }));
           return;
@@ -110,6 +113,7 @@ export function InputHub() {
         const payload: Record<string, unknown> = { title: title.trim(), start, end };
         const tid = parseInt(threadId, 10);
         if (tid > 0) payload.threadId = tid;
+        if (personIds.length > 0) payload.personIds = personIds;
         const res = await fetch("/api/events", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -177,6 +181,43 @@ export function InputHub() {
       setSlots((s) => ({ ...s, [eventId]: { tag: "error", message: "일정 저장 실패" } }));
     }
   }, [loadData]);
+
+  // ── people ──────────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    fetch("/api/people")
+      .then((r) => r.json() as Promise<{ ok: boolean; data?: PersonRow[] }>)
+      .then((body) => { if (body.ok && Array.isArray(body.data)) setPeople(body.data); })
+      .catch(() => {});
+  }, []);
+
+  const handleAddPerson = useCallback(async () => {
+    if (!newPerson.name.trim() || newPerson.submitting) return;
+    setNewPerson((s) => ({ ...s, submitting: true, error: null }));
+    try {
+      const res = await fetch("/api/people", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName: newPerson.name.trim(), channel: newPerson.channel })
+      });
+      const body = (await res.json()) as { ok: boolean; data?: { person: PersonRow }; error?: { message: string } };
+      if (!body.ok) throw new Error(body.error?.message ?? "저장 실패");
+      const created = body.data!.person;
+      setPeople((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
+      setForm((f) => ({ ...f, eventForm: { ...f.eventForm, personIds: [...f.eventForm.personIds, created.id] } }));
+      setNewPerson({ show: false, name: "", channel: "none", submitting: false, error: null });
+    } catch (e) {
+      setNewPerson((s) => ({ ...s, submitting: false, error: e instanceof Error ? e.message : "저장 실패" }));
+    }
+  }, [newPerson]);
+
+  const togglePerson = useCallback((personId: number) => {
+    setForm((f) => {
+      const ids = f.eventForm.personIds;
+      const next = ids.includes(personId) ? ids.filter((id) => id !== personId) : [...ids, personId];
+      return { ...f, eventForm: { ...f.eventForm, personIds: next } };
+    });
+  }, []);
 
   // ── render helpers ──────────────────────────────────────────────────────────
 
@@ -282,6 +323,76 @@ export function InputHub() {
                 <option key={t.thread.id} value={String(t.thread.id)}>{t.thread.name}</option>
               ))}
             </select>
+          )}
+          {people.length > 0 && (
+            <fieldset className="input-people-checklist" aria-label="참석자">
+              <legend className="input-people-legend">참석자</legend>
+              {people.map((p) => (
+                <label key={p.id} className="input-person-label">
+                  <input
+                    type="checkbox"
+                    checked={form.eventForm.personIds.includes(p.id)}
+                    onChange={() => togglePerson(p.id)}
+                    disabled={form.submitting}
+                  />
+                  {p.name}
+                </label>
+              ))}
+            </fieldset>
+          )}
+          {!newPerson.show && (
+            <button
+              type="button"
+              className="input-add-person-btn"
+              onClick={() => setNewPerson((s) => ({ ...s, show: true }))}
+              disabled={form.submitting}
+            >
+              + 사람 추가
+            </button>
+          )}
+          {newPerson.show && (
+            <div className="input-new-person" aria-label="새 사람 추가">
+              <input
+                className="input-field"
+                placeholder="이름"
+                value={newPerson.name}
+                onChange={(e) => setNewPerson((s) => ({ ...s, name: e.target.value }))}
+                disabled={newPerson.submitting}
+                aria-label="새 사람 이름"
+              />
+              <select
+                className="input-field"
+                value={newPerson.channel}
+                onChange={(e) => setNewPerson((s) => ({ ...s, channel: e.target.value }))}
+                disabled={newPerson.submitting}
+                aria-label="연락 채널"
+              >
+                <option value="none">채널 없음</option>
+                <option value="kakao">카카오</option>
+                <option value="sms">문자</option>
+                <option value="email">이메일</option>
+                <option value="telegram">텔레그램</option>
+              </select>
+              <div className="input-new-person-actions">
+                <button
+                  type="button"
+                  className="input-submit-btn"
+                  onClick={() => void handleAddPerson()}
+                  disabled={!newPerson.name.trim() || newPerson.submitting}
+                >
+                  {newPerson.submitting ? "추가 중…" : "추가"}
+                </button>
+                <button
+                  type="button"
+                  className="input-cancel-btn"
+                  onClick={() => setNewPerson({ show: false, name: "", channel: "none", submitting: false, error: null })}
+                  disabled={newPerson.submitting}
+                >
+                  취소
+                </button>
+              </div>
+              {newPerson.error && <p className="input-error" role="alert">{newPerson.error}</p>}
+            </div>
           )}
           <button
             type="submit"

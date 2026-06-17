@@ -109,11 +109,17 @@ Route layer:
 - [server/src/routes/slots.ts](/home/pi/cairn/server/src/routes/slots.ts)
   - `GET /api/events/:id/slot-candidates?date&now&days` — deterministic 60-min conflict-free candidates. Always registered (no LLM dependency).
   - `PATCH /api/events/:id/schedule` — assigns `start`+`end` to an unscheduled Cairn event. Re-checks conflict; returns 409 on stale selection.
+- [server/src/routes/people.ts](/home/pi/cairn/server/src/routes/people.ts)
+  - `GET /api/people` — list all people sorted by name.
+  - `POST /api/people` — create person (`displayName`, `channel`, optional `relation`). Trims whitespace.
+  - `GET /api/events/:id/people` — event + attached people list.
+  - `PUT /api/events/:id/people` — replace event's people atomically (dedup, FK-check, transaction delete+insert).
 
 Repository/service split:
 
 - `server/src/repositories/*.ts`
-  - Direct DB queries for events, tasks, watchers, annotations.
+  - Direct DB queries for events, tasks, watchers, annotations, people.
+  - [server/src/repositories/people.ts](/home/pi/cairn/server/src/repositories/people.ts) — findAllPeople, createPerson, findEventWithPeople, replaceEventPeople (transaction), findPeopleByIds.
 - [server/src/services/today.ts](/home/pi/cairn/server/src/services/today.ts)
   - Builds Today card surface and priority order.
 - [server/src/services/annotationIntake.ts](/home/pi/cairn/server/src/services/annotationIntake.ts)
@@ -163,6 +169,8 @@ Contracts by domain:
   - OpenAI-compatible chat request/response shapes used by gateway boundary.
 - [shared/src/enums.ts](/home/pi/cairn/shared/src/enums.ts)
   - Lowercase persisted enum values and related constants.
+- [shared/src/people.ts](/home/pi/cairn/shared/src/people.ts)
+  - `PersonChannelSchema` (none|kakao|sms|email|telegram), `PersonRowSchema`, `CreatePersonRequestSchema`, `EventPeopleResponseSchema`, `ReplaceEventPeopleRequestSchema`.
 
 Rule: when server and web disagree on payload shape, fix shared first.
 
@@ -181,9 +189,10 @@ Entry and routing:
 - [web/src/InputHub.tsx](/home/pi/cairn/web/src/InputHub.tsx)
   - `/input` pull-surface hub (cycle 14). Four states: loading, quiet, live, error.
   - Quiet when `unscheduledEvents.length === 0`; live otherwise.
-  - Sections: quick capture (`POST /api/capture/flat-event`), manual add (event/task forms + optional thread picker), unscheduled events list.
+  - Sections: quick capture (`POST /api/capture/flat-event`), manual add (event/task forms + optional thread picker + people checklist), unscheduled events list.
+  - Event form: optional people checklist (cycle 15) from `GET /api/people`; inline person creation (`POST /api/people`). Selected personIds sent in `POST /api/events`. People fetch is best-effort (degraded silently).
   - Unscheduled events: loads slot candidates via `GET /api/events/:id/slot-candidates`, schedules via `PATCH /api/events/:id/schedule`, refetches hub on success.
-  - Loads data concurrently: `GET /api/today` + `GET /api/threads` via `Promise.all`. Thread list degrades gracefully on failure.
+  - Loads data concurrently: `GET /api/today` + `GET /api/threads` via `Promise.allSettled`. Thread list degrades gracefully on failure.
 - [web/src/Today.tsx](/home/pi/cairn/web/src/Today.tsx)
   - Main Today screen.
   - Owns loading, quiet, live, error states.

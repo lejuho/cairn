@@ -10,3 +10,4 @@ export * from "./threads.js";
 export * from "./today.js";
 export * from "./slots.js";
 export * from "./watchers.js";
+export * from "./people.js";

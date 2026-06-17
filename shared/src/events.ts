@@ -7,7 +7,8 @@ export const CreateEventRequestSchema = z.object({
   end: z.string().datetime({ offset: true }),
   type: z.string().optional(),
   location: z.string().optional(),
-  threadId: z.number().int().positive().optional()
+  threadId: z.number().int().positive().optional(),
+  personIds: z.array(z.number().int().positive()).optional()
 });
 
 export const EventRowSchema = z.object({
