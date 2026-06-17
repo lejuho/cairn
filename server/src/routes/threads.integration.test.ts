@@ -93,6 +93,18 @@ describe("GET /api/threads", () => {
     expect(res.json().data).toHaveLength(0);
   });
 
+  it("returns list sorted newest-first (desc createdAt, desc id)", async () => {
+    await app.inject({ method: "POST", url: "/api/threads", payload: { name: "First" } });
+    await app.inject({ method: "POST", url: "/api/threads", payload: { name: "Second" } });
+
+    const res = await app.inject({ method: "GET", url: "/api/threads" });
+    const summaries = res.json().data as Array<{ thread: { name: string } }>;
+    expect(summaries).toHaveLength(2);
+    // Newest inserted (Second) must appear first
+    expect(summaries[0]!.thread.name).toBe("Second");
+    expect(summaries[1]!.thread.name).toBe("First");
+  });
+
   it("returns summaries with event and task counts", async () => {
     const thread = await app.inject({
       method: "POST", url: "/api/threads", payload: { name: "Alpha" }

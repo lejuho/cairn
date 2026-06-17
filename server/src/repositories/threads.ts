@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import type { CreateThreadRequest, EventRow, TaskRow, ThreadRow } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import { events, tasks, threads } from "../db/schema.js";
@@ -22,7 +22,7 @@ export function listThreads(db: CairnDatabase): ThreadRow[] {
   return db
     .select()
     .from(threads)
-    .orderBy(asc(threads.createdAt))
+    .orderBy(desc(threads.createdAt), desc(threads.id))
     .all() as ThreadRow[];
 }
 
