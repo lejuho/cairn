@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { TodayQuerySchema } from "@cairn/shared";
-import { findPlannedAndConfirmedByDate } from "../repositories/events.js";
+import { findPlannedAndConfirmedByDate, findUnscheduledCairnEvents } from "../repositories/events.js";
 import { findTwoMinuteTodoTasks } from "../repositories/tasks.js";
 import { findFiredWatchers } from "../repositories/watchers.js";
 import { listNeedsReviewEvents } from "../services/needsReview.js";
@@ -23,8 +23,9 @@ export function registerTodayRoute(app: FastifyInstance, db: CairnDatabase): voi
     const twoMinuteTasks = findTwoMinuteTodoTasks(db);
     const watcherBubbles = findFiredWatchers(db, date, now);
     const needsReviewEvents = listNeedsReviewEvents(db, now);
+    const unscheduledEvents = findUnscheduledCairnEvents(db);
 
-    const surface = buildTodaySurface(date, now, dayEvents, twoMinuteTasks, watcherBubbles, needsReviewEvents);
+    const surface = buildTodaySurface(date, now, dayEvents, twoMinuteTasks, watcherBubbles, needsReviewEvents, unscheduledEvents);
     return reply.send({ ok: true, data: surface });
   });
 }

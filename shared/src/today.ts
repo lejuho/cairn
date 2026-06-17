@@ -22,6 +22,7 @@ export const TodaySurfaceSchema = z.object({
   twoMinuteTasks: z.array(TaskRowSchema),
   watcherBubbles: z.array(WatcherRowSchema),
   needsReviewEvents: z.array(EventRowSchema),
+  unscheduledEvents: z.array(EventRowSchema),
   dayEvents: z.array(EventRowSchema),
   cards: z.array(
     z.discriminatedUnion("kind", [
@@ -29,7 +30,8 @@ export const TodaySurfaceSchema = z.object({
       z.object({ kind: z.literal("watcher"), watcher: WatcherRowSchema }),
       z.object({ kind: z.literal("next_event"), event: EventRowSchema }),
       z.object({ kind: z.literal("two_minute_task"), task: TaskRowSchema }),
-      z.object({ kind: z.literal("needs_review"), event: EventRowSchema })
+      z.object({ kind: z.literal("needs_review"), event: EventRowSchema }),
+      z.object({ kind: z.literal("schedule_prompt"), event: EventRowSchema })
     ])
   )
 });

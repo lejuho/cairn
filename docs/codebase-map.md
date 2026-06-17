@@ -106,6 +106,9 @@ Route layer:
   - `POST /api/capture/flat-event`. Registered only when both DB and LLM gateway exist.
   - Parse → fallback → persist order owned by `server/src/services/flatCapture.ts`.
   - Returns `{ event, captureStatus: "scheduled"|"unscheduled"|"raw_stored", llmError? }`.
+- [server/src/routes/slots.ts](/home/pi/cairn/server/src/routes/slots.ts)
+  - `GET /api/events/:id/slot-candidates?date&now&days` — deterministic 60-min conflict-free candidates. Always registered (no LLM dependency).
+  - `PATCH /api/events/:id/schedule` — assigns `start`+`end` to an unscheduled Cairn event. Re-checks conflict; returns 409 on stale selection.
 
 Repository/service split:
 
@@ -119,6 +122,8 @@ Repository/service split:
   - Flat one-line capture service. Calls `parseFlatEvent`, applies 60-min end default, raw-stores on any parse/gateway failure.
 - [server/src/llm/flatEventParser.ts](/home/pi/cairn/server/src/llm/flatEventParser.ts)
   - LLM parser for flat capture. Uses `FlatEventParseResultSchema`. Returns null on gateway error or invalid schema.
+- [server/src/services/slotCandidates.ts](/home/pi/cairn/server/src/services/slotCandidates.ts)
+  - Deterministic slot candidate service. 5 fixed windows/day (09:00, 11:00, 14:00, 16:00, 19:00), 60-min duration. Filters past slots and overlapping events. Returns up to 3 candidates. No LLM dependency.
 
 External boundaries:
 
@@ -150,6 +155,8 @@ Contracts by domain:
   - Today query and Today surface contract.
 - [shared/src/capture.ts](/home/pi/cairn/shared/src/capture.ts)
   - `FlatCaptureRequestSchema`, `FlatEventParseResultSchema`, `CaptureStatusSchema`, `FlatCaptureResponseDataSchema`.
+- [shared/src/slots.ts](/home/pi/cairn/shared/src/slots.ts)
+  - `SlotCandidateSchema`, `SlotCandidatesQuerySchema`, `ScheduleEventRequestSchema`, `ScheduleEventResponseDataSchema`.
 - [shared/src/annotations.ts](/home/pi/cairn/shared/src/annotations.ts)
   - Annotation intake and annotation response contract.
 - [shared/src/llm.ts](/home/pi/cairn/shared/src/llm.ts)
@@ -174,6 +181,7 @@ Entry and routing:
   - Manual intake bottom sheet (cycle 7): task + event creation via `POST /api/tasks` and `POST /api/events`. Sheet opens from quiet-state CTA and live-state "추가" button. `datetime-local` values serialized to RFC3339 with local timezone offset.
   - Daily timeline section (cycle 8): renders `dayEvents` from `GET /api/today` as a compact `오늘 일정` list. Active event marked via `Date.parse()` epoch comparison. Quiet state only when both cards and `dayEvents` are empty.
   - Timeline events with `threadId` render as `<a href="/threads/:id">` links (cycle 9).
+  - Schedule prompt (cycle 13): `schedule_prompt` cards rendered in live stack after `needs_review`. "날짜 잡기" button fetches `GET /api/events/:id/slot-candidates`. Up to 3 candidate buttons shown; tap calls `PATCH /api/events/:id/schedule` then refetches Today. Error state keeps card visible with local message.
   - Quick capture (cycle 12): compact one-line input shown in quiet and live states. Posts `POST /api/capture/flat-event` with `{text, now}`. Refetches Today on success. Shows "날짜 없이 저장됐어" for `raw_stored`/`unscheduled` outcomes (auto-clears after 4 s). Empty submit is client-side rejected.
   - Thread picker (cycle 10): `GET /api/threads` fetched lazily on bottom sheet open. Optional `<select>` shown when threads exist; `threadId` sent as number in `POST /api/tasks` or `POST /api/events`. Degrades gracefully when thread list fetch fails.
 - [web/src/ThreadIndex.tsx](/home/pi/cairn/web/src/ThreadIndex.tsx)

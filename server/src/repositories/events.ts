@@ -1,4 +1,4 @@
-import { and, asc, eq, isNotNull, isNull, or } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, ne, or } from "drizzle-orm";
 import type { CreateEventRequest, EventRow } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import { annotations, events } from "../db/schema.js";
@@ -91,6 +91,63 @@ export function findEventById(db: CairnDatabase, id: number): EventRow | null {
 
 export function updateEventStatus(db: CairnDatabase, eventId: number, status: string): void {
   db.update(events).set({ status }).where(eq(events.id, eventId)).run();
+}
+
+export function findUnscheduledCairnEvents(db: CairnDatabase): EventRow[] {
+  return db
+    .select()
+    .from(events)
+    .where(
+      and(
+        eq(events.source, "cairn"),
+        eq(events.selfImposed, 1),
+        isNull(events.start),
+        isNull(events.end),
+        eq(events.status, "planned")
+      )
+    )
+    .orderBy(asc(events.id))
+    .all() as EventRow[];
+}
+
+export function findEventsInRange(
+  db: CairnDatabase,
+  rangeStart: string,
+  rangeEnd: string
+): EventRow[] {
+  return db
+    .select()
+    .from(events)
+    .where(
+      and(
+        isNotNull(events.start),
+        isNotNull(events.end),
+        ne(events.status, "cancelled")
+      )
+    )
+    .all()
+    .filter((e) => e.start! < rangeEnd && e.end! > rangeStart) as EventRow[];
+}
+
+export function scheduleEvent(
+  db: CairnDatabase,
+  id: number,
+  start: string,
+  end: string
+): EventRow | null {
+  const result = db
+    .update(events)
+    .set({ start, end })
+    .where(
+      and(
+        eq(events.id, id),
+        isNull(events.start),
+        isNull(events.end)
+      )
+    )
+    .returning()
+    .all();
+  return result.length > 0 ? (result[0] as EventRow) : null;
 }
 
 export function findPlannedAndConfirmedByDate(

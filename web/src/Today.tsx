@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ThreadSummary, TodaySurface } from "@cairn/shared";
+import type { SlotCandidate, ThreadSummary, TodaySurface } from "@cairn/shared";
 
 type ReplyState = { text: string; error: string | null; submitting: boolean };
+type SlotState =
+  | { tag: "idle" }
+  | { tag: "loading" }
+  | { tag: "loaded"; candidates: SlotCandidate[] }
+  | { tag: "error"; message: string };
+type SlotStateMap = Record<number, SlotState>;
 
 type SheetMode = "task" | "event";
 type TaskForm = { title: string; estMinutes: string; threadId: string };
@@ -113,6 +119,7 @@ async function createEvent(title: string, start: string, end: string, threadId?:
 export function Today() {
   const [view, setView] = useState<ViewState>({ tag: "loading" });
   const [replyState, setReplyState] = useState<Record<number, ReplyState>>({});
+  const [slotState, setSlotState] = useState<SlotStateMap>({});
   const [sheet, setSheet] = useState<SheetState>({ open: false });
   const [threadOptions, setThreadOptions] = useState<ThreadSummary[]>([]);
   const [capture, setCapture] = useState<{ text: string; submitting: boolean; savedMsg: string | null }>({
@@ -212,6 +219,41 @@ export function Today() {
       setCapture((c) => ({ ...c, submitting: false, savedMsg: null }));
     }
   }, [capture, refresh]);
+
+  const handleLoadCandidates = useCallback(async (eventId: number) => {
+    setSlotState((s) => ({ ...s, [eventId]: { tag: "loading" } }));
+    try {
+      const now = new Date().toISOString().replace("Z", "+00:00");
+      const date = now.slice(0, 10);
+      const res = await fetch(
+        `/api/events/${eventId}/slot-candidates?date=${date}&now=${encodeURIComponent(now)}&days=7`
+      );
+      const body = (await res.json()) as { ok: boolean; data?: { candidates: SlotCandidate[] }; error?: { message: string } };
+      if (!body.ok) throw new Error(body.error?.message ?? "후보 로딩 실패");
+      setSlotState((s) => ({ ...s, [eventId]: { tag: "loaded", candidates: body.data!.candidates } }));
+    } catch (e) {
+      setSlotState((s) => ({ ...s, [eventId]: { tag: "error", message: e instanceof Error ? e.message : "오류" } }));
+    }
+  }, []);
+
+  const handleSchedule = useCallback(async (eventId: number, start: string, end: string) => {
+    try {
+      const res = await fetch(`/api/events/${eventId}/schedule`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ start, end })
+      });
+      const body = (await res.json()) as { ok: boolean; error?: { message: string } };
+      if (!body.ok) {
+        setSlotState((s) => ({ ...s, [eventId]: { tag: "error", message: body.error?.message ?? "일정 저장 실패" } }));
+        return;
+      }
+      setSlotState((s) => ({ ...s, [eventId]: { tag: "idle" } }));
+      await refresh();
+    } catch {
+      setSlotState((s) => ({ ...s, [eventId]: { tag: "error", message: "일정 저장 실패" } }));
+    }
+  }, [refresh]);
 
   const handleReply = useCallback(
     async (eventId: number) => {
@@ -619,6 +661,47 @@ export function Today() {
                   <p className="today-reply-error" role="alert">
                     {rs.error}
                   </p>
+                )}
+              </li>
+            );
+          }
+
+          if (card.kind === "schedule_prompt") {
+            const ss = slotState[card.event.id] ?? { tag: "idle" };
+            return (
+              <li key={`slot-${card.event.id}`} className="today-card today-card--slot" style={delay}>
+                <span className="card-chip">날짜</span>
+                <p className="card-title">날짜 잡을까? — {card.event.title}</p>
+                {ss.tag === "idle" && (
+                  <button
+                    className="today-slot-btn"
+                    onClick={() => void handleLoadCandidates(card.event.id)}
+                    aria-label={`${card.event.title} 날짜 잡기`}
+                  >
+                    날짜 잡기
+                  </button>
+                )}
+                {ss.tag === "loading" && <p className="today-slot-loading">후보 찾는 중…</p>}
+                {ss.tag === "loaded" && ss.candidates.length === 0 && (
+                  <p className="today-slot-empty">빈 시간이 없어. 나중에 다시 해봐.</p>
+                )}
+                {ss.tag === "loaded" && ss.candidates.length > 0 && (
+                  <ul className="today-slot-list" role="list">
+                    {ss.candidates.map((c, i) => (
+                      <li key={i}>
+                        <button
+                          className="today-slot-candidate"
+                          onClick={() => void handleSchedule(card.event.id, c.start, c.end)}
+                          aria-label={`${c.start.slice(0, 16)} 선택`}
+                        >
+                          {c.start.slice(0, 10)} {c.start.slice(11, 16)} – {c.end.slice(11, 16)}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {ss.tag === "error" && (
+                  <p className="today-slot-error" role="alert">{ss.message}</p>
                 )}
               </li>
             );
