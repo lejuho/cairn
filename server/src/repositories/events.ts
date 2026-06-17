@@ -2,6 +2,7 @@ import { and, asc, eq, isNotNull, isNull, ne, or } from "drizzle-orm";
 import type { CreateEventRequest, EventRow } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import { annotations, events } from "../db/schema.js";
+import { rfc3339ToMs } from "../utils/rfc3339.js";
 
 export function insertRawEvent(db: CairnDatabase, title: string): EventRow {
   const [row] = db
@@ -126,7 +127,7 @@ export function findEventsInRange(
       )
     )
     .all()
-    .filter((e) => e.start! < rangeEnd && e.end! > rangeStart) as EventRow[];
+    .filter((e) => rfc3339ToMs(e.start!) < rfc3339ToMs(rangeEnd) && rfc3339ToMs(e.end!) > rfc3339ToMs(rangeStart)) as EventRow[];
 }
 
 export function scheduleEvent(

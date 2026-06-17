@@ -1,5 +1,5 @@
 import type { EventRow, SlotCandidate } from "@cairn/shared";
-import { addMinutesToRfc3339 } from "../llm/flatEventParser.js";
+import { addMinutesToRfc3339, rfc3339ToMs } from "../utils/rfc3339.js";
 import { findEventsInRange } from "../repositories/events.js";
 import type { CairnDatabase } from "../db/index.js";
 
@@ -42,7 +42,7 @@ export function generateSlotCandidates(
       const start = buildCandidateStart(dateStr, hour, offset);
       const end = addMinutesToRfc3339(start, DURATION_MINUTES);
 
-      if (start <= nowStr) continue;
+      if (rfc3339ToMs(start) <= rfc3339ToMs(nowStr)) continue;
 
       const overlapping = findEventsInRange(db, start, end);
       if (overlapping.some((e) => e.id !== event.id)) continue;

@@ -22,7 +22,7 @@ export const SlotCandidatesResponseDataSchema = z.object({
 export const ScheduleEventRequestSchema = z.object({
   start: z.string().datetime({ offset: true }),
   end: z.string().datetime({ offset: true })
-}).refine((v) => v.end > v.start, { message: "end must be after start" });
+}).refine((v) => Date.parse(v.end) > Date.parse(v.start), { message: "end must be after start" });
 
 export const ScheduleEventResponseDataSchema = z.object({
   event: EventRowSchema

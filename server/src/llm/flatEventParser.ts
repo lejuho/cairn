@@ -1,5 +1,8 @@
 import { FlatEventParseResultSchema, type FlatEventParseResult } from "@cairn/shared";
 import type { LlmGateway } from "./gateway.js";
+import { addMinutesToRfc3339 } from "../utils/rfc3339.js";
+
+export { addMinutesToRfc3339 };
 
 const SYSTEM_PROMPT = `You extract exactly one calendar event from a short natural-language input.
 Return ONLY a JSON object — no explanation, no markdown fences.
@@ -11,26 +14,6 @@ Rules:
 
 function buildUserPrompt(text: string, now: string, timeZone: string): string {
   return `Current time: ${now}\nUser timezone: ${timeZone}\n\nInput: ${text}`;
-}
-
-// Add minutes to an RFC3339 string, preserving the original offset suffix.
-export function addMinutesToRfc3339(rfc3339: string, minutes: number): string {
-  const offsetMatch = rfc3339.match(/([+-]\d{2}:\d{2})$/);
-  if (!offsetMatch) return rfc3339;
-  const offsetStr = offsetMatch[1]!;
-  const sign = offsetStr[0] === "+" ? 1 : -1;
-  const parts = offsetStr.slice(1).split(":");
-  const offsetMs = sign * (Number(parts[0]) * 60 + Number(parts[1])) * 60_000;
-
-  const newEpochMs = Date.parse(rfc3339) + minutes * 60_000;
-  const localMs = newEpochMs + offsetMs;
-  const d = new Date(localMs);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return (
-    `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}` +
-    `T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}` +
-    offsetStr
-  );
 }
 
 export type ParseFlatEventResult =

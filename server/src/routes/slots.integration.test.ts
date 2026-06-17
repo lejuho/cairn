@@ -176,6 +176,22 @@ describe("GET /api/events/:id/slot-candidates", () => {
     });
     expect(res.statusCode).toBe(200);
   });
+
+  it("mixed-offset: UTC blocker overlapping +09:00 candidate is excluded", async () => {
+    const id = insertUnscheduled(conn, "mixed-offset");
+    // 09:00+09:00 = 00:00Z; block 23:30Z–00:30Z which overlaps 00:00Z–01:00Z
+    insertScheduled(conn, "utc-blocker", `${DATE}T23:30:00+00:00`, "2026-06-21T00:30:00+00:00", "gcal", 0);
+    const app = buildServer(conn.db);
+    const nowUtc = `${DATE}T00:00:00+00:00`; // before 09:00+09:00
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/events/${id}/slot-candidates?date=${DATE}&now=${encodeURIComponent(nowUtc)}&days=1`
+    });
+    const { data } = res.json();
+    // 09:00+09:00 slot should be excluded because UTC blocker overlaps it
+    const starts = (data.candidates as Array<{ start: string }>).map((c) => c.start);
+    expect(starts.every((s) => !s.includes("T09:00:00+09:00"))).toBe(true);
+  });
 });
 
 describe("PATCH /api/events/:id/schedule", () => {
@@ -236,5 +252,30 @@ describe("PATCH /api/events/:id/schedule", () => {
       payload: { start: "2026-06-20T09:00:00+09:00", end: "2026-06-20T10:00:00+09:00" }
     });
     expect(res.statusCode).toBe(404);
+  });
+
+  it("mixed-offset: rejects 400 when end <= start across offsets", async () => {
+    const id = insertUnscheduled(conn, "tz-order");
+    const app = buildServer(conn.db);
+    // 10:00+09:00 = 01:00Z; 02:00+00:00 = 02:00Z — end (02:00Z) IS after start (01:00Z): valid
+    // But: 10:00+09:00 = 01:00Z; 01:30+00:00 = 01:30Z — also valid (30 min duration)
+    // Test the real rejection: 10:00+09:00 = 01:00Z; 00:30+00:00 = 00:30Z < 01:00Z → 400
+    const res = await app.inject({
+      method: "PATCH", url: `/api/events/${id}/schedule`,
+      payload: { start: "2026-06-20T10:00:00+09:00", end: "2026-06-20T00:30:00+00:00" }
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("mixed-offset: rejects 409 when UTC blocker overlaps +09:00 selection", async () => {
+    const id = insertUnscheduled(conn, "tz-conflict");
+    // Blocker: 00:30Z–01:30Z = 09:30+09:00–10:30+09:00 overlaps 09:00+09:00–10:00+09:00
+    insertScheduled(conn, "utc-conflict", "2026-06-20T00:30:00+00:00", "2026-06-20T01:30:00+00:00", "cairn", 0);
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "PATCH", url: `/api/events/${id}/schedule`,
+      payload: { start: "2026-06-20T09:00:00+09:00", end: "2026-06-20T10:00:00+09:00" }
+    });
+    expect(res.statusCode).toBe(409);
   });
 });
