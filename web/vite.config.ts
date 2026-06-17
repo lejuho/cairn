@@ -3,6 +3,12 @@ import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
+  server: {
+    proxy: {
+      "/api": "http://localhost:3100",
+      "/health": "http://localhost:3100"
+    }
+  },
   plugins: [
     react(),
     VitePWA({

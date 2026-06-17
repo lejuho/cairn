@@ -1,12 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { TodayQuerySchema } from "@cairn/shared";
-import { findNeedsReviewEvents, findPlannedAndConfirmedByDate } from "../repositories/events.js";
+import { findPlannedAndConfirmedByDate } from "../repositories/events.js";
 import { findTwoMinuteTodoTasks } from "../repositories/tasks.js";
 import { findFiredWatchers } from "../repositories/watchers.js";
+import { listNeedsReviewEvents } from "../services/needsReview.js";
 import { buildTodaySurface } from "../services/today.js";
 import type { CairnDatabase } from "../db/index.js";
-
-const REVIEW_WINDOW_MS = 36 * 60 * 60 * 1000;
 
 export function registerTodayRoute(app: FastifyInstance, db: CairnDatabase): void {
   app.get("/api/today", async (req, reply) => {
@@ -19,12 +18,11 @@ export function registerTodayRoute(app: FastifyInstance, db: CairnDatabase): voi
     }
 
     const { date, now } = parsed.data;
-    const windowStartIso = new Date(new Date(now).getTime() - REVIEW_WINDOW_MS).toISOString();
 
     const dayEvents = findPlannedAndConfirmedByDate(db, date);
     const twoMinuteTasks = findTwoMinuteTodoTasks(db);
     const watcherBubbles = findFiredWatchers(db, date, now);
-    const needsReviewEvents = findNeedsReviewEvents(db, now, windowStartIso);
+    const needsReviewEvents = listNeedsReviewEvents(db, now);
 
     const surface = buildTodaySurface(date, now, dayEvents, twoMinuteTasks, watcherBubbles, needsReviewEvents);
     return reply.send({ ok: true, data: surface });
