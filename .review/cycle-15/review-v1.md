@@ -50,3 +50,26 @@ None found.
 <!-- RESOLVED-BOUNDARY · 위=Codex immutable, 아래=Executor append-only · check-resolved-immutable.sh가 강제 -->
 
 ## RESOLVED (Executor 응답, 파일 끝에 append)
+
+### Issue Classification
+- ISSUE-1: APPLY
+- ISSUE-2: APPLY
+- ISSUE-3: APPLY
+
+### Applied
+
+RESOLVED: ISSUE-1 — event+people creation wrapped in one transaction
+- `server/src/repositories/events.ts`: added `createEventWithPeople(db, input, personIds)` — inserts event row and event_people rows inside a single `db.transaction()` callback
+- `server/src/routes/events.ts`: replaced `createEvent` + `replaceEventPeople` sequence with single `createEventWithPeople` call; removed unused `replaceEventPeople` import
+- Integration test: added "no event row is created when personIds validation fails (atomic)" — asserts event table is empty after 404 from invalid personIds
+자동 체크: tsc ✅ / verify ✅ (153 tests)
+
+RESOLVED: ISSUE-2 — inline person creation adds relation field and refreshes people list
+- `web/src/InputHub.tsx`: `NewPersonState` extended with `relation: string`; inline form now renders a "관계" optional input field; POST body includes `relation` when non-blank; after successful create, calls `GET /api/people` to refresh list before selecting the created person id
+- `web/src/InputHub.test.tsx`: existing "creates new person" test updated to fill relation and assert relation in POST body + list refresh (≥2 GET /api/people calls); added "relation sent in POST body when filled", "blank relation not sent in POST body" tests
+자동 체크: tsc ✅ / verify ✅
+
+RESOLVED: ISSUE-3 — blank relation normalised to null
+- `server/src/repositories/people.ts:19`: changed `input.relation?.trim() ?? null` to `const trimmedRelation = input.relation?.trim(); relation: trimmedRelation || null` — ensures `"   "` trims to `""` which coerces to null
+- Integration test: added "stores blank relation as null, not empty string"
+자동 체크: tsc ✅ / verify ✅

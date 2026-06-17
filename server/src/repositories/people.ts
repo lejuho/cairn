@@ -12,11 +12,12 @@ export function findAllPeople(db: CairnDatabase): PersonRow[] {
 }
 
 export function createPerson(db: CairnDatabase, input: CreatePersonRequest): PersonRow {
+  const trimmedRelation = input.relation?.trim();
   const rows = db
     .insert(people)
     .values({
       name: input.displayName.trim(),
-      relation: input.relation?.trim() ?? null,
+      relation: trimmedRelation || null,
       channel: input.channel
     })
     .returning()

@@ -1,7 +1,7 @@
 import { and, asc, eq, isNotNull, isNull, ne, or } from "drizzle-orm";
 import type { CreateEventRequest, EventRow } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
-import { annotations, events } from "../db/schema.js";
+import { annotations, eventPeople, events } from "../db/schema.js";
 import { rfc3339ToMs } from "../utils/rfc3339.js";
 
 export function insertRawEvent(db: CairnDatabase, title: string): EventRow {
@@ -38,6 +38,37 @@ export function createEvent(db: CairnDatabase, input: CreateEventRequest): Event
     .returning()
     .all();
   return row as EventRow;
+}
+
+export function createEventWithPeople(
+  db: CairnDatabase,
+  input: CreateEventRequest,
+  personIds: number[]
+): EventRow {
+  return db.transaction((tx) => {
+    const rows = tx
+      .insert(events)
+      .values({
+        title: input.title,
+        start: input.start,
+        end: input.end,
+        type: input.type ?? null,
+        location: input.location ?? null,
+        threadId: input.threadId ?? null,
+        source: "cairn",
+        selfImposed: 1,
+        status: "planned"
+      })
+      .returning()
+      .all();
+    const event = rows[0]!;
+    if (personIds.length > 0) {
+      tx.insert(eventPeople)
+        .values(personIds.map((pid) => ({ eventId: event.id, personId: pid })))
+        .run();
+    }
+    return event as EventRow;
+  });
 }
 
 export function findEventsByDate(

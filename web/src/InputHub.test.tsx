@@ -421,10 +421,43 @@ describe("InputHub — inline person creation", () => {
   });
 
   it("creating new person adds to checklist and auto-selects", async () => {
+    const CREATED_PERSON = { id: 5, name: "Charlie", relation: "친구", channel: "kakao" };
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (url.includes("/api/threads")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
       if (url === "/api/people" && init?.method === "POST") {
-        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { person: { id: 5, name: "Charlie", relation: null, channel: "none" } } }) });
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { person: CREATED_PERSON } }) });
+      }
+      if (url.includes("/api/people")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [CREATED_PERSON] }) });
+      if (url.includes("/api/today")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "+ 사람 추가" }));
+    fireEvent.change(screen.getByLabelText("새 사람 이름"), { target: { value: "Charlie" } });
+    fireEvent.change(screen.getByLabelText("관계"), { target: { value: "친구" } });
+    fireEvent.click(screen.getByRole("button", { name: "추가" }));
+    await waitFor(() => {
+      expect(screen.getByLabelText("Charlie")).toBeInTheDocument();
+    });
+    const checkbox = screen.getByLabelText("Charlie") as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+    expect(screen.queryByLabelText("새 사람 이름")).not.toBeInTheDocument();
+    const calls = getCalls(fetchMock);
+    const postCall = calls.find(([u, i]) => u === "/api/people" && (i as RequestInit)?.method === "POST");
+    expect(postCall).toBeDefined();
+    const body = JSON.parse(postCall![1]!.body as string);
+    expect(body.relation).toBe("친구");
+    const refreshCalls = calls.filter(([u, i]) => u === "/api/people" && !(i as RequestInit | undefined)?.method);
+    expect(refreshCalls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("relation sent in POST body when filled", async () => {
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes("/api/threads")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url === "/api/people" && init?.method === "POST") {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { person: { id: 9, name: "Dana", relation: "동료", channel: "sms" } } }) });
       }
       if (url.includes("/api/people")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
       if (url.includes("/api/today")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
@@ -434,14 +467,43 @@ describe("InputHub — inline person creation", () => {
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "+ 사람 추가" }));
-    fireEvent.change(screen.getByLabelText("새 사람 이름"), { target: { value: "Charlie" } });
+    fireEvent.change(screen.getByLabelText("새 사람 이름"), { target: { value: "Dana" } });
+    fireEvent.change(screen.getByLabelText("관계"), { target: { value: "동료" } });
     fireEvent.click(screen.getByRole("button", { name: "추가" }));
     await waitFor(() => {
-      expect(screen.getByLabelText("Charlie")).toBeInTheDocument();
+      const postCalls = getCalls(fetchMock).filter(([u, i]) => u === "/api/people" && (i as RequestInit)?.method === "POST");
+      expect(postCalls.length).toBe(1);
     });
-    const checkbox = screen.getByLabelText("Charlie") as HTMLInputElement;
-    expect(checkbox.checked).toBe(true);
-    expect(screen.queryByLabelText("새 사람 이름")).not.toBeInTheDocument();
+    const calls = getCalls(fetchMock);
+    const postCall = calls.find(([u, i]) => u === "/api/people" && (i as RequestInit)?.method === "POST");
+    const body = JSON.parse(postCall![1]!.body as string);
+    expect(body.relation).toBe("동료");
+  });
+
+  it("blank relation not sent in POST body", async () => {
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes("/api/threads")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url === "/api/people" && init?.method === "POST") {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { person: { id: 10, name: "Eve", relation: null, channel: "none" } } }) });
+      }
+      if (url.includes("/api/people")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url.includes("/api/today")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "+ 사람 추가" }));
+    fireEvent.change(screen.getByLabelText("새 사람 이름"), { target: { value: "Eve" } });
+    fireEvent.click(screen.getByRole("button", { name: "추가" }));
+    await waitFor(() => {
+      const postCalls = getCalls(fetchMock).filter(([u, i]) => u === "/api/people" && (i as RequestInit)?.method === "POST");
+      expect(postCalls.length).toBe(1);
+    });
+    const calls = getCalls(fetchMock);
+    const postCall = calls.find(([u, i]) => u === "/api/people" && (i as RequestInit)?.method === "POST");
+    const body = JSON.parse(postCall![1]!.body as string);
+    expect(body.relation).toBeUndefined();
   });
 
   it("person creation error shows alert", async () => {

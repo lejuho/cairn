@@ -13,7 +13,7 @@ type HubViewState =
 type CaptureState = { text: string; submitting: boolean; savedMsg: string | null; error: string | null };
 
 type EventForm = { title: string; start: string; end: string; threadId: string; personIds: number[] };
-type NewPersonState = { show: boolean; name: string; channel: string; submitting: boolean; error: string | null };
+type NewPersonState = { show: boolean; name: string; channel: string; relation: string; submitting: boolean; error: string | null };
 type TaskForm = { title: string; estMinutes: string; threadId: string };
 
 type FormSectionState = {
@@ -42,7 +42,7 @@ export function InputHub() {
   });
   const [slots, setSlots] = useState<SlotMap>({});
   const [people, setPeople] = useState<PersonRow[]>([]);
-  const [newPerson, setNewPerson] = useState<NewPersonState>({ show: false, name: "", channel: "none", submitting: false, error: null });
+  const [newPerson, setNewPerson] = useState<NewPersonState>({ show: false, name: "", channel: "none", relation: "", submitting: false, error: null });
   const savedMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadData = useCallback(async () => {
@@ -195,17 +195,21 @@ export function InputHub() {
     if (!newPerson.name.trim() || newPerson.submitting) return;
     setNewPerson((s) => ({ ...s, submitting: true, error: null }));
     try {
+      const payload: Record<string, unknown> = { displayName: newPerson.name.trim(), channel: newPerson.channel };
+      if (newPerson.relation.trim()) payload.relation = newPerson.relation.trim();
       const res = await fetch("/api/people", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ displayName: newPerson.name.trim(), channel: newPerson.channel })
+        body: JSON.stringify(payload)
       });
       const body = (await res.json()) as { ok: boolean; data?: { person: PersonRow }; error?: { message: string } };
       if (!body.ok) throw new Error(body.error?.message ?? "저장 실패");
       const created = body.data!.person;
-      setPeople((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
+      const refreshRes = await fetch("/api/people");
+      const refreshBody = (await refreshRes.json()) as { ok: boolean; data?: PersonRow[] };
+      if (refreshBody.ok && Array.isArray(refreshBody.data)) setPeople(refreshBody.data);
       setForm((f) => ({ ...f, eventForm: { ...f.eventForm, personIds: [...f.eventForm.personIds, created.id] } }));
-      setNewPerson({ show: false, name: "", channel: "none", submitting: false, error: null });
+      setNewPerson({ show: false, name: "", channel: "none", relation: "", submitting: false, error: null });
     } catch (e) {
       setNewPerson((s) => ({ ...s, submitting: false, error: e instanceof Error ? e.message : "저장 실패" }));
     }
@@ -360,6 +364,14 @@ export function InputHub() {
                 disabled={newPerson.submitting}
                 aria-label="새 사람 이름"
               />
+              <input
+                className="input-field"
+                placeholder="관계 (선택)"
+                value={newPerson.relation}
+                onChange={(e) => setNewPerson((s) => ({ ...s, relation: e.target.value }))}
+                disabled={newPerson.submitting}
+                aria-label="관계"
+              />
               <select
                 className="input-field"
                 value={newPerson.channel}
@@ -385,7 +397,7 @@ export function InputHub() {
                 <button
                   type="button"
                   className="input-cancel-btn"
-                  onClick={() => setNewPerson({ show: false, name: "", channel: "none", submitting: false, error: null })}
+                  onClick={() => setNewPerson({ show: false, name: "", channel: "none", relation: "", submitting: false, error: null })}
                   disabled={newPerson.submitting}
                 >
                   취소

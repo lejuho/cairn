@@ -109,6 +109,17 @@ describe("POST /api/people", () => {
     });
     expect(JSON.parse(res.body).data.person.relation).toBe("친구");
   });
+
+  it("stores blank relation as null, not empty string", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "POST", url: "/api/people",
+      payload: { displayName: "이름", channel: "none", relation: "   " }
+    });
+    expect(res.statusCode).toBe(201);
+    expect(JSON.parse(res.body).data.person.relation).toBeNull();
+  });
 });
 
 // ── GET /api/events/:id/people ────────────────────────────────────────────────
@@ -277,6 +288,17 @@ describe("POST /api/events with personIds", () => {
       payload: { title: "테스트", start: "2026-06-20T10:00:00+09:00", end: "2026-06-20T11:00:00+09:00", personIds: [8888] }
     });
     expect(res.statusCode).toBe(404);
+  });
+
+  it("no event row is created when personIds validation fails (atomic)", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    await app.inject({
+      method: "POST", url: "/api/events",
+      payload: { title: "롤백 테스트", start: "2026-06-20T10:00:00+09:00", end: "2026-06-20T11:00:00+09:00", personIds: [7777] }
+    });
+    const row = conn.sqlite.prepare("SELECT COUNT(*) as cnt FROM events WHERE title = ?").get("롤백 테스트") as { cnt: number };
+    expect(row.cnt).toBe(0);
   });
 });
 
