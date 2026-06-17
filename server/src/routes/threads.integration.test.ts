@@ -205,3 +205,64 @@ describe("GET /api/threads/:id", () => {
     expect(progress.done).toBe(1);
   });
 });
+
+describe("POST /api/events + /api/tasks with threadId linkage", () => {
+  let app: FastifyInstance;
+  let conn: ReturnType<typeof makeTestDb>;
+
+  beforeEach(() => {
+    conn = makeTestDb();
+    app = buildServer(conn.db);
+  });
+
+  afterEach(() => conn.sqlite.close());
+
+  it("POST /api/events with threadId persists link and appears in thread detail", async () => {
+    const threadRes = await app.inject({
+      method: "POST", url: "/api/threads", payload: { name: "Work" }
+    });
+    const tid = threadRes.json().data.id as number;
+
+    await app.inject({
+      method: "POST", url: "/api/events",
+      payload: { title: "Kickoff", start: "2026-06-20T10:00:00+00:00", end: "2026-06-20T11:00:00+00:00", threadId: tid }
+    });
+
+    const detail = await app.inject({ method: "GET", url: `/api/threads/${tid}` });
+    const { events } = detail.json().data as { events: Array<{ title: string }> };
+    expect(events).toHaveLength(1);
+    expect(events[0]!.title).toBe("Kickoff");
+  });
+
+  it("POST /api/tasks with threadId persists link and appears in thread detail", async () => {
+    const threadRes = await app.inject({
+      method: "POST", url: "/api/threads", payload: { name: "Work" }
+    });
+    const tid = threadRes.json().data.id as number;
+
+    await app.inject({
+      method: "POST", url: "/api/tasks",
+      payload: { title: "Research", estMinutes: 30, threadId: tid }
+    });
+
+    const detail = await app.inject({ method: "GET", url: `/api/threads/${tid}` });
+    const { tasks } = detail.json().data as { tasks: Array<{ title: string }> };
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]!.title).toBe("Research");
+  });
+
+  it("POST /api/events without threadId creates unlinked event", async () => {
+    const threadRes = await app.inject({
+      method: "POST", url: "/api/threads", payload: { name: "Empty" }
+    });
+    const tid = threadRes.json().data.id as number;
+
+    await app.inject({
+      method: "POST", url: "/api/events",
+      payload: { title: "Orphan", start: "2026-06-20T10:00:00+00:00", end: "2026-06-20T11:00:00+00:00" }
+    });
+
+    const detail = await app.inject({ method: "GET", url: `/api/threads/${tid}` });
+    expect(detail.json().data.events).toHaveLength(0);
+  });
+});

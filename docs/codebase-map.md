@@ -164,6 +164,11 @@ Entry and routing:
   - Manual intake bottom sheet (cycle 7): task + event creation via `POST /api/tasks` and `POST /api/events`. Sheet opens from quiet-state CTA and live-state "추가" button. `datetime-local` values serialized to RFC3339 with local timezone offset.
   - Daily timeline section (cycle 8): renders `dayEvents` from `GET /api/today` as a compact `오늘 일정` list. Active event marked via `Date.parse()` epoch comparison. Quiet state only when both cards and `dayEvents` are empty.
   - Timeline events with `threadId` render as `<a href="/threads/:id">` links (cycle 9).
+  - Thread picker (cycle 10): `GET /api/threads` fetched lazily on bottom sheet open. Optional `<select>` shown when threads exist; `threadId` sent as number in `POST /api/tasks` or `POST /api/events`. Degrades gracefully when thread list fetch fails.
+- [web/src/ThreadIndex.tsx](/home/pi/cairn/web/src/ThreadIndex.tsx)
+  - `/threads` index page (cycle 10). Loading/empty/live/error states. Lists thread summaries with progress/deadline chips, each linking to `/threads/:id`. "+ 새 스레드" links to `/threads/new`.
+- [web/src/ThreadNew.tsx](/home/pi/cairn/web/src/ThreadNew.tsx)
+  - `/threads/new` manual creation form (cycle 10). Fields: name (required), kind, goal, deadline. Client-side trim validation. On success navigates to `/threads/:id` via `window.location.href`. Error state preserves form values.
 - [web/src/Thread.tsx](/home/pi/cairn/web/src/Thread.tsx)
   - Read-only `/threads/:id` spine (cycle 9). Loading/empty/live/error states. Header: name, goal, deadline, kind, progress chip. Spine split into future/past sections via `new Date()`. Event and task nodes. Null-start events sorted last.
 - [web/vite.config.ts](/home/pi/cairn/web/vite.config.ts)

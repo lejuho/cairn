@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { TodaySurface } from "@cairn/shared";
+import type { ThreadSummary, TodaySurface } from "@cairn/shared";
 
 type ReplyState = { text: string; error: string | null; submitting: boolean };
 
 type SheetMode = "task" | "event";
-type TaskForm = { title: string; estMinutes: string };
-type EventForm = { title: string; start: string; end: string };
+type TaskForm = { title: string; estMinutes: string; threadId: string };
+type EventForm = { title: string; start: string; end: string; threadId: string };
 type SheetState =
   | { open: false }
   | { open: true; mode: SheetMode; taskForm: TaskForm; eventForm: EventForm; submitting: boolean; error: string | null };
@@ -16,8 +16,8 @@ type ViewState =
   | { tag: "live"; surface: TodaySurface }
   | { tag: "error"; message: string };
 
-const EMPTY_TASK_FORM: TaskForm = { title: "", estMinutes: "2" };
-const EMPTY_EVENT_FORM: EventForm = { title: "", start: "", end: "" };
+const EMPTY_TASK_FORM: TaskForm = { title: "", estMinutes: "2", threadId: "" };
+const EMPTY_EVENT_FORM: EventForm = { title: "", start: "", end: "", threadId: "" };
 
 function datetimeLocalToRfc3339(value: string): string {
   // getTimezoneOffset() returns minutes-west; KST=-540 → sign "+"
@@ -64,20 +64,34 @@ async function submitAnnotation(eventId: number, text: string): Promise<void> {
   if (!res.ok) throw new Error("제출 실패");
 }
 
-async function createTask(title: string, estMinutes: number): Promise<void> {
+async function loadThreadOptions(): Promise<ThreadSummary[]> {
+  try {
+    const res = await fetch("/api/threads");
+    const body = (await res.json()) as { ok: boolean; data?: ThreadSummary[] };
+    return body.ok ? (body.data ?? []) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function createTask(title: string, estMinutes: number, threadId?: number): Promise<void> {
+  const payload: Record<string, unknown> = { title, estMinutes };
+  if (threadId != null) payload.threadId = threadId;
   const res = await fetch("/api/tasks", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title, estMinutes })
+    body: JSON.stringify(payload)
   });
   if (!res.ok) throw new Error("작업 생성 실패");
 }
 
-async function createEvent(title: string, start: string, end: string): Promise<void> {
+async function createEvent(title: string, start: string, end: string, threadId?: number): Promise<void> {
+  const payload: Record<string, unknown> = { title, start, end };
+  if (threadId != null) payload.threadId = threadId;
   const res = await fetch("/api/events", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title, start, end })
+    body: JSON.stringify(payload)
   });
   if (!res.ok) throw new Error("일정 생성 실패");
 }
@@ -86,6 +100,7 @@ export function Today() {
   const [view, setView] = useState<ViewState>({ tag: "loading" });
   const [replyState, setReplyState] = useState<Record<number, ReplyState>>({});
   const [sheet, setSheet] = useState<SheetState>({ open: false });
+  const [threadOptions, setThreadOptions] = useState<ThreadSummary[]>([]);
   const firstInputRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
@@ -108,6 +123,7 @@ export function Today() {
 
   const openSheet = useCallback((mode: SheetMode) => {
     setSheet({ open: true, mode, taskForm: EMPTY_TASK_FORM, eventForm: EMPTY_EVENT_FORM, submitting: false, error: null });
+    void loadThreadOptions().then(setThreadOptions);
   }, []);
 
   const closeSheet = useCallback(() => {
@@ -129,9 +145,11 @@ export function Today() {
       if (!title) return;
       const parsed = parseInt(sheet.taskForm.estMinutes, 10);
       const estMinutes = Number.isFinite(parsed) && parsed > 0 ? parsed : 2;
+      const threadIdParsed = sheet.taskForm.threadId ? parseInt(sheet.taskForm.threadId, 10) : undefined;
+      const threadId = threadIdParsed != null && Number.isFinite(threadIdParsed) ? threadIdParsed : undefined;
       setSheet((prev) => prev.open ? { ...prev, submitting: true, error: null } : prev);
       try {
-        await createTask(title, estMinutes);
+        await createTask(title, estMinutes, threadId);
         setSheet({ open: false });
         await refresh();
       } catch (e) {
@@ -145,9 +163,11 @@ export function Today() {
       if (endRaw <= startRaw) return;
       const start = datetimeLocalToRfc3339(startRaw);
       const end = datetimeLocalToRfc3339(endRaw);
+      const threadIdParsed = sheet.eventForm.threadId ? parseInt(sheet.eventForm.threadId, 10) : undefined;
+      const threadId = threadIdParsed != null && Number.isFinite(threadIdParsed) ? threadIdParsed : undefined;
       setSheet((prev) => prev.open ? { ...prev, submitting: true, error: null } : prev);
       try {
-        await createEvent(title, start, end);
+        await createEvent(title, start, end, threadId);
         setSheet({ open: false });
         await refresh();
       } catch (e) {
@@ -247,6 +267,24 @@ export function Today() {
                 disabled={sheet.submitting}
               />
             </div>
+            {threadOptions.length > 0 && (
+              <div className="sheet-field">
+                <label className="sheet-label" htmlFor="task-thread">스레드 (선택)</label>
+                <select
+                  id="task-thread"
+                  className="sheet-input"
+                  value={sheet.taskForm.threadId}
+                  onChange={(e) => setSheet((prev) => prev.open ? { ...prev, taskForm: { ...prev.taskForm, threadId: e.target.value } } : prev)}
+                  disabled={sheet.submitting}
+                  aria-label="스레드 선택"
+                >
+                  <option value="">— 없음 —</option>
+                  {threadOptions.map((s) => (
+                    <option key={s.thread.id} value={String(s.thread.id)}>{s.thread.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             {sheet.error && <p className="sheet-error" role="alert">{sheet.error}</p>}
             <button
               type="submit"
@@ -294,6 +332,24 @@ export function Today() {
                 disabled={sheet.submitting}
               />
             </div>
+            {threadOptions.length > 0 && (
+              <div className="sheet-field">
+                <label className="sheet-label" htmlFor="event-thread">스레드 (선택)</label>
+                <select
+                  id="event-thread"
+                  className="sheet-input"
+                  value={sheet.eventForm.threadId}
+                  onChange={(e) => setSheet((prev) => prev.open ? { ...prev, eventForm: { ...prev.eventForm, threadId: e.target.value } } : prev)}
+                  disabled={sheet.submitting}
+                  aria-label="스레드 선택"
+                >
+                  <option value="">— 없음 —</option>
+                  {threadOptions.map((s) => (
+                    <option key={s.thread.id} value={String(s.thread.id)}>{s.thread.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             {sheet.error && <p className="sheet-error" role="alert">{sheet.error}</p>}
             <button
               type="submit"

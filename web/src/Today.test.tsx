@@ -279,7 +279,7 @@ describe("Today — manual intake sheet (quiet state)", () => {
     expect(screen.getByLabelText("종료")).toBeInTheDocument();
   });
 
-  it("empty task title does not call fetch", async () => {
+  it("empty task title does not call POST, only initial load + thread list fetch", async () => {
     const fetchSpy = vi.fn().mockResolvedValue({
       json: () => Promise.resolve({ ok: true, data: { ...BASE_SURFACE, state: "quiet" } })
     });
@@ -287,10 +287,13 @@ describe("Today — manual intake sheet (quiet state)", () => {
     render(<Today />);
     await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "추가" }));
-    // title is empty — submit button is disabled
+    // opening sheet triggers thread list fetch — wait for it
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    // title is empty — submit button is disabled; no POST issued
     const saveBtn = screen.getByRole("button", { name: "작업 저장" });
     expect(saveBtn).toBeDisabled();
-    expect(fetchSpy).toHaveBeenCalledTimes(1); // only initial load
+    // no additional fetch beyond initial load + thread list
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
   it("valid task submit calls POST /api/tasks then refetches", async () => {
@@ -589,5 +592,90 @@ describe("Today — daily timeline", () => {
     render(<Today />);
     await waitFor(() => expect(screen.getByText("오후 미팅")).toBeInTheDocument());
     expect(screen.queryByRole("link", { name: "오후 미팅" })).not.toBeInTheDocument();
+  });
+});
+
+describe("Today — thread picker in intake sheet", () => {
+  const THREAD_SUMMARIES = [
+    {
+      thread: { id: 3, name: "Work Thread", kind: "project", goal: null, definitionOfDone: null, deadline: null, status: "active" as const, createdAt: null },
+      eventCount: 0, taskCount: 0, doneCount: 0, totalCount: 0
+    }
+  ];
+
+  function mockFetchWithThreads() {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+      if (url === "/api/threads") {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: THREAD_SUMMARIES }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { ...BASE_SURFACE, state: "quiet" } }) });
+    }));
+  }
+
+  it("thread picker shows available threads in task form", async () => {
+    mockFetchWithThreads();
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "추가" }));
+    await waitFor(() => expect(screen.getByLabelText("스레드 선택")).toBeInTheDocument());
+    expect(screen.getByText("Work Thread")).toBeInTheDocument();
+  });
+
+  it("task submit includes threadId when thread selected", async () => {
+    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: { method?: string; body?: string }) => {
+      if (url === "/api/threads") {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: THREAD_SUMMARIES }) });
+      }
+      if (opts?.method === "POST" && url === "/api/tasks") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, data: {} }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { ...BASE_SURFACE, state: "quiet" } }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "추가" }));
+    await waitFor(() => expect(screen.getByLabelText("스레드 선택")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText(/제목/), { target: { value: "My Task" } });
+    fireEvent.change(screen.getByLabelText("스레드 선택"), { target: { value: "3" } });
+    fireEvent.click(screen.getByLabelText("작업 저장"));
+
+    await waitFor(() => {
+      const taskCall = fetchSpy.mock.calls.find(
+        (args: unknown[]) => args[0] === "/api/tasks" && (args[1] as { method?: string })?.method === "POST"
+      );
+      expect(taskCall).toBeTruthy();
+      const body = JSON.parse((taskCall![1] as { body: string }).body);
+      expect(body.threadId).toBe(3);
+    });
+  });
+
+  it("creation works when thread list fetch fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string; body?: string }) => {
+      if (url === "/api/threads") return Promise.reject(new Error("network error"));
+      if (opts?.method === "POST" && url === "/api/tasks") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, data: {} }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { ...BASE_SURFACE, state: "quiet" } }) });
+    }));
+
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "추가" }));
+    await waitFor(() => expect(screen.getByLabelText(/제목/)).toBeInTheDocument());
+
+    // No thread selector shown (fetch failed → empty threadOptions)
+    expect(screen.queryByLabelText("스레드 선택")).not.toBeInTheDocument();
+
+    // Can still submit
+    fireEvent.change(screen.getByLabelText(/제목/), { target: { value: "Unthreaded Task" } });
+    fireEvent.click(screen.getByLabelText("작업 저장"));
+
+    await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
   });
 });

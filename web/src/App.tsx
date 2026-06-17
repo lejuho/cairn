@@ -1,5 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { Thread } from "./Thread.js";
+import { ThreadIndex } from "./ThreadIndex.js";
+import { ThreadNew } from "./ThreadNew.js";
 import { Today } from "./Today.js";
 
 export function App() {
@@ -13,6 +15,14 @@ export function App() {
 
   if (path === "/" || path === "/today") {
     return <Today />;
+  }
+
+  if (path === "/threads") {
+    return <ThreadIndex />;
+  }
+
+  if (path === "/threads/new") {
+    return <ThreadNew />;
   }
 
   if (path.startsWith("/threads/")) {
