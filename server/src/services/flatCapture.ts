@@ -1,6 +1,7 @@
 import type { CaptureStatus, FlatCaptureResponseData } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import type { LlmGateway } from "../llm/gateway.js";
+import type { ParseFlatEventResult } from "../llm/flatEventParser.js";
 import { addMinutesToRfc3339, parseFlatEvent } from "../llm/flatEventParser.js";
 import { createEvent, insertRawEvent } from "../repositories/events.js";
 
@@ -16,19 +17,21 @@ export async function captureFlat(
   const now = input.now ?? FALLBACK_NOW();
   const timeZone = input.timeZone ?? DEFAULT_TIMEZONE;
 
-  let parsed = null;
-  let llmErrorMsg: string | undefined;
-
+  let parseResult: ParseFlatEventResult;
   try {
-    parsed = await parseFlatEvent(gateway, trimmed, now, timeZone);
+    parseResult = await parseFlatEvent(gateway, trimmed, now, timeZone);
   } catch (e) {
-    llmErrorMsg = e instanceof Error ? e.message : "parser error";
+    const err = e instanceof Error ? e.message : "parser error";
+    const event = insertRawEvent(db, trimmed);
+    return { event, captureStatus: "raw_stored" as CaptureStatus, llmError: err };
   }
 
-  if (parsed === null) {
+  if (parseResult.data === null) {
     const event = insertRawEvent(db, trimmed);
-    return { event, captureStatus: "raw_stored" as CaptureStatus, llmError: llmErrorMsg };
+    return { event, captureStatus: "raw_stored" as CaptureStatus, llmError: parseResult.error };
   }
+
+  const { data: parsed } = parseResult;
 
   if (!parsed.start) {
     const event = insertRawEvent(db, parsed.title);

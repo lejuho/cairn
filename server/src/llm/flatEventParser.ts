@@ -33,12 +33,16 @@ export function addMinutesToRfc3339(rfc3339: string, minutes: number): string {
   );
 }
 
+export type ParseFlatEventResult =
+  | { data: FlatEventParseResult; error: null }
+  | { data: null; error: string };
+
 export async function parseFlatEvent(
   gateway: LlmGateway,
   text: string,
   now: string,
   timeZone: string
-): Promise<FlatEventParseResult | null> {
+): Promise<ParseFlatEventResult> {
   const result = await gateway.completeChat({
     model: "grok-3-mini",
     messages: [
@@ -48,17 +52,17 @@ export async function parseFlatEvent(
     temperature: 0
   });
 
-  if (!result.ok) return null;
+  if (!result.ok) return { data: null, error: result.error.code };
 
   const raw = result.data.choices[0]?.message?.content ?? "";
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return null;
+    return { data: null, error: "invalid_json" };
   }
 
   const validated = FlatEventParseResultSchema.safeParse(parsed);
-  if (!validated.success) return null;
-  return validated.data;
+  if (!validated.success) return { data: null, error: "invalid_schema" };
+  return { data: validated.data, error: null };
 }

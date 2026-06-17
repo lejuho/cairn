@@ -111,7 +111,7 @@ describe("POST /api/capture/flat-event", () => {
     expect(data.event.title).toBe("독서");
   });
 
-  it("LLM unavailable raw-stores trimmed input text", async () => {
+  it("LLM unavailable raw-stores trimmed input text with llmError", async () => {
     const app = buildServer(conn.db, failGateway("unavailable"));
     const res = await app.inject({
       method: "POST", url: "/api/capture/flat-event", payload: { text: "  주간 회의  " }
@@ -120,30 +120,37 @@ describe("POST /api/capture/flat-event", () => {
     expect(data.captureStatus).toBe("raw_stored");
     expect(data.event.title).toBe("주간 회의");
     expect(data.event.start).toBeNull();
+    expect(data.llmError).toBe("unavailable");
   });
 
-  it("LLM rate_limited raw-stores", async () => {
+  it("LLM rate_limited raw-stores with llmError", async () => {
     const app = buildServer(conn.db, failGateway("rate_limited"));
     const res = await app.inject({
       method: "POST", url: "/api/capture/flat-event", payload: { text: "미팅" }
     });
-    expect(res.json().data.captureStatus).toBe("raw_stored");
+    const { data } = res.json();
+    expect(data.captureStatus).toBe("raw_stored");
+    expect(data.llmError).toBe("rate_limited");
   });
 
-  it("invalid LLM JSON raw-stores", async () => {
+  it("invalid LLM JSON raw-stores with llmError", async () => {
     const app = buildServer(conn.db, okGateway("not json at all"));
     const res = await app.inject({
       method: "POST", url: "/api/capture/flat-event", payload: { text: "운동" }
     });
-    expect(res.json().data.captureStatus).toBe("raw_stored");
+    const { data } = res.json();
+    expect(data.captureStatus).toBe("raw_stored");
+    expect(data.llmError).toBe("invalid_json");
   });
 
-  it("invalid LLM schema (missing title) raw-stores", async () => {
+  it("invalid LLM schema (missing title) raw-stores with llmError", async () => {
     const app = buildServer(conn.db, okGateway(JSON.stringify({ start: "2026-06-20T10:00:00+09:00" })));
     const res = await app.inject({
       method: "POST", url: "/api/capture/flat-event", payload: { text: "무언가" }
     });
-    expect(res.json().data.captureStatus).toBe("raw_stored");
+    const { data } = res.json();
+    expect(data.captureStatus).toBe("raw_stored");
+    expect(data.llmError).toBe("invalid_schema");
   });
 
   it("scheduled capture appears in GET /api/today dayEvents", async () => {
