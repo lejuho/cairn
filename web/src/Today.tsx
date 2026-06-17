@@ -85,6 +85,20 @@ async function createTask(title: string, estMinutes: number, threadId?: number):
   if (!res.ok) throw new Error("작업 생성 실패");
 }
 
+type QuickCaptureResult = { captureStatus: "scheduled" | "unscheduled" | "raw_stored" };
+
+async function flatCapture(text: string): Promise<QuickCaptureResult> {
+  const now = new Date().toISOString().replace("Z", "+00:00");
+  const res = await fetch("/api/capture/flat-event", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, now })
+  });
+  const body = (await res.json()) as { ok: boolean; data?: QuickCaptureResult; error?: { message: string } };
+  if (!body.ok) throw new Error(body.error?.message ?? "캡처 실패");
+  return body.data!;
+}
+
 async function createEvent(title: string, start: string, end: string, threadId?: number): Promise<void> {
   const payload: Record<string, unknown> = { title, start, end };
   if (threadId != null) payload.threadId = threadId;
@@ -101,6 +115,10 @@ export function Today() {
   const [replyState, setReplyState] = useState<Record<number, ReplyState>>({});
   const [sheet, setSheet] = useState<SheetState>({ open: false });
   const [threadOptions, setThreadOptions] = useState<ThreadSummary[]>([]);
+  const [capture, setCapture] = useState<{ text: string; submitting: boolean; savedMsg: string | null }>({
+    text: "", submitting: false, savedMsg: null
+  });
+  const savedMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firstInputRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
@@ -175,6 +193,25 @@ export function Today() {
       }
     }
   }, [sheet, refresh]);
+
+  const handleCapture = useCallback(async () => {
+    if (!capture.text.trim() || capture.submitting) return;
+    setCapture((c) => ({ ...c, submitting: true, savedMsg: null }));
+    if (savedMsgTimer.current) clearTimeout(savedMsgTimer.current);
+    try {
+      const result = await flatCapture(capture.text.trim());
+      setCapture((c) => ({
+        ...c, text: "", submitting: false,
+        savedMsg: result.captureStatus === "scheduled" ? null : "날짜 없이 저장됐어"
+      }));
+      if (result.captureStatus !== "scheduled") {
+        savedMsgTimer.current = setTimeout(() => setCapture((c) => ({ ...c, savedMsg: null })), 4000);
+      }
+      await refresh();
+    } catch {
+      setCapture((c) => ({ ...c, submitting: false, savedMsg: null }));
+    }
+  }, [capture, refresh]);
 
   const handleReply = useCallback(
     async (eventId: number) => {
@@ -414,6 +451,30 @@ export function Today() {
               + 추가
             </button>
           </section>
+          <form
+            className="today-capture-form"
+            onSubmit={(e) => { e.preventDefault(); void handleCapture(); }}
+          >
+            <input
+              className="today-capture-input"
+              value={capture.text}
+              onChange={(e) => setCapture((c) => ({ ...c, text: e.target.value }))}
+              placeholder="한 줄로 입력해봐 — 내일 3시 치과"
+              disabled={capture.submitting}
+              aria-label="빠른 입력"
+            />
+            <button
+              type="submit"
+              className="today-capture-btn"
+              disabled={!capture.text.trim() || capture.submitting}
+              aria-label="빠른 입력 저장"
+            >
+              {capture.submitting ? "…" : "→"}
+            </button>
+          </form>
+          {capture.savedMsg && (
+            <p className="today-capture-saved" role="status" aria-live="polite">{capture.savedMsg}</p>
+          )}
         </main>
         {sheetEl}
       </>
@@ -432,6 +493,30 @@ export function Today() {
             + 추가
           </button>
         </div>
+        <form
+          className="today-capture-form"
+          onSubmit={(e) => { e.preventDefault(); void handleCapture(); }}
+        >
+          <input
+            className="today-capture-input"
+            value={capture.text}
+            onChange={(e) => setCapture((c) => ({ ...c, text: e.target.value }))}
+            placeholder="한 줄로 입력해봐 — 내일 3시 치과"
+            disabled={capture.submitting}
+            aria-label="빠른 입력"
+          />
+          <button
+            type="submit"
+            className="today-capture-btn"
+            disabled={!capture.text.trim() || capture.submitting}
+            aria-label="빠른 입력 저장"
+          >
+            {capture.submitting ? "…" : "→"}
+          </button>
+        </form>
+        {capture.savedMsg && (
+          <p className="today-capture-saved" role="status" aria-live="polite">{capture.savedMsg}</p>
+        )}
         <ul className="today-stack" role="list">
         {surface.cards.map((card, i) => {
           const delay = { animationDelay: `${i * 55}ms` } as React.CSSProperties;

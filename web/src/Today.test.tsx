@@ -679,3 +679,94 @@ describe("Today — thread picker in intake sheet", () => {
     await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
   });
 });
+
+describe("Today — quick capture", () => {
+  function mockQuiet() {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if ((url as string).includes("/api/capture/flat-event") && opts?.method === "POST") {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { captureStatus: "scheduled" } }) });
+      }
+      if ((url as string) === "/api/threads") {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { ...BASE_SURFACE, state: "quiet" } }) });
+    }));
+  }
+
+  it("renders quick capture input in quiet state", async () => {
+    mockQuiet();
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
+    expect(screen.getByLabelText("빠른 입력")).toBeInTheDocument();
+  });
+
+  it("renders quick capture input in live state", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+      if ((url as string) === "/api/threads") {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { ...BASE_SURFACE, state: "live" } }) });
+    }));
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("빠른 입력")).toBeInTheDocument());
+  });
+
+  it("empty submit does not call fetch capture endpoint", async () => {
+    const fetchSpy = vi.fn().mockImplementation((url: string) => {
+      if ((url as string) === "/api/threads") {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { ...BASE_SURFACE, state: "quiet" } }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("빠른 입력 저장"));
+    // only initial load + thread list — no capture call
+    expect(fetchSpy).not.toHaveBeenCalledWith(expect.stringContaining("flat-event"), expect.anything());
+  });
+
+  it("scheduled capture calls endpoint and refetches", async () => {
+    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if ((url as string).includes("flat-event") && opts?.method === "POST") {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { captureStatus: "scheduled" } }) });
+      }
+      if ((url as string) === "/api/threads") {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { ...BASE_SURFACE, state: "quiet" } }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText("빠른 입력"), { target: { value: "내일 오후 2시 치과" } });
+    fireEvent.click(screen.getByLabelText("빠른 입력 저장"));
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining("flat-event"), expect.objectContaining({ method: "POST" }));
+    });
+    // no savedMsg for scheduled
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("raw/unscheduled outcome shows saved-without-date message", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if ((url as string).includes("flat-event") && opts?.method === "POST") {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { captureStatus: "raw_stored" } }) });
+      }
+      if ((url as string) === "/api/threads") {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { ...BASE_SURFACE, state: "quiet" } }) });
+    }));
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText("빠른 입력"), { target: { value: "독서" } });
+    fireEvent.click(screen.getByLabelText("빠른 입력 저장"));
+
+    await waitFor(() => expect(screen.getByRole("status")).toBeInTheDocument());
+    expect(screen.getByRole("status")).toHaveTextContent("날짜 없이 저장됐어");
+  });
+});

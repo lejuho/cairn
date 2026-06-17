@@ -3,6 +3,23 @@ import type { CreateEventRequest, EventRow } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import { annotations, events } from "../db/schema.js";
 
+export function insertRawEvent(db: CairnDatabase, title: string): EventRow {
+  const [row] = db
+    .insert(events)
+    .values({
+      title,
+      start: null,
+      end: null,
+      threadId: null,
+      source: "cairn",
+      selfImposed: 1,
+      status: "planned"
+    })
+    .returning()
+    .all();
+  return row as EventRow;
+}
+
 export function createEvent(db: CairnDatabase, input: CreateEventRequest): EventRow {
   const [row] = db
     .insert(events)
