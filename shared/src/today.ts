@@ -22,6 +22,7 @@ export const TodaySurfaceSchema = z.object({
   twoMinuteTasks: z.array(TaskRowSchema),
   watcherBubbles: z.array(WatcherRowSchema),
   needsReviewEvents: z.array(EventRowSchema),
+  dayEvents: z.array(EventRowSchema),
   cards: z.array(
     z.discriminatedUnion("kind", [
       z.object({ kind: z.literal("conflict"), pair: ConflictPairSchema }),

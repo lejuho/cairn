@@ -311,6 +311,67 @@ p {
   font-size: 1rem;
 }
 
+/* Daily timeline */
+.today-timeline {
+  width: min(100%, 480px);
+  margin-top: 24px;
+}
+
+.today-timeline-heading {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.today-timeline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.today-tl-row {
+  display: grid;
+  grid-template-columns: 5rem 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  animation: rise 300ms ease both;
+}
+
+.today-tl-row--active {
+  border-left: 3px solid var(--accent);
+  background: color-mix(in srgb, var(--accent), transparent 92%);
+}
+
+.today-tl-time {
+  grid-row: 1 / 3;
+  align-self: center;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.today-tl-title {
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.today-tl-loc {
+  color: var(--faint);
+  font-size: 0.78rem;
+}
+
 /* Add button */
 .today-add-btn {
   min-height: 44px;

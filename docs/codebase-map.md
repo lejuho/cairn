@@ -159,6 +159,7 @@ Entry and routing:
   - Fetches `/api/today`.
   - Calls task status patch and annotation intake endpoints.
   - Manual intake bottom sheet (cycle 7): task + event creation via `POST /api/tasks` and `POST /api/events`. Sheet opens from quiet-state CTA and live-state "추가" button. `datetime-local` values serialized to RFC3339 with local timezone offset.
+  - Daily timeline section (cycle 8): renders `dayEvents` from `GET /api/today` as a compact `오늘 일정` list. Active event marked via `Date.parse()` epoch comparison. Quiet state only when both cards and `dayEvents` are empty.
 - [web/vite.config.ts](/home/pi/cairn/web/vite.config.ts)
   - Local dev proxy forwards `/api` and `/health` to `http://localhost:3100`.
 - [web/src/styles.css](/home/pi/cairn/web/src/styles.css)

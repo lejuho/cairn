@@ -486,6 +486,36 @@ export function Today() {
           return null;
         })}
       </ul>
+
+        {surface.dayEvents.length > 0 && (
+          <section className="today-timeline" aria-label="오늘 일정">
+            <p className="today-timeline-heading">오늘 일정</p>
+            <ul className="today-timeline-list" role="list">
+              {surface.dayEvents.map((event) => {
+                const nowMs = new Date(surface.now).getTime();
+                const startMs = event.start ? new Date(event.start).getTime() : null;
+                const endMs = event.end ? new Date(event.end).getTime() : null;
+                const isActive = startMs != null && endMs != null && startMs <= nowMs && nowMs < endMs;
+                return (
+                  <li
+                    key={event.id}
+                    className={`today-tl-row${isActive ? " today-tl-row--active" : ""}`}
+                    aria-current={isActive ? "true" : undefined}
+                  >
+                    <span className="today-tl-time">
+                      {event.start?.slice(11, 16)}
+                      {event.end ? ` — ${event.end.slice(11, 16)}` : ""}
+                    </span>
+                    <span className="today-tl-title">{event.title}</span>
+                    {event.location && (
+                      <span className="today-tl-loc">{event.location}</span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
       </main>
       {sheetEl}
     </>

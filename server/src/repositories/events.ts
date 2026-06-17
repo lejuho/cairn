@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, isNull, or } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, or } from "drizzle-orm";
 import type { CreateEventRequest, EventRow } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import { annotations, events } from "../db/schema.js";
@@ -83,6 +83,7 @@ export function findPlannedAndConfirmedByDate(
   return db
     .select()
     .from(events)
+    .orderBy(asc(events.start))
     .all()
     .filter(
       (e) =>

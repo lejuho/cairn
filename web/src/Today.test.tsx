@@ -17,6 +17,7 @@ const BASE_SURFACE: TodaySurface = {
   twoMinuteTasks: [],
   watcherBubbles: [],
   needsReviewEvents: [],
+  dayEvents: [],
   cards: []
 };
 
@@ -479,5 +480,88 @@ describe("Today — needs_review card", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
     // Card still visible
     expect(screen.getByText("팀 회의 — 어떻게 됐어?")).toBeInTheDocument();
+  });
+});
+
+const DAY_EVENT_A = {
+  id: 10, title: "오전 회의",
+  start: "2026-06-16T09:00:00+09:00",
+  end:   "2026-06-16T10:00:00+09:00",
+  threadId: null, type: null, location: null,
+  source: "cairn" as const, selfImposed: 1,
+  status: "planned" as const, createdAt: null, updatedAt: null
+};
+
+const DAY_EVENT_B = {
+  id: 11, title: "오후 미팅",
+  start: "2026-06-16T14:00:00+09:00",
+  end:   "2026-06-16T15:00:00+09:00",
+  threadId: null, type: null, location: "회의실" as const,
+  source: "cairn" as const, selfImposed: 1,
+  status: "planned" as const, createdAt: null, updatedAt: null
+};
+
+describe("Today — daily timeline", () => {
+  it("renders 오늘 일정 section with event rows", async () => {
+    mockFetch({
+      ...BASE_SURFACE,
+      state: "live",
+      dayEvents: [DAY_EVENT_A, DAY_EVENT_B],
+      cards: []
+    });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByRole("region", { name: "오늘 일정" })).toBeInTheDocument());
+    expect(screen.getByText("오전 회의")).toBeInTheDocument();
+    expect(screen.getByText("오후 미팅")).toBeInTheDocument();
+    expect(screen.getByText("회의실")).toBeInTheDocument();
+  });
+
+  it("marks active event with aria-current when now is inside range", async () => {
+    const now = "2026-06-16T09:30:00.000Z";
+    const activeEvent = {
+      ...DAY_EVENT_A,
+      start: "2026-06-16T09:00:00.000Z",
+      end:   "2026-06-16T10:00:00.000Z"
+    };
+    mockFetch({
+      ...BASE_SURFACE,
+      now,
+      state: "live",
+      dayEvents: [activeEvent],
+      cards: []
+    });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByText("오전 회의")).toBeInTheDocument());
+    // active row has aria-current="true" and the --active class
+    const activeEl = document.querySelector("[aria-current='true']");
+    expect(activeEl).not.toBeNull();
+    expect(activeEl).toHaveClass("today-tl-row--active");
+    expect(activeEl?.textContent).toContain("오전 회의");
+  });
+
+  it("does not mark event as active when now is outside range", async () => {
+    const futureEvent = {
+      ...DAY_EVENT_B,
+      start: "2026-06-16T14:00:00.000Z",
+      end:   "2026-06-16T15:00:00.000Z"
+    };
+    mockFetch({
+      ...BASE_SURFACE,
+      now: "2026-06-16T09:00:00.000Z",
+      state: "live",
+      dayEvents: [futureEvent],
+      cards: []
+    });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByText("오후 미팅")).toBeInTheDocument());
+    expect(document.querySelector("[aria-current='true']")).toBeNull();
+    expect(document.querySelector(".today-tl-row--active")).toBeNull();
+  });
+
+  it("quiet state when both cards and dayEvents are empty", async () => {
+    mockFetch({ ...BASE_SURFACE, state: "quiet", dayEvents: [], cards: [] });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
+    expect(screen.queryByRole("region", { name: "오늘 일정" })).not.toBeInTheDocument();
   });
 });

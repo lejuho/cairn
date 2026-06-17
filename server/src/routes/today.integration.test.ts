@@ -583,3 +583,80 @@ describe("GET /api/today — needs_review candidates", () => {
     conn.sqlite.close();
   });
 });
+
+describe("GET /api/today — dayEvents", () => {
+  let app: FastifyInstance;
+  let conn: ReturnType<typeof makeTestDb>;
+
+  beforeEach(() => {
+    conn = makeTestDb();
+    app = buildServer(conn.db);
+  });
+
+  afterEach(() => conn.sqlite.close());
+
+  it("returns dayEvents sorted by start for matching planned/confirmed events", async () => {
+    // Insert in reverse order; expect sorted output
+    await app.inject({
+      method: "POST",
+      url: "/api/events",
+      payload: { title: "Later",   start: "2026-06-16T14:00:00+00:00", end: "2026-06-16T15:00:00+00:00" }
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/events",
+      payload: { title: "Earlier", start: "2026-06-16T10:00:00+00:00", end: "2026-06-16T11:00:00+00:00" }
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/today?date=${DATE}&now=${encodeURIComponent(NOW)}`
+    });
+    const { dayEvents } = res.json().data as { dayEvents: Array<{ title: string }> };
+    expect(dayEvents).toHaveLength(2);
+    expect(dayEvents[0]!.title).toBe("Earlier");
+    expect(dayEvents[1]!.title).toBe("Later");
+  });
+
+  it("excludes events from a different date", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/api/events",
+      payload: { title: "Tomorrow", start: "2026-06-17T10:00:00+00:00", end: "2026-06-17T11:00:00+00:00" }
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/today?date=${DATE}&now=${encodeURIComponent(NOW)}`
+    });
+    expect(res.json().data.dayEvents).toHaveLength(0);
+  });
+
+  it("returns quiet state when dayEvents and cards are empty", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/today?date=${DATE}&now=${encodeURIComponent(NOW)}`
+    });
+    const data = res.json().data;
+    expect(data.state).toBe("quiet");
+    expect(data.dayEvents).toHaveLength(0);
+  });
+
+  it("returns live state when dayEvents exist even if all events ended", async () => {
+    // Event ended before NOW (2026-06-16T09:00:00)
+    await app.inject({
+      method: "POST",
+      url: "/api/events",
+      payload: { title: "Past", start: "2026-06-16T07:00:00+00:00", end: "2026-06-16T08:00:00+00:00" }
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/today?date=${DATE}&now=${encodeURIComponent(NOW)}`
+    });
+    const data = res.json().data;
+    expect(data.state).toBe("live");
+    expect(data.dayEvents).toHaveLength(1);
+    expect(data.nextEvent).toBeNull(); // ended already
+  });
+});

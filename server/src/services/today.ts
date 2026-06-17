@@ -20,9 +20,9 @@ export function buildTodaySurface(
   ];
 
   const state =
-    cards.length === 0 && nextEvent === null ? "quiet" : "live";
+    cards.length === 0 && dayEvents.length === 0 ? "quiet" : "live";
 
-  return { date, now, state, nextEvent, conflicts, twoMinuteTasks, watcherBubbles, needsReviewEvents, cards };
+  return { date, now, state, nextEvent, conflicts, twoMinuteTasks, watcherBubbles, needsReviewEvents, dayEvents, cards };
 }
 
 function findNextEvent(events: EventRow[], now: string): EventRow | null {
