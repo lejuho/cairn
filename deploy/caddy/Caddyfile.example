@@ -1,0 +1,22 @@
+# Cairn local reverse proxy / static file server
+# Listens on 127.0.0.1:8080 — cloudflared tunnel points to http://localhost:8080
+# Copy to /home/pi/cairn-data/Caddyfile and adjust paths if needed.
+
+:8080 {
+    # Reverse-proxy API and health routes to Fastify.
+    handle /api/* {
+        reverse_proxy 127.0.0.1:3100
+    }
+
+    handle /health {
+        reverse_proxy 127.0.0.1:3100
+    }
+
+    # Serve built PWA; fall back to index.html for SPA client-side routes
+    # (/today, /threads, /threads/new, /threads/:id, etc.).
+    handle {
+        root * /home/pi/cairn/web/dist
+        try_files {path} /index.html
+        file_server
+    }
+}

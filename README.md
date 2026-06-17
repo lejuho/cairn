@@ -132,6 +132,27 @@ Telegram env가 없거나 실패해도 `/health`, `/api/today`, annotation intak
 - watcher snooze: `PATCH /api/watchers/:id/snooze`
 - annotation intake: `POST /api/events/:id/annotations`
 
+## 프로덕션 배포 (cairn.lee-blog.me)
+
+배포 구조: Cloudflare Access + Tunnel → Caddy(`:8080`) → Fastify(`127.0.0.1:3100`)
+
+```bash
+# 빌드
+corepack pnpm build
+corepack pnpm db:migrate
+
+# 서버 재시작
+sudo systemctl restart cairn-server
+systemctl status cairn-server
+
+# 스모크 체크
+curl http://127.0.0.1:3100/health
+curl http://localhost:8080/health
+```
+
+설정 파일 예시: `deploy/` 디렉터리 참조.
+상세 가이드: [`docs/deployment-cloudflare-access.md`](docs/deployment-cloudflare-access.md)
+
 ## 작업 규칙
 
 구현 전 넓은 검색이 필요하면 먼저 `docs/codebase-map.md`를 본다.

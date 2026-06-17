@@ -180,6 +180,21 @@ Entry and routing:
 - `web/scripts/assert-pwa-build.mjs`
   - Build check for manifest/service worker output.
 
+## Deploy Artifacts (cycle 11)
+
+Production deployment shape: Cloudflare Access + Tunnel → Caddy (`:8080`) → Fastify (`127.0.0.1:3100`). No Docker.
+
+- `deploy/systemd/cairn-server.service.example`
+  - systemd unit example. `ExecStart=/usr/bin/node /home/pi/cairn/server/dist/index.js`, `EnvironmentFile=/home/pi/cairn-data/cairn-server.env`, `Restart=on-failure`.
+- `deploy/env/cairn-server.env.example`
+  - Environment variables: `HOST=127.0.0.1`, `PORT=3100`, `DB_PATH=/home/pi/cairn-data/cairn.sqlite3`. Keep outside repo. Never commit real values.
+- `deploy/caddy/Caddyfile.example`
+  - Caddy serves `web/dist` on `:8080`; `/api/*` and `/health` proxied to `127.0.0.1:3100`; `try_files {path} /index.html` fallback for SPA routes.
+- `docs/deployment-cloudflare-access.md`
+  - Full deployment guide: architecture diagram, Cloudflare dashboard steps (user-owned), local config steps (repo-managed), build/migrate/restart procedure, smoke checklist, security boundary table.
+
+Runtime boundary: Fastify binds `127.0.0.1:3100` (loopback only). Caddy fronts all external traffic. Cloudflare Access enforces authentication before the tunnel. SQLite DB lives at `/home/pi/cairn-data/cairn.sqlite3` (outside repo).
+
 ## Tests Map
 
 - Server integration:

@@ -1,0 +1,15 @@
+[Unit]
+Description=Cairn Fastify API Server
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/cairn
+EnvironmentFile=/home/pi/cairn-data/cairn-server.env
+ExecStart=/usr/bin/node /home/pi/cairn/server/dist/index.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
