@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SlotCandidate, ThreadSummary, TodaySurface } from "@cairn/shared";
+import { datetimeLocalToRfc3339, localDateString } from "./dateUtils.js";
 
 type ReplyState = { text: string; error: string | null; submitting: boolean };
 type SlotState =
@@ -25,23 +26,6 @@ type ViewState =
 const EMPTY_TASK_FORM: TaskForm = { title: "", estMinutes: "2", threadId: "" };
 const EMPTY_EVENT_FORM: EventForm = { title: "", start: "", end: "", threadId: "" };
 
-function datetimeLocalToRfc3339(value: string): string {
-  // getTimezoneOffset() returns minutes-west; KST=-540 → sign "+"
-  const offsetMinutesWest = new Date().getTimezoneOffset();
-  const sign = offsetMinutesWest <= 0 ? "+" : "-";
-  const abs = Math.abs(offsetMinutesWest);
-  const hh = String(Math.floor(abs / 60)).padStart(2, "0");
-  const mm = String(abs % 60).padStart(2, "0");
-  return `${value}:00${sign}${hh}:${mm}`;
-}
-
-function localDateString(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
 
 async function loadSurface(): Promise<TodaySurface> {
   const date = localDateString();

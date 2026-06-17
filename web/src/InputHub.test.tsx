@@ -145,12 +145,30 @@ describe("InputHub — quick capture", () => {
       expect(screen.getByText("날짜 없이 저장됐어")).toBeInTheDocument();
     });
   });
+
+  it("capture failure keeps input visible and shows local error", async () => {
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      if (url.includes("/api/threads")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url.includes("/api/today")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
+      return Promise.resolve({ json: () => Promise.resolve({ ok: false, error: { message: "캡처 오류" } }) });
+    }));
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("빠른 입력"), { target: { value: "운동" } });
+    fireEvent.click(screen.getByLabelText("빠른 입력 저장"));
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+    expect(screen.getByText("캡처 오류")).toBeInTheDocument();
+    expect(screen.getByLabelText("빠른 입력")).toBeInTheDocument();
+  });
 });
 
 // ── manual add — event form ───────────────────────────────────────────────────
 
 describe("InputHub — event form", () => {
-  it("posts RFC3339 offset strings when event form submitted", async () => {
+  it("posts RFC3339 offset strings with local timezone (KST +09:00)", async () => {
+    vi.spyOn(Date.prototype, "getTimezoneOffset").mockReturnValue(-540);
     const fetchMock = vi.fn((url: string) => {
       if (url.includes("/api/threads")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
       if (url.includes("/api/today")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
@@ -168,8 +186,8 @@ describe("InputHub — event form", () => {
       const eventsCall = calls.find(([u]) => u === "/api/events");
       expect(eventsCall).toBeDefined();
       const body = JSON.parse(eventsCall![1]!.body as string);
-      expect(body.start).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}/);
-      expect(body.end).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}/);
+      expect(body.start).toBe("2026-06-20T10:00:00+09:00");
+      expect(body.end).toBe("2026-06-20T11:00:00+09:00");
       expect(body.title).toBe("팀 회의");
     });
   });
@@ -289,6 +307,29 @@ describe("InputHub — unscheduled events", () => {
     await waitFor(() => {
       expect(screen.getByRole("alert")).toBeInTheDocument();
     });
+  });
+});
+
+// ── local date (ISSUE-2) ──────────────────────────────────────────────────────
+
+describe("InputHub — local date for API requests", () => {
+  it("uses local date (not UTC) for /api/today request", async () => {
+    // Simulate KST date: local June 20 while UTC would be June 19
+    vi.spyOn(Date.prototype, "getFullYear").mockReturnValue(2026);
+    vi.spyOn(Date.prototype, "getMonth").mockReturnValue(5); // June (0-indexed)
+    vi.spyOn(Date.prototype, "getDate").mockReturnValue(20);
+    vi.spyOn(Date.prototype, "getTimezoneOffset").mockReturnValue(-540);
+    const fetchMock = vi.fn((url: string) => {
+      if (url.includes("/api/threads")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    const calls = getCalls(fetchMock);
+    const todayCall = calls.find(([u]) => typeof u === "string" && u.includes("/api/today"));
+    expect(todayCall).toBeDefined();
+    expect(todayCall![0]).toContain("date=2026-06-20");
   });
 });
 

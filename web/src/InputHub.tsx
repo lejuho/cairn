@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { EventRow, SlotCandidate, ThreadSummary, TodaySurface } from "@cairn/shared";
+import { datetimeLocalToRfc3339, localDateString, localNowRfc3339 } from "./dateUtils.js";
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -9,7 +10,7 @@ type HubViewState =
   | { tag: "live"; unscheduled: EventRow[]; threads: ThreadSummary[] }
   | { tag: "error"; message: string };
 
-type CaptureState = { text: string; submitting: boolean; savedMsg: string | null };
+type CaptureState = { text: string; submitting: boolean; savedMsg: string | null; error: string | null };
 
 type EventForm = { title: string; start: string; end: string; threadId: string };
 type TaskForm = { title: string; estMinutes: string; threadId: string };
@@ -28,21 +29,12 @@ type SlotMap = Record<number, { tag: "idle" } | { tag: "loading" } | { tag: "loa
 const EMPTY_EVENT: EventForm = { title: "", start: "", end: "", threadId: "" };
 const EMPTY_TASK: TaskForm = { title: "", estMinutes: "", threadId: "" };
 
-// ── helpers ──────────────────────────────────────────────────────────────────
-
-function nowRfc3339(): string {
-  return new Date().toISOString().replace("Z", "+00:00");
-}
-
-function todayDate(): string {
-  return nowRfc3339().slice(0, 10);
-}
 
 // ── component ────────────────────────────────────────────────────────────────
 
 export function InputHub() {
   const [view, setView] = useState<HubViewState>({ tag: "loading" });
-  const [capture, setCapture] = useState<CaptureState>({ text: "", submitting: false, savedMsg: null });
+  const [capture, setCapture] = useState<CaptureState>({ text: "", submitting: false, savedMsg: null, error: null });
   const [form, setForm] = useState<FormSectionState>({
     mode: "event", eventForm: EMPTY_EVENT, taskForm: EMPTY_TASK,
     submitting: false, error: null, saved: false
@@ -53,8 +45,8 @@ export function InputHub() {
   const loadData = useCallback(async () => {
     setView({ tag: "loading" });
     try {
-      const now = nowRfc3339();
-      const date = todayDate();
+      const now = localNowRfc3339();
+      const date = localDateString();
       const [todayRes, threadsRes] = await Promise.all([
         fetch(`/api/today?date=${date}&now=${encodeURIComponent(now)}`),
         fetch("/api/threads")
@@ -80,22 +72,22 @@ export function InputHub() {
 
   const handleCapture = useCallback(async () => {
     if (!capture.text.trim() || capture.submitting) return;
-    setCapture((c) => ({ ...c, submitting: true, savedMsg: null }));
+    setCapture((c) => ({ ...c, submitting: true, savedMsg: null, error: null }));
     if (savedMsgTimer.current) clearTimeout(savedMsgTimer.current);
     try {
       const res = await fetch("/api/capture/flat-event", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: capture.text.trim(), now: nowRfc3339() })
+        body: JSON.stringify({ text: capture.text.trim(), now: localNowRfc3339() })
       });
       const body = (await res.json()) as { ok: boolean; data?: { captureStatus: string }; error?: { message: string } };
       if (!body.ok) throw new Error(body.error?.message ?? "캡처 실패");
       const msg = body.data?.captureStatus === "scheduled" ? "저장됐어" : "날짜 없이 저장됐어";
-      setCapture((c) => ({ ...c, text: "", submitting: false, savedMsg: msg }));
+      setCapture((c) => ({ ...c, text: "", submitting: false, savedMsg: msg, error: null }));
       savedMsgTimer.current = setTimeout(() => setCapture((c) => ({ ...c, savedMsg: null })), 4000);
       await loadData();
-    } catch {
-      setCapture((c) => ({ ...c, submitting: false, savedMsg: null }));
+    } catch (e) {
+      setCapture((c) => ({ ...c, submitting: false, savedMsg: null, error: e instanceof Error ? e.message : "캡처 실패" }));
     }
   }, [capture, loadData]);
 
@@ -152,8 +144,8 @@ export function InputHub() {
   const handleLoadCandidates = useCallback(async (eventId: number) => {
     setSlots((s) => ({ ...s, [eventId]: { tag: "loading" } }));
     try {
-      const now = nowRfc3339();
-      const date = todayDate();
+      const now = localNowRfc3339();
+      const date = localDateString();
       const res = await fetch(`/api/events/${eventId}/slot-candidates?date=${date}&now=${encodeURIComponent(now)}&days=7`);
       const body = (await res.json()) as { ok: boolean; data?: { candidates: SlotCandidate[] }; error?: { message: string } };
       if (!body.ok) throw new Error(body.error?.message ?? "후보 로딩 실패");
@@ -213,6 +205,9 @@ export function InputHub() {
       {capture.savedMsg && (
         <p className="today-capture-saved" role="status" aria-live="polite">{capture.savedMsg}</p>
       )}
+      {capture.error && (
+        <p className="input-error" role="alert">{capture.error}</p>
+      )}
     </section>
   );
 
@@ -254,7 +249,7 @@ export function InputHub() {
             value={form.eventForm.start.slice(0, 16)}
             onChange={(e) => {
               const v = e.target.value;
-              setForm((f) => ({ ...f, eventForm: { ...f.eventForm, start: v ? v + ":00+00:00" : "" } }));
+              setForm((f) => ({ ...f, eventForm: { ...f.eventForm, start: v ? datetimeLocalToRfc3339(v) : "" } }));
             }}
             aria-label="시작 시간"
             disabled={form.submitting}
@@ -265,7 +260,7 @@ export function InputHub() {
             value={form.eventForm.end.slice(0, 16)}
             onChange={(e) => {
               const v = e.target.value;
-              setForm((f) => ({ ...f, eventForm: { ...f.eventForm, end: v ? v + ":00+00:00" : "" } }));
+              setForm((f) => ({ ...f, eventForm: { ...f.eventForm, end: v ? datetimeLocalToRfc3339(v) : "" } }));
             }}
             aria-label="종료 시간"
             disabled={form.submitting}
