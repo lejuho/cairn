@@ -311,6 +311,145 @@ p {
   font-size: 1rem;
 }
 
+/* Add button */
+.today-add-btn {
+  min-height: 44px;
+  padding: 0 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.today-add-btn--cta {
+  margin-top: 20px;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Bottom sheet */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 48%);
+  z-index: 100;
+}
+
+.sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  max-height: 92dvh;
+  overflow-y: auto;
+  background: var(--surface);
+  border-radius: 20px 20px 0 0;
+  border-top: 1px solid var(--border);
+  padding: 20px 20px 40px;
+  z-index: 101;
+  transform: translateY(0);
+  transition: transform 200ms ease;
+}
+
+.sheet--entering {
+  animation: sheet-rise 200ms ease both;
+}
+
+@keyframes sheet-rise {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+.sheet-handle {
+  display: block;
+  width: 40px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  margin: 0 auto 20px;
+}
+
+.sheet-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.sheet-tab {
+  flex: 1;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background 0.1s, color 0.1s;
+}
+
+.sheet-tab--active {
+  background: var(--raised);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.sheet-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.sheet-label {
+  color: var(--muted);
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.sheet-input {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--raised);
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.sheet-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.sheet-submit {
+  width: 100%;
+  min-height: 52px;
+  margin-top: 8px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--on-accent);
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 600;
+  transition: opacity 0.1s;
+}
+
+.sheet-submit:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.sheet-error {
+  margin-top: 10px;
+  color: var(--cancelled);
+  font-size: 0.85rem;
+}
+
 /* Screen-reader only */
 .sr-only {
   position: absolute;

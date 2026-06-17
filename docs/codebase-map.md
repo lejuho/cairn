@@ -158,6 +158,7 @@ Entry and routing:
   - Owns loading, quiet, live, error states.
   - Fetches `/api/today`.
   - Calls task status patch and annotation intake endpoints.
+  - Manual intake bottom sheet (cycle 7): task + event creation via `POST /api/tasks` and `POST /api/events`. Sheet opens from quiet-state CTA and live-state "추가" button. `datetime-local` values serialized to RFC3339 with local timezone offset.
 - [web/vite.config.ts](/home/pi/cairn/web/vite.config.ts)
   - Local dev proxy forwards `/api` and `/health` to `http://localhost:3100`.
 - [web/src/styles.css](/home/pi/cairn/web/src/styles.css)
