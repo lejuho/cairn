@@ -134,11 +134,23 @@ Telegram env가 없거나 실패해도 `/health`, `/api/today`, annotation intak
 
 ## 프로덕션 배포 (cairn.lee-blog.me)
 
-배포 구조: Cloudflare Access + Tunnel → Caddy(`:8080`) → Fastify(`127.0.0.1:3100`)
+배포 구조: Cloudflare Access + Tunnel → Caddy(`:18080`) → Fastify(`127.0.0.1:3100`)
+Caddy 정적 root는 `/var/www/cairn`이다. `/home/pi` 권한 때문에 `web/dist`를 직접 serve하지 않는다.
+
+반복 재배포:
+
+```bash
+deploy/scripts/redeploy-production.sh
+```
+
+수동 절차:
 
 ```bash
 # 빌드
 corepack pnpm build
+sudo mkdir -p /var/www/cairn
+sudo rsync -a --delete /home/pi/cairn/web/dist/ /var/www/cairn/
+sudo chown -R caddy:caddy /var/www/cairn
 CAIRN_DB_PATH=/home/pi/cairn-data/cairn.sqlite3 corepack pnpm db:migrate
 
 # 서버 재시작
@@ -147,7 +159,7 @@ systemctl status cairn-server
 
 # 스모크 체크
 curl http://127.0.0.1:3100/health
-curl http://localhost:8080/health
+curl http://localhost:18080/health
 ```
 
 설정 파일 예시: `deploy/` 디렉터리 참조.

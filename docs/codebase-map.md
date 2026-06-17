@@ -182,14 +182,19 @@ Entry and routing:
 
 ## Deploy Artifacts (cycle 11)
 
-Production deployment shape: Cloudflare Access + Tunnel → Caddy (`:8080`) → Fastify (`127.0.0.1:3100`). No Docker.
+Production deployment shape: Cloudflare Access + Tunnel → Caddy (`:18080`) → Fastify (`127.0.0.1:3100`). No Docker.
 
 - `deploy/systemd/cairn-server.service.example`
   - systemd unit example. `ExecStart=/usr/bin/node /home/pi/cairn/server/dist/index.js`, `EnvironmentFile=/home/pi/cairn-data/cairn-server.env`, `Restart=on-failure`.
 - `deploy/env/cairn-server.env.example`
   - Environment variables: `HOST=127.0.0.1`, `PORT=3100`, `DB_PATH` (Fastify runtime), `CAIRN_DB_PATH` (Drizzle migration — must match `DB_PATH`). Both point to `/home/pi/cairn-data/cairn.sqlite3`. Keep outside repo. Never commit real values.
 - `deploy/caddy/Caddyfile.example`
-  - Caddy serves `web/dist` on `:8080`; `/api/*` and `/health` proxied to `127.0.0.1:3100`; `try_files {path} /index.html` fallback for SPA routes.
+  - Caddy serves published static files from `/var/www/cairn` on `:18080`; `/api/*` and `/health` proxied to `127.0.0.1:3100`; `try_files {path} /index.html` fallback for SPA routes. Do not serve `/home/pi/cairn/web/dist` directly because `/home/pi` may be `700` and cause Caddy 403.
+- `deploy/scripts/redeploy-production.sh`
+  - Repeatable production redeploy script. Runs pull, install, verify, build,
+    static publish to `/var/www/cairn`, Drizzle migration with
+    `CAIRN_DB_PATH`, systemd restart, Caddy reload, and local `/health` smoke
+    checks.
 - `docs/deployment-cloudflare-access.md`
   - Full deployment guide: architecture diagram, Cloudflare dashboard steps (user-owned), local config steps (repo-managed), build/migrate/restart procedure, smoke checklist, security boundary table.
 
