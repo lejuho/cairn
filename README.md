@@ -139,7 +139,7 @@ Telegram env가 없거나 실패해도 `/health`, `/api/today`, annotation intak
 ```bash
 # 빌드
 corepack pnpm build
-corepack pnpm db:migrate
+CAIRN_DB_PATH=/home/pi/cairn-data/cairn.sqlite3 corepack pnpm db:migrate
 
 # 서버 재시작
 sudo systemctl restart cairn-server

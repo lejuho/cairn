@@ -187,7 +187,7 @@ Production deployment shape: Cloudflare Access + Tunnel → Caddy (`:8080`) → 
 - `deploy/systemd/cairn-server.service.example`
   - systemd unit example. `ExecStart=/usr/bin/node /home/pi/cairn/server/dist/index.js`, `EnvironmentFile=/home/pi/cairn-data/cairn-server.env`, `Restart=on-failure`.
 - `deploy/env/cairn-server.env.example`
-  - Environment variables: `HOST=127.0.0.1`, `PORT=3100`, `DB_PATH=/home/pi/cairn-data/cairn.sqlite3`. Keep outside repo. Never commit real values.
+  - Environment variables: `HOST=127.0.0.1`, `PORT=3100`, `DB_PATH` (Fastify runtime), `CAIRN_DB_PATH` (Drizzle migration — must match `DB_PATH`). Both point to `/home/pi/cairn-data/cairn.sqlite3`. Keep outside repo. Never commit real values.
 - `deploy/caddy/Caddyfile.example`
   - Caddy serves `web/dist` on `:8080`; `/api/*` and `/health` proxied to `127.0.0.1:3100`; `try_files {path} /index.html` fallback for SPA routes.
 - `docs/deployment-cloudflare-access.md`
