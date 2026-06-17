@@ -99,6 +99,9 @@ Route layer:
 - [server/src/routes/annotations.ts](/home/pi/cairn/server/src/routes/annotations.ts)
   - `POST /api/events/:id/annotations`.
   - Raw annotation first, best-effort LLM parse second.
+- [server/src/routes/threads.ts](/home/pi/cairn/server/src/routes/threads.ts)
+  - `POST /api/threads`, `GET /api/threads`, `GET /api/threads/:id`.
+  - Deterministic. No LLM dependency. Returns thread detail with linked events/tasks and progress.
 
 Repository/service split:
 
@@ -160,6 +163,9 @@ Entry and routing:
   - Calls task status patch and annotation intake endpoints.
   - Manual intake bottom sheet (cycle 7): task + event creation via `POST /api/tasks` and `POST /api/events`. Sheet opens from quiet-state CTA and live-state "추가" button. `datetime-local` values serialized to RFC3339 with local timezone offset.
   - Daily timeline section (cycle 8): renders `dayEvents` from `GET /api/today` as a compact `오늘 일정` list. Active event marked via `Date.parse()` epoch comparison. Quiet state only when both cards and `dayEvents` are empty.
+  - Timeline events with `threadId` render as `<a href="/threads/:id">` links (cycle 9).
+- [web/src/Thread.tsx](/home/pi/cairn/web/src/Thread.tsx)
+  - Read-only `/threads/:id` spine (cycle 9). Loading/empty/live/error states. Header: name, goal, deadline, kind, progress chip. Spine split into future/past sections via `new Date()`. Event and task nodes. Null-start events sorted last.
 - [web/vite.config.ts](/home/pi/cairn/web/vite.config.ts)
   - Local dev proxy forwards `/api` and `/health` to `http://localhost:3100`.
 - [web/src/styles.css](/home/pi/cairn/web/src/styles.css)

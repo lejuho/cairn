@@ -564,4 +564,30 @@ describe("Today — daily timeline", () => {
     await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
     expect(screen.queryByRole("region", { name: "오늘 일정" })).not.toBeInTheDocument();
   });
+
+  it("event with threadId renders as link to /threads/:id", async () => {
+    const linkedEvent = { ...DAY_EVENT_A, threadId: 7 };
+    mockFetch({
+      ...BASE_SURFACE,
+      state: "live",
+      dayEvents: [linkedEvent],
+      cards: []
+    });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByRole("link", { name: "오전 회의" })).toBeInTheDocument());
+    expect(screen.getByRole("link", { name: "오전 회의" })).toHaveAttribute("href", "/threads/7");
+  });
+
+  it("event without threadId renders as plain text, not a link", async () => {
+    const unlinkedEvent = { ...DAY_EVENT_B, threadId: null };
+    mockFetch({
+      ...BASE_SURFACE,
+      state: "live",
+      dayEvents: [unlinkedEvent],
+      cards: []
+    });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByText("오후 미팅")).toBeInTheDocument());
+    expect(screen.queryByRole("link", { name: "오후 미팅" })).not.toBeInTheDocument();
+  });
 });

@@ -506,7 +506,16 @@ export function Today() {
                       {event.start?.slice(11, 16)}
                       {event.end ? ` — ${event.end.slice(11, 16)}` : ""}
                     </span>
-                    <span className="today-tl-title">{event.title}</span>
+                    {event.threadId != null ? (
+                      <a
+                        className="today-tl-title today-tl-link"
+                        href={`/threads/${event.threadId}`}
+                      >
+                        {event.title}
+                      </a>
+                    ) : (
+                      <span className="today-tl-title">{event.title}</span>
+                    )}
                     {event.location && (
                       <span className="today-tl-loc">{event.location}</span>
                     )}

@@ -311,6 +311,66 @@ p {
   font-size: 1rem;
 }
 
+/* Thread page */
+.thread-name {
+  margin: 4px 0 8px;
+  font-size: clamp(1.4rem, 6vw, 2rem);
+  line-height: 1.15;
+}
+
+.thread-goal {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.thread-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.thread-node--past {
+  opacity: 0.6;
+}
+
+.thread-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  list-style: none;
+}
+
+.thread-divider::before,
+.thread-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.thread-divider-label {
+  color: var(--faint);
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.today-tl-link {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.today-tl-link:hover {
+  text-decoration: underline;
+  color: var(--accent);
+}
+
 /* Daily timeline */
 .today-timeline {
   width: min(100%, 480px);

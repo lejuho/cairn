@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from "react";
+import { Thread } from "./Thread.js";
 import { Today } from "./Today.js";
 
 export function App() {
@@ -12,6 +13,13 @@ export function App() {
 
   if (path === "/" || path === "/today") {
     return <Today />;
+  }
+
+  if (path.startsWith("/threads/")) {
+    const id = parseInt(path.slice("/threads/".length), 10);
+    if (Number.isFinite(id) && id > 0) {
+      return <Thread id={id} />;
+    }
   }
 
   return (
