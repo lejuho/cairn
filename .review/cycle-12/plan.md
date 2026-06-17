@@ -3,7 +3,7 @@
 Branch: `feature/cycle-12-flat-quick-capture`
 Cycle: `12`
 Created: `2026-06-17`
-Skills: `backend-fastify, frontend-react-pwa`
+Skills: backend-fastify, frontend-react-pwa
 
 ## Summary
 
