@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Today } from "./Today.js";
-import type { EventDetailData, TodaySurface } from "@cairn/shared";
+import type { ConflictDecision, EventDetailData, TodaySurface } from "@cairn/shared";
 
 afterEach(() => {
   cleanup();
@@ -1229,5 +1229,152 @@ describe("Today — feasibility panel", () => {
     mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: feas });
     render(<Today />);
     await waitFor(() => expect(screen.getByText("초과")).toBeInTheDocument());
+  });
+});
+
+describe("Today — conflict decision sheet", () => {
+  const makeEvent = (id: number, title: string, start: string, end: string) => ({
+    id, title, start, end,
+    threadId: null, type: null, location: null,
+    source: "cairn" as const, selfImposed: 1,
+    status: "planned" as const,
+    createdAt: null, updatedAt: null
+  });
+
+  const eventA = makeEvent(1, "미팅 A", "2026-06-16T10:00:00+00:00", "2026-06-16T12:00:00+00:00");
+  const eventB = makeEvent(2, "미팅 B", "2026-06-16T11:00:00+00:00", "2026-06-16T13:00:00+00:00");
+
+  const CONFLICT: ConflictDecision = {
+    id: "1:2",
+    pair: { a: eventA, b: eventB },
+    overlapMinutes: 60,
+    urgency: "near",
+    options: [
+      {
+        event: eventA, action: "move_or_cancel",
+        cost: { money: 0, social: 0, effort: "none", window: null },
+        reversible: 1, commitment: 2,
+        suggested: false, reasonCodes: []
+      },
+      {
+        event: eventB, action: "move_or_cancel",
+        cost: { money: 5000, social: 2, effort: "high", window: null },
+        reversible: 0, commitment: 3,
+        suggested: true, reasonCodes: ["lower_cancel_cost"]
+      }
+    ]
+  };
+
+  const SURFACE_WITH_CONFLICT: TodaySurface = {
+    ...BASE_SURFACE, state: "live",
+    conflicts: [{ a: eventA, b: eventB }],
+    cards: [{ kind: "conflict", pair: { a: eventA, b: eventB } }]
+  };
+
+  function mockDecisionFetch(resolveOk = true) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        if (url.includes("/api/decisions/conflicts/resolve")) {
+          return Promise.resolve({
+            json: () =>
+              Promise.resolve(
+                resolveOk
+                  ? { ok: true, data: { changedEvent: { ...eventB, status: "moved" }, annotation: { id: 1, eventId: 2, outcome: "moved", reasonTags: '["conflict_resolution"]', reasonText: "conflict_resolution", energyAtTime: null, loggedAt: "" } } }
+                  : { ok: false, error: { code: "CONFLICT_STALE" } }
+              )
+          });
+        }
+        if (url.includes("/api/decisions/conflicts")) {
+          return Promise.resolve({
+            json: () => Promise.resolve({ ok: true, data: { conflicts: [CONFLICT] } })
+          });
+        }
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: SURFACE_WITH_CONFLICT }) });
+      })
+    );
+  }
+
+  it("conflict card opens decision sheet on click", async () => {
+    mockDecisionFetch();
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/충돌 해결/));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
+    expect(screen.getByText("미팅 A")).toBeInTheDocument();
+    expect(screen.getByText("미팅 B")).toBeInTheDocument();
+  });
+
+  it("sheet shows overlap summary and urgency", async () => {
+    mockDecisionFetch();
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/충돌 해결/));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
+    expect(screen.getByText(/겹침 60분/)).toBeInTheDocument();
+    expect(screen.getByText(/임박/)).toBeInTheDocument();
+  });
+
+  it("sheet shows cost chips", async () => {
+    mockDecisionFetch();
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/충돌 해결/));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
+    expect(screen.getByText(/5,000원/)).toBeInTheDocument();
+    expect(screen.getByText(/사회적/)).toBeInTheDocument();
+    expect(screen.getByText(/높음/)).toBeInTheDocument();
+  });
+
+  it("sheet shows 추천 badge on suggested option", async () => {
+    mockDecisionFetch();
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/충돌 해결/));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
+    expect(screen.getByText("추천")).toBeInTheDocument();
+  });
+
+  it("resolve action posts payload and refetches Today", async () => {
+    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
+      if ((opts?.method ?? "GET") === "POST" && String(url).includes("/resolve")) {
+        return Promise.resolve({
+          json: () => Promise.resolve({ ok: true, data: { changedEvent: { ...eventB, status: "moved" }, annotation: {} } })
+        });
+      }
+      if (String(url).includes("/api/decisions/conflicts")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { conflicts: [CONFLICT] } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: SURFACE_WITH_CONFLICT }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/충돌 해결/));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("미팅 B 이동 처리"));
+    await waitFor(() =>
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining("/api/decisions/conflicts/resolve"),
+        expect.objectContaining({ method: "POST" })
+      )
+    );
+    await waitFor(() =>
+      expect(fetchSpy.mock.calls.some(
+        (c) => typeof c[0] === "string" && c[0].includes("/api/today")
+      )).toBe(true)
+    );
+  });
+
+  it("failed resolve keeps sheet open and shows error", async () => {
+    mockDecisionFetch(false);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/충돌 해결/));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("미팅 B 이동 처리"));
+    await waitFor(() => expect(screen.getByText("충돌이 이미 해소됐어")).toBeInTheDocument());
+    expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument();
   });
 });

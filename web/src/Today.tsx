@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DayFeasibility, EventDetailData, SlotCandidate, ThreadSummary, TodaySurface } from "@cairn/shared";
+import type { ConflictDecision, DayFeasibility, EventDetailData, SlotCandidate, ThreadSummary, TodaySurface } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString } from "./dateUtils.js";
 
 type ReplyState = { text: string; error: string | null; submitting: boolean };
@@ -15,6 +15,10 @@ type SlotState =
   | { tag: "loaded"; candidates: SlotCandidate[] }
   | { tag: "error"; message: string };
 type SlotStateMap = Record<number, SlotState>;
+
+type ConflictSheetState =
+  | { open: false }
+  | { open: true; conflict: ConflictDecision; submitting: boolean; error: string | null };
 
 type SheetMode = "task" | "event";
 type TaskForm = { title: string; estMinutes: string; threadId: string };
@@ -155,6 +159,85 @@ function FeasibilityPanel({ f }: { f: DayFeasibility }) {
   );
 }
 
+function ConflictDecisionSheet({
+  conflict,
+  submitting,
+  error,
+  onResolve,
+  onClose
+}: {
+  conflict: ConflictDecision;
+  submitting: boolean;
+  error: string | null;
+  onResolve: (keepId: number, changeId: number, outcome: "moved" | "cancelled") => void;
+  onClose: () => void;
+}) {
+  const [optA, optB] = conflict.options;
+  const fmtTime = (s: string | null) => s?.slice(11, 16) ?? "?";
+  const fmtEffort: Record<string, string> = { none: "없음", low: "낮음", medium: "보통", high: "높음" };
+
+  return (
+    <div className="sheet-overlay" role="dialog" aria-modal="true" aria-label="충돌 해결">
+      <div className="sheet-panel">
+        <button className="sheet-close-btn" onClick={onClose} aria-label="닫기">✕</button>
+        <h2 className="sheet-title">충돌 해결</h2>
+        <p className="conflict-overlap">
+          겹침 {Math.round(conflict.overlapMinutes)}분 · {conflict.urgency === "near" ? "임박" : "계획 중"}
+        </p>
+        {[optA, optB].map((opt) => {
+          if (!opt) return null;
+          const other = opt === optA ? optB : optA;
+          if (!other) return null;
+          return (
+            <div key={opt.event.id} className={`conflict-option${opt.suggested ? " conflict-option--suggested" : ""}`}>
+              <div className="conflict-option-header">
+                <span className="conflict-option-title">{opt.event.title}</span>
+                <span className="conflict-option-time">
+                  {fmtTime(opt.event.start)} – {fmtTime(opt.event.end)}
+                </span>
+                {opt.suggested && <span className="conflict-suggested-badge" role="note">추천</span>}
+              </div>
+              <div className="conflict-costs" aria-label="취소 비용">
+                {opt.cost.money != null && opt.cost.money > 0 && (
+                  <span className="cost-chip cost-chip--money">💴 {opt.cost.money.toLocaleString()}원</span>
+                )}
+                {opt.cost.social != null && opt.cost.social > 0 && (
+                  <span className="cost-chip cost-chip--social">👥 사회적 {opt.cost.social}</span>
+                )}
+                {opt.cost.effort && opt.cost.effort !== "none" && (
+                  <span className="cost-chip cost-chip--effort">⚡ {fmtEffort[opt.cost.effort] ?? opt.cost.effort}</span>
+                )}
+                {opt.cost.money === 0 && opt.cost.social === 0 && (!opt.cost.effort || opt.cost.effort === "none") && (
+                  <span className="cost-chip cost-chip--zero">비용 없음</span>
+                )}
+              </div>
+              <div className="conflict-actions">
+                <button
+                  className="conflict-btn conflict-btn--move"
+                  disabled={submitting}
+                  onClick={() => onResolve(other.event.id, opt.event.id, "moved")}
+                  aria-label={`${opt.event.title} 이동 처리`}
+                >
+                  이동
+                </button>
+                <button
+                  className="conflict-btn conflict-btn--cancel"
+                  disabled={submitting}
+                  onClick={() => onResolve(other.event.id, opt.event.id, "cancelled")}
+                  aria-label={`${opt.event.title} 취소 처리`}
+                >
+                  취소
+                </button>
+              </div>
+            </div>
+          );
+        })}
+        {error && <p className="conflict-error" role="alert">{error}</p>}
+      </div>
+    </div>
+  );
+}
+
 export function Today() {
   const [view, setView] = useState<ViewState>({ tag: "loading" });
   const [replyState, setReplyState] = useState<Record<number, ReplyState>>({});
@@ -167,6 +250,7 @@ export function Today() {
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [eventDetail, setEventDetail] = useState<EventDetailState>({ tag: "idle" });
   const [detailNote, setDetailNote] = useState<DetailNoteState>({ text: "", submitting: false, error: null });
+  const [conflictSheet, setConflictSheet] = useState<ConflictSheetState>({ open: false });
   const savedMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firstInputRef = useRef<HTMLInputElement>(null);
 
@@ -376,6 +460,53 @@ export function Today() {
       setDetailNote((n) => ({ ...n, submitting: false, error: e instanceof Error ? e.message : "오류" }));
     }
   }, [selectedEventId, detailNote, refresh]);
+
+  const handleOpenConflictSheet = useCallback(async (pairId: string) => {
+    const date = localDateString();
+    const now = new Date().toISOString();
+    try {
+      const res = await fetch(`/api/decisions/conflicts?date=${date}&now=${encodeURIComponent(now)}`);
+      const body = (await res.json()) as { ok: boolean; data?: { conflicts: ConflictDecision[] } };
+      if (!body.ok) return;
+      const conflict = body.data?.conflicts.find((c) => c.id === pairId);
+      if (!conflict) return;
+      setConflictSheet({ open: true, conflict, submitting: false, error: null });
+    } catch {
+      // noop — don't open sheet on fetch failure
+    }
+  }, []);
+
+  const handleCloseConflictSheet = useCallback(() => {
+    setConflictSheet({ open: false });
+  }, []);
+
+  const handleResolveConflict = useCallback(async (
+    keepEventId: number,
+    changeEventId: number,
+    outcome: "moved" | "cancelled"
+  ) => {
+    if (!conflictSheet.open) return;
+    setConflictSheet((s) => s.open ? { ...s, submitting: true, error: null } : s);
+    try {
+      const res = await fetch("/api/decisions/conflicts/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keepEventId, changeEventId, outcome })
+      });
+      const body = (await res.json()) as { ok: boolean; error?: { code: string } };
+      if (!body.ok) {
+        const msg = body.error?.code === "CONFLICT_STALE" ? "충돌이 이미 해소됐어" : "처리 실패";
+        setConflictSheet((s) => s.open ? { ...s, submitting: false, error: msg } : s);
+        return;
+      }
+      setConflictSheet({ open: false });
+      await refresh();
+    } catch (e) {
+      setConflictSheet((s) =>
+        s.open ? { ...s, submitting: false, error: e instanceof Error ? e.message : "오류" } : s
+      );
+    }
+  }, [conflictSheet, refresh]);
 
   const eventDetailSheetEl = selectedEventId != null ? (
     <>
@@ -742,15 +873,22 @@ export function Today() {
           const delay = { animationDelay: `${i * 55}ms` } as React.CSSProperties;
 
           if (card.kind === "conflict") {
+            const pairId = [card.pair.a.id, card.pair.b.id].sort((x, y) => x - y).join(":");
             return (
               <li key={`conflict-${i}`} className="today-card today-card--conflict" style={delay}>
                 <span className="card-chip">충돌</span>
-                <p className="card-title">
-                  {card.pair.a.title} ↔ {card.pair.b.title}
-                </p>
-                <p className="card-meta">
-                  {card.pair.a.start?.slice(11, 16)} — {card.pair.b.end?.slice(11, 16)}
-                </p>
+                <button
+                  className="today-card-event-btn"
+                  aria-label={`충돌 해결: ${card.pair.a.title} ↔ ${card.pair.b.title}`}
+                  onClick={() => void handleOpenConflictSheet(pairId)}
+                >
+                  <p className="card-title">
+                    {card.pair.a.title} ↔ {card.pair.b.title}
+                  </p>
+                  <p className="card-meta">
+                    {card.pair.a.start?.slice(11, 16)} — {card.pair.b.end?.slice(11, 16)}
+                  </p>
+                </button>
               </li>
             );
           }
@@ -954,6 +1092,15 @@ export function Today() {
       </main>
       {sheetEl}
       {eventDetailSheetEl}
+      {conflictSheet.open && (
+        <ConflictDecisionSheet
+          conflict={conflictSheet.conflict}
+          submitting={conflictSheet.submitting}
+          error={conflictSheet.error}
+          onResolve={handleResolveConflict}
+          onClose={handleCloseConflictSheet}
+        />
+      )}
     </>
   );
 }

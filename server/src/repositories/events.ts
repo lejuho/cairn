@@ -198,3 +198,22 @@ export function findPlannedAndConfirmedByDate(
         (e.status === "planned" || e.status === "confirmed")
     ) as EventRow[];
 }
+
+export function findEventsWithCostsForDate(
+  db: CairnDatabase,
+  date: string
+): (typeof events.$inferSelect)[] {
+  return db
+    .select()
+    .from(events)
+    .orderBy(asc(events.start))
+    .all()
+    .filter((e) => e.start != null && e.start.startsWith(date));
+}
+
+export function findEventWithCosts(
+  db: CairnDatabase,
+  id: number
+): (typeof events.$inferSelect) | null {
+  return db.select().from(events).where(eq(events.id, id)).get() ?? null;
+}

@@ -1279,3 +1279,108 @@ p {
   background: color-mix(in srgb, var(--moved), transparent 88%);
   color: var(--text);
 }
+
+/* Conflict decision sheet */
+.conflict-overlap {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: 0 0 16px;
+}
+
+.conflict-option {
+  border: 1px solid var(--raised);
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.conflict-option--suggested {
+  border-color: var(--done);
+  background: color-mix(in srgb, var(--done), transparent 92%);
+}
+
+.conflict-option-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.conflict-option-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.conflict-option-time {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+}
+
+.conflict-suggested-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--done);
+  background: color-mix(in srgb, var(--done), transparent 80%);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.conflict-costs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.cost-chip {
+  font-size: 0.74rem;
+  border-radius: 6px;
+  padding: 3px 9px;
+  background: var(--raised);
+  color: var(--text);
+}
+
+.cost-chip--money { background: color-mix(in srgb, var(--cancelled), transparent 85%); }
+.cost-chip--social { background: color-mix(in srgb, var(--moved), transparent 85%); }
+.cost-chip--effort { background: color-mix(in srgb, var(--muted), transparent 80%); }
+.cost-chip--zero { color: var(--faint); }
+
+.conflict-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.conflict-btn {
+  flex: 1;
+  min-height: 44px;
+  border-radius: 8px;
+  border: none;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.conflict-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.conflict-btn--move {
+  background: color-mix(in srgb, var(--moved), transparent 80%);
+  color: var(--text);
+}
+
+.conflict-btn--cancel {
+  background: color-mix(in srgb, var(--cancelled), transparent 80%);
+  color: var(--text);
+}
+
+.conflict-error {
+  font-size: 0.82rem;
+  color: var(--cancelled);
+  margin-top: 8px;
+}

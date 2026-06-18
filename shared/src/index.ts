@@ -13,3 +13,4 @@ export * from "./watchers.js";
 export * from "./people.js";
 export * from "./eventDetail.js";
 export * from "./feasibility.js";
+export * from "./decision.js";

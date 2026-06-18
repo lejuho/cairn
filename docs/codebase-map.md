@@ -112,6 +112,9 @@ Route layer:
   - `GET /api/events/:id/slot-candidates?date&now&days` — deterministic 60-min conflict-free candidates. Always registered (no LLM dependency).
 - [server/src/routes/feasibility.ts](/home/pi/cairn/server/src/routes/feasibility.ts)
   - `GET /api/feasibility/day?date&now` — deterministic day-level gap check and energy gauge. No LLM dependency.
+- [server/src/routes/decisions.ts](/home/pi/cairn/server/src/routes/decisions.ts)
+  - `GET /api/decisions/conflicts?date&now` — deterministic conflict decisions with per-event cost breakdown and advisory suggestion.
+  - `POST /api/decisions/conflicts/resolve` — marks one event moved/cancelled; stale-overlap check inside transaction; inserts annotation ledger row. Returns 409 CONFLICT_STALE when events no longer overlap.
   - `PATCH /api/events/:id/schedule` — assigns `start`+`end` to an unscheduled Cairn event. Re-checks conflict; returns 409 on stale selection.
 - [server/src/routes/people.ts](/home/pi/cairn/server/src/routes/people.ts)
   - `GET /api/people` — list all people sorted by name.
@@ -126,6 +129,10 @@ Repository/service split:
   - [server/src/repositories/people.ts](/home/pi/cairn/server/src/repositories/people.ts) — findAllPeople, createPerson, findEventWithPeople, replaceEventPeople (transaction), findPeopleByIds.
 - [server/src/services/today.ts](/home/pi/cairn/server/src/services/today.ts)
   - Builds Today card surface and priority order. Now receives `DayFeasibility` and includes it in `TodaySurface`.
+- [server/src/services/decision.ts](/home/pi/cairn/server/src/services/decision.ts)
+  - Pure deterministic conflict decision service: detects overlapping planned/confirmed events by epoch ms, computes overlap minutes, urgency (near/planning), per-event cost extraction, internal score for suggestion ordering (never returned to client). No LLM dependency.
+- [server/src/repositories/annotations.ts](/home/pi/cairn/server/src/repositories/annotations.ts)
+  - `insertStructuredAnnotation` added: one-shot ledger insert with outcome+reasonTags+reasonText (used by conflict resolve).
 - [server/src/services/feasibility.ts](/home/pi/cairn/server/src/services/feasibility.ts)
   - Pure deterministic feasibility computation: energy load (duration-hours sum), adjacent gap classification (ok/tight/impossible), near/planning mode, continuous span check. No LLM dependency. Defaults: energyBudget=8, meetBuffer=15, deepBuffer=30, travelMargin=1, maxContinuous=600.
 - [server/src/repositories/params.ts](/home/pi/cairn/server/src/repositories/params.ts)

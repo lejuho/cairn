@@ -35,6 +35,23 @@ export function updateAnnotationStructured(
   return toRow(row!);
 }
 
+export function insertStructuredAnnotation(
+  db: CairnDatabase,
+  eventId: number,
+  fields: {
+    outcome: string;
+    reasonTags: string;
+    reasonText: string;
+  }
+): AnnotationRow {
+  const [row] = db
+    .insert(annotations)
+    .values({ eventId, outcome: fields.outcome, reasonTags: fields.reasonTags, reasonText: fields.reasonText, energyAtTime: null })
+    .returning()
+    .all();
+  return toRow(row!);
+}
+
 export function findAnnotationsByEvent(db: CairnDatabase, eventId: number): AnnotationRow[] {
   return db
     .select()
