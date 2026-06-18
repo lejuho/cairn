@@ -7,6 +7,13 @@ export function readParam(db: CairnDatabase, key: string): string | null {
   return row?.value ?? null;
 }
 
+export function readNumericParam(db: CairnDatabase, key: string, defaultValue: number): number {
+  const row = db.select().from(params).where(eq(params.key, key)).get();
+  if (!row || row.value == null || row.value.trim() === "") return defaultValue;
+  const parsed = Number(row.value);
+  return Number.isFinite(parsed) ? parsed : defaultValue;
+}
+
 export function upsertParam(db: CairnDatabase, key: string, value: string): void {
   db
     .insert(params)

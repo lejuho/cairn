@@ -2,6 +2,7 @@ import { z } from "zod";
 import { EventRowSchema } from "./events.js";
 import { TaskRowSchema } from "./tasks.js";
 import { WatcherRowSchema } from "./watchers.js";
+import { DayFeasibilitySchema } from "./feasibility.js";
 
 export const TodayQuerySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD"),
@@ -33,7 +34,8 @@ export const TodaySurfaceSchema = z.object({
       z.object({ kind: z.literal("needs_review"), event: EventRowSchema }),
       z.object({ kind: z.literal("schedule_prompt"), event: EventRowSchema })
     ])
-  )
+  ),
+  feasibility: DayFeasibilitySchema
 });
 
 export type TodayQuery = z.infer<typeof TodayQuerySchema>;

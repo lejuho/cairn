@@ -8,6 +8,15 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+const BASE_FEASIBILITY = {
+  date: "2026-06-16",
+  now: "2026-06-16T09:00:00.000Z",
+  params: { energyBudget: 8, meetBufferMinutes: 15, deepBufferMinutes: 30, travelMargin: 1, maxContinuousMinutes: 600 },
+  energy: { loadUnits: 0, budgetUnits: 8, remainingUnits: 8, deficit: false, confidence: "cold_start" as const },
+  gaps: [],
+  continuous: null
+};
+
 const BASE_SURFACE: TodaySurface = {
   date: "2026-06-16",
   now: "2026-06-16T09:00:00.000Z",
@@ -19,7 +28,8 @@ const BASE_SURFACE: TodaySurface = {
   needsReviewEvents: [],
   unscheduledEvents: [],
   dayEvents: [],
-  cards: []
+  cards: [],
+  feasibility: BASE_FEASIBILITY
 };
 
 function mockFetch(surface: TodaySurface) {
@@ -1124,5 +1134,100 @@ describe("Today — event detail sheet", () => {
     await waitFor(() => expect(screen.getByRole("dialog", { name: "일정 상세" })).toBeInTheDocument());
     const dialog = screen.getByRole("dialog", { name: "일정 상세" });
     expect(within(dialog).getByText("오후 미팅")).toBeInTheDocument();
+  });
+});
+
+describe("Today — feasibility panel", () => {
+  const FEAS_BASE = {
+    date: "2026-06-16", now: "2026-06-16T09:00:00.000Z",
+    params: { energyBudget: 8, meetBufferMinutes: 15, deepBufferMinutes: 30, travelMargin: 1, maxContinuousMinutes: 600 },
+    energy: { loadUnits: 3, budgetUnits: 8, remainingUnits: 5, deficit: false, confidence: "cold_start" as const },
+    gaps: [],
+    continuous: null
+  };
+
+  it("renders energy gauge in quiet state", async () => {
+    mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: FEAS_BASE });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("일정 부하")).toBeInTheDocument());
+    expect(screen.getByRole("meter", { name: /에너지 부하/ })).toBeInTheDocument();
+    expect(screen.getByText("3.0h / 8h")).toBeInTheDocument();
+  });
+
+  it("renders energy gauge in live state", async () => {
+    mockFetch({
+      ...BASE_SURFACE, state: "live",
+      feasibility: FEAS_BASE,
+      cards: []
+    });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("일정 부하")).toBeInTheDocument());
+    expect(screen.getByRole("meter")).toBeInTheDocument();
+  });
+
+  it("shows gap tight warning when status is tight", async () => {
+    const feas = {
+      ...FEAS_BASE,
+      gaps: [{
+        availableMinutes: 5, requiredMinutes: 15,
+        status: "tight" as const, mode: "near" as const,
+        reasonCodes: ["gap_tight"]
+      }]
+    };
+    mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: feas });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByText(/여유 부족/)).toBeInTheDocument());
+    expect(screen.getByText(/임박/)).toBeInTheDocument();
+  });
+
+  it("shows impossible gap warning when status is impossible", async () => {
+    const feas = {
+      ...FEAS_BASE,
+      gaps: [{
+        availableMinutes: -10, requiredMinutes: 15,
+        status: "impossible" as const, mode: "planning" as const,
+        reasonCodes: ["gap_impossible"]
+      }]
+    };
+    mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: feas });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByText(/겹침/)).toBeInTheDocument());
+    expect(screen.getByText(/10분 초과/)).toBeInTheDocument();
+  });
+
+  it("shows ok gaps without warning", async () => {
+    const feas = {
+      ...FEAS_BASE,
+      gaps: [{
+        availableMinutes: 30, requiredMinutes: 15,
+        status: "ok" as const, mode: "planning" as const,
+        reasonCodes: ["gap_ok"]
+      }]
+    };
+    mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: feas });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("일정 부하")).toBeInTheDocument());
+    expect(screen.queryByText(/여유 부족/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/겹침/)).not.toBeInTheDocument();
+  });
+
+  it("shows continuous warning when span exceeds max", async () => {
+    const feas = {
+      ...FEAS_BASE,
+      continuous: { spanMinutes: 700, exceedsMax: true }
+    };
+    mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: feas });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByText(/연속 700분/)).toBeInTheDocument());
+  });
+
+  it("shows deficit label when energy load exceeds budget", async () => {
+    const feas = {
+      ...FEAS_BASE,
+      energy: { loadUnits: 10, budgetUnits: 8, remainingUnits: -2, deficit: true, confidence: "cold_start" as const }
+    };
+    mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: feas });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByText("초과")).toBeInTheDocument());
   });
 });

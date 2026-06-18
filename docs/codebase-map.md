@@ -110,6 +110,8 @@ Route layer:
   - Returns `{ event, captureStatus: "scheduled"|"unscheduled"|"raw_stored", llmError? }`.
 - [server/src/routes/slots.ts](/home/pi/cairn/server/src/routes/slots.ts)
   - `GET /api/events/:id/slot-candidates?date&now&days` — deterministic 60-min conflict-free candidates. Always registered (no LLM dependency).
+- [server/src/routes/feasibility.ts](/home/pi/cairn/server/src/routes/feasibility.ts)
+  - `GET /api/feasibility/day?date&now` — deterministic day-level gap check and energy gauge. No LLM dependency.
   - `PATCH /api/events/:id/schedule` — assigns `start`+`end` to an unscheduled Cairn event. Re-checks conflict; returns 409 on stale selection.
 - [server/src/routes/people.ts](/home/pi/cairn/server/src/routes/people.ts)
   - `GET /api/people` — list all people sorted by name.
@@ -123,7 +125,11 @@ Repository/service split:
   - Direct DB queries for events, tasks, watchers, annotations, people.
   - [server/src/repositories/people.ts](/home/pi/cairn/server/src/repositories/people.ts) — findAllPeople, createPerson, findEventWithPeople, replaceEventPeople (transaction), findPeopleByIds.
 - [server/src/services/today.ts](/home/pi/cairn/server/src/services/today.ts)
-  - Builds Today card surface and priority order.
+  - Builds Today card surface and priority order. Now receives `DayFeasibility` and includes it in `TodaySurface`.
+- [server/src/services/feasibility.ts](/home/pi/cairn/server/src/services/feasibility.ts)
+  - Pure deterministic feasibility computation: energy load (duration-hours sum), adjacent gap classification (ok/tight/impossible), near/planning mode, continuous span check. No LLM dependency. Defaults: energyBudget=8, meetBuffer=15, deepBuffer=30, travelMargin=1, maxContinuous=600.
+- [server/src/repositories/params.ts](/home/pi/cairn/server/src/repositories/params.ts)
+  - `readParam`, `upsertParam`, `clearParam`. Added `readNumericParam` (Number + isFinite + blank-string guard, falls back to default).
 - [server/src/services/annotationIntake.ts](/home/pi/cairn/server/src/services/annotationIntake.ts)
   - Annotation intake transaction flow and fallback behavior.
 - [server/src/services/flatCapture.ts](/home/pi/cairn/server/src/services/flatCapture.ts)

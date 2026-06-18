@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { EventDetailData, SlotCandidate, ThreadSummary, TodaySurface } from "@cairn/shared";
+import type { DayFeasibility, EventDetailData, SlotCandidate, ThreadSummary, TodaySurface } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString } from "./dateUtils.js";
 
 type ReplyState = { text: string; error: string | null; submitting: boolean };
@@ -25,7 +25,7 @@ type SheetState =
 
 type ViewState =
   | { tag: "loading" }
-  | { tag: "quiet" }
+  | { tag: "quiet"; surface: TodaySurface }
   | { tag: "live"; surface: TodaySurface }
   | { tag: "error"; message: string };
 
@@ -122,6 +122,39 @@ async function createEvent(title: string, start: string, end: string, threadId?:
   if (!res.ok) throw new Error("일정 생성 실패");
 }
 
+function FeasibilityPanel({ f }: { f: DayFeasibility }) {
+  const { energy, gaps, continuous } = f;
+  const pct = Math.min(100, Math.round((energy.loadUnits / energy.budgetUnits) * 100));
+  const warningGaps = gaps.filter((g) => g.status !== "ok");
+  return (
+    <div className="feas-panel" aria-label="일정 부하">
+      <div className="feas-energy">
+        <span className="feas-energy-label">에너지</span>
+        <div className="feas-gauge" role="meter" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`에너지 부하 ${pct}%`}>
+          <div className={`feas-gauge-fill${energy.deficit ? " feas-gauge-fill--deficit" : ""}`} style={{ width: `${pct}%` }} />
+        </div>
+        <span className="feas-energy-val">{energy.loadUnits.toFixed(1)}h / {energy.budgetUnits}h</span>
+        {energy.deficit && <span className="feas-deficit" role="status">초과</span>}
+      </div>
+      <p className="feas-confidence">추정치 (cold start)</p>
+      {warningGaps.map((g, i) => (
+        <div key={i} className={`feas-gap feas-gap--${g.status}`} role="status">
+          {g.status === "impossible" ? "⚠ 겹침" : "⚠ 여유 부족"}{" "}
+          {g.availableMinutes < 0
+            ? `${Math.round(-g.availableMinutes)}분 초과`
+            : `${Math.round(g.availableMinutes)}분`}
+          {g.mode === "near" && " · 임박"}
+        </div>
+      ))}
+      {continuous?.exceedsMax && (
+        <div className="feas-continuous" role="status">
+          ⚠ 연속 {Math.round(continuous.spanMinutes)}분 — 쉬는 시간 없어
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Today() {
   const [view, setView] = useState<ViewState>({ tag: "loading" });
   const [replyState, setReplyState] = useState<Record<number, ReplyState>>({});
@@ -143,7 +176,7 @@ export function Today() {
       const surface = await loadSurface();
       setView(
         surface.state === "quiet"
-          ? { tag: "quiet" }
+          ? { tag: "quiet", surface }
           : { tag: "live", surface }
       );
     } catch (e) {
@@ -659,6 +692,7 @@ export function Today() {
           {capture.savedMsg && (
             <p className="today-capture-saved" role="status" aria-live="polite">{capture.savedMsg}</p>
           )}
+          <FeasibilityPanel f={view.surface.feasibility} />
         </main>
         {sheetEl}
         {eventDetailSheetEl}
@@ -702,6 +736,7 @@ export function Today() {
         {capture.savedMsg && (
           <p className="today-capture-saved" role="status" aria-live="polite">{capture.savedMsg}</p>
         )}
+        <FeasibilityPanel f={surface.feasibility} />
         <ul className="today-stack" role="list">
         {surface.cards.map((card, i) => {
           const delay = { animationDelay: `${i * 55}ms` } as React.CSSProperties;

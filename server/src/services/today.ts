@@ -1,4 +1,4 @@
-import type { ConflictPair, EventRow, TaskRow, TodaySurface, WatcherRow } from "@cairn/shared";
+import type { ConflictPair, DayFeasibility, EventRow, TaskRow, TodaySurface, WatcherRow } from "@cairn/shared";
 
 const SCHEDULE_PROMPT_LIMIT = 3;
 
@@ -9,7 +9,8 @@ export function buildTodaySurface(
   twoMinuteTasks: TaskRow[],
   watcherBubbles: WatcherRow[],
   needsReviewEvents: EventRow[],
-  unscheduledEvents: EventRow[]
+  unscheduledEvents: EventRow[],
+  feasibility: DayFeasibility
 ): TodaySurface {
   const nextEvent = findNextEvent(dayEvents, now);
   const conflicts = findConflicts(dayEvents);
@@ -27,7 +28,7 @@ export function buildTodaySurface(
   const state =
     cards.length === 0 && dayEvents.length === 0 ? "quiet" : "live";
 
-  return { date, now, state, nextEvent, conflicts, twoMinuteTasks, watcherBubbles, needsReviewEvents, unscheduledEvents, dayEvents, cards };
+  return { date, now, state, nextEvent, conflicts, twoMinuteTasks, watcherBubbles, needsReviewEvents, unscheduledEvents, dayEvents, cards, feasibility };
 }
 
 function findNextEvent(events: EventRow[], now: string): EventRow | null {
