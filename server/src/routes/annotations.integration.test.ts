@@ -41,7 +41,7 @@ function parsedGateway(parsed: object): LlmGateway {
       id: "test-1",
       object: "chat.completion" as const,
       created: 0,
-      model: "grok-beta",
+          model: "grok-3-mini",
       choices: [
         {
           index: 0,
@@ -164,7 +164,7 @@ describe("POST /api/events/:id/annotations — raw fallback", () => {
         id: "t1",
         object: "chat.completion" as const,
         created: 0,
-        model: "grok-beta",
+        model: "grok-3-mini",
         choices: [{ index: 0, message: { role: "assistant" as const, content: "not json at all" }, finish_reason: "stop" }]
       }
     }));

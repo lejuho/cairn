@@ -1,5 +1,6 @@
 import { FlatEventParseResultSchema, type FlatEventParseResult } from "@cairn/shared";
 import type { LlmGateway } from "./gateway.js";
+import { getLlmModel } from "./config.js";
 import { addMinutesToRfc3339 } from "../utils/rfc3339.js";
 
 export { addMinutesToRfc3339 };
@@ -27,7 +28,7 @@ export async function parseFlatEvent(
   timeZone: string
 ): Promise<ParseFlatEventResult> {
   const result = await gateway.completeChat({
-    model: "grok-3-mini",
+    model: getLlmModel(),
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: buildUserPrompt(text, now, timeZone) }

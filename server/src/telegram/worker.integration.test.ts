@@ -66,7 +66,7 @@ function parsedGateway(content: string): LlmGateway {
           id: "chatcmpl-1",
           object: "chat.completion",
           created: 1,
-          model: "grok-beta",
+          model: "grok-3-mini",
           choices: [
             {
               index: 0,

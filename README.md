@@ -102,6 +102,7 @@ corepack pnpm gcal:sync
 LLM 호출은 서버의 gateway를 통해서만 나간다.
 기본 proxy base URL은 `http://localhost:8000`이고, 배포 환경에서는
 `LLM_PROXY_BASE_URL`로 바꾼다.
+기본 모델은 `grok-3-mini`이며 `LLM_MODEL`로 바꿀 수 있다.
 
 proxy가 꺼져도 `/health`, `/api/today`, DB migration, deterministic logic은 계속 동작해야 한다.
 

@@ -136,6 +136,7 @@ External boundaries:
 - `server/src/llm/`
   - Only place server should touch Grok proxy contract.
   - [server/src/llm/gateway.ts](/home/pi/cairn/server/src/llm/gateway.ts) owns `/v1/chat/completions` boundary.
+  - [server/src/llm/config.ts](/home/pi/cairn/server/src/llm/config.ts) owns `LLM_MODEL` selection, defaulting to `grok-3-mini`.
 - `server/src/gcal/`
   - Google Calendar inbound-only sync.
   - Auth, client, event mapping, sync token behavior.

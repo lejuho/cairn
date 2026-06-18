@@ -1,5 +1,6 @@
 import { ParsedAnnotationSchema, type ParsedAnnotation } from "@cairn/shared";
 import type { LlmGateway } from "./gateway.js";
+import { getLlmModel } from "./config.js";
 
 export type ParseAnnotationResult =
   | { ok: true; data: ParsedAnnotation }
@@ -13,7 +14,7 @@ export async function parseAnnotationWithLlm(
   rawText: string
 ): Promise<ParseAnnotationResult> {
   const result = await gateway.completeChat({
-    model: "grok-beta",
+    model: getLlmModel(),
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: rawText }
