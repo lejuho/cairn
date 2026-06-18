@@ -11,3 +11,4 @@ export * from "./today.js";
 export * from "./slots.js";
 export * from "./watchers.js";
 export * from "./people.js";
+export * from "./eventDetail.js";

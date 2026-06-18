@@ -1,7 +1,7 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Today } from "./Today.js";
-import type { TodaySurface } from "@cairn/shared";
+import type { EventDetailData, TodaySurface } from "@cairn/shared";
 
 afterEach(() => {
   cleanup();
@@ -569,7 +569,7 @@ describe("Today — daily timeline", () => {
     expect(screen.queryByRole("region", { name: "오늘 일정" })).not.toBeInTheDocument();
   });
 
-  it("event with threadId renders as link to /threads/:id", async () => {
+  it("event with threadId renders title button and a thread ↗ link", async () => {
     const linkedEvent = { ...DAY_EVENT_A, threadId: 7 };
     mockFetch({
       ...BASE_SURFACE,
@@ -578,11 +578,12 @@ describe("Today — daily timeline", () => {
       cards: []
     });
     render(<Today />);
-    await waitFor(() => expect(screen.getByRole("link", { name: "오전 회의" })).toBeInTheDocument());
-    expect(screen.getByRole("link", { name: "오전 회의" })).toHaveAttribute("href", "/threads/7");
+    await waitFor(() => expect(screen.getByRole("button", { name: "오전 회의 상세 보기" })).toBeInTheDocument());
+    const threadLink = screen.getByRole("link", { name: "오전 회의 스레드" });
+    expect(threadLink).toHaveAttribute("href", "/threads/7");
   });
 
-  it("event without threadId renders as plain text, not a link", async () => {
+  it("event without threadId renders title button with no thread link", async () => {
     const unlinkedEvent = { ...DAY_EVENT_B, threadId: null };
     mockFetch({
       ...BASE_SURFACE,
@@ -591,8 +592,8 @@ describe("Today — daily timeline", () => {
       cards: []
     });
     render(<Today />);
-    await waitFor(() => expect(screen.getByText("오후 미팅")).toBeInTheDocument());
-    expect(screen.queryByRole("link", { name: "오후 미팅" })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "오후 미팅 상세 보기" })).toBeInTheDocument());
+    expect(screen.queryByRole("link", { name: "오후 미팅 스레드" })).not.toBeInTheDocument();
   });
 });
 
@@ -896,5 +897,177 @@ describe("Today — schedule prompt", () => {
     fireEvent.change(screen.getByLabelText("빠른 입력"), { target: { value: "내일 9시 회의" } });
     fireEvent.click(screen.getByLabelText("빠른 입력 저장"));
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining("flat-event"), expect.objectContaining({ method: "POST" })));
+  });
+});
+
+describe("Today — event detail sheet", () => {
+  const BASE_EVENT = {
+    id: 42, title: "팀 스프린트",
+    start: "2026-06-20T10:00:00+09:00", end: "2026-06-20T11:00:00+09:00",
+    threadId: null, type: null, location: null,
+    source: "cairn" as const, selfImposed: 1,
+    status: "planned" as const,
+    createdAt: null, updatedAt: null
+  };
+  const BASE_DETAIL: EventDetailData = {
+    event: BASE_EVENT,
+    people: [],
+    annotations: [],
+    thread: null
+  };
+  const BASE_SURFACE_LIVE: TodaySurface = {
+    ...BASE_SURFACE,
+    state: "live",
+    cards: [{ kind: "next_event", event: BASE_EVENT }]
+  };
+
+  function mockFetchWithDetail(detail = BASE_DETAIL, surface = BASE_SURFACE_LIVE) {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (typeof url === "string" && url.includes("/api/events/") && url.endsWith("/status") && opts?.method === "PATCH") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, data: { event: { ...detail.event, status: "done" } } }) });
+      }
+      if (typeof url === "string" && url.match(/\/api\/events\/\d+$/) && !opts?.method) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: detail }) });
+      }
+      if (typeof url === "string" && url.includes("/api/events/") && url.includes("/annotations")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, data: {} }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: surface }) });
+    }));
+  }
+
+  it("clicking next_event card fetches detail and opens sheet", async () => {
+    mockFetchWithDetail();
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("팀 스프린트 상세 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("팀 스프린트 상세 보기"));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "일정 상세" })).toBeInTheDocument());
+    const dialog = screen.getByRole("dialog", { name: "일정 상세" });
+    expect(within(dialog).getByText("팀 스프린트")).toBeInTheDocument();
+  });
+
+  it("detail sheet shows people list", async () => {
+    const detail = {
+      ...BASE_DETAIL,
+      people: [
+        { id: 1, name: "지수", relation: "팀원", channel: "kakao" as const },
+        { id: 2, name: "민준", relation: null, channel: "none" as const }
+      ]
+    };
+    mockFetchWithDetail(detail);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("팀 스프린트 상세 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("팀 스프린트 상세 보기"));
+    await waitFor(() => expect(screen.getByText("지수 (팀원)")).toBeInTheDocument());
+    expect(screen.getByText("민준")).toBeInTheDocument();
+  });
+
+  it("detail sheet shows annotations newest first", async () => {
+    const detail = {
+      ...BASE_DETAIL,
+      annotations: [
+        { id: 2, eventId: 42, outcome: null, reasonTags: null, reasonText: "최신 메모", energyAtTime: null, loggedAt: "" },
+        { id: 1, eventId: 42, outcome: null, reasonTags: null, reasonText: "이전 메모", energyAtTime: null, loggedAt: "" }
+      ]
+    };
+    mockFetchWithDetail(detail);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("팀 스프린트 상세 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("팀 스프린트 상세 보기"));
+    await waitFor(() => expect(screen.getByText("최신 메모")).toBeInTheDocument());
+    expect(screen.getByText("이전 메모")).toBeInTheDocument();
+  });
+
+  it("status buttons shown: done, cancelled, moved, late", async () => {
+    mockFetchWithDetail();
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("팀 스프린트 상세 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("팀 스프린트 상세 보기"));
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "상태: 완료" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "상태: 취소" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "상태: 이동" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "상태: 지연" })).toBeInTheDocument();
+  });
+
+  it("clicking status done calls PATCH and closes sheet", async () => {
+    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (typeof url === "string" && url.endsWith("/status") && opts?.method === "PATCH") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, data: { event: { ...BASE_EVENT, status: "done" } } }) });
+      }
+      if (typeof url === "string" && url.match(/\/api\/events\/\d+$/) && !opts?.method) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: BASE_DETAIL }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: BASE_SURFACE_LIVE }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("팀 스프린트 상세 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("팀 스프린트 상세 보기"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "상태: 완료" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "상태: 완료" }));
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining("/status"), expect.objectContaining({ method: "PATCH" })));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("note submission calls annotation endpoint and refetches detail", async () => {
+    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (typeof url === "string" && url.includes("/annotations") && opts?.method === "POST") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, data: {} }) });
+      }
+      if (typeof url === "string" && url.match(/\/api\/events\/\d+$/) && !opts?.method) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: BASE_DETAIL }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: BASE_SURFACE_LIVE }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("팀 스프린트 상세 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("팀 스프린트 상세 보기"));
+    await waitFor(() => expect(screen.getByLabelText("메모 입력")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("메모 입력"), { target: { value: "좋은 회의였어" } });
+    fireEvent.click(screen.getByLabelText("메모 제출"));
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining("/annotations"),
+      expect.objectContaining({ method: "POST" })
+    ));
+  });
+
+  it("backdrop click closes the detail sheet", async () => {
+    mockFetchWithDetail();
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("팀 스프린트 상세 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("팀 스프린트 상세 보기"));
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+    fireEvent.click(document.querySelector(".sheet-backdrop")!);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("clicking close button closes the detail sheet", async () => {
+    mockFetchWithDetail();
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("팀 스프린트 상세 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("팀 스프린트 상세 보기"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "닫기" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "닫기" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("timeline event click opens detail sheet", async () => {
+    const tl_event = { ...BASE_EVENT, id: 99, title: "오후 미팅" };
+    const detail = { ...BASE_DETAIL, event: tl_event };
+    const surface: TodaySurface = { ...BASE_SURFACE, state: "live", dayEvents: [tl_event], cards: [] };
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (typeof url === "string" && url.match(/\/api\/events\/\d+$/) && !opts?.method) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: detail }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: surface }) });
+    }));
+    render(<Today />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "오후 미팅 상세 보기" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "오후 미팅 상세 보기" }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "일정 상세" })).toBeInTheDocument());
+    const dialog = screen.getByRole("dialog", { name: "일정 상세" });
+    expect(within(dialog).getByText("오후 미팅")).toBeInTheDocument();
   });
 });

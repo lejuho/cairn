@@ -1002,3 +1002,176 @@ p {
   cursor: pointer;
   min-height: 44px;
 }
+
+/* Event detail bottom sheet */
+.sheet-close-btn {
+  position: sticky;
+  top: 0;
+  align-self: flex-end;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  min-height: 44px;
+  min-width: 44px;
+  z-index: 1;
+}
+
+.event-detail-loading {
+  color: var(--muted);
+  font-size: 0.9rem;
+  padding: 16px 0;
+}
+
+.event-detail-header {
+  margin-bottom: 16px;
+}
+
+.event-detail-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 4px;
+}
+
+.event-detail-time {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  margin: 0 0 4px;
+}
+
+.event-detail-thread {
+  font-size: 0.8rem;
+  color: var(--accent);
+  margin: 0;
+}
+
+.event-detail-section-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--faint);
+  margin: 0 0 8px;
+}
+
+.event-detail-people {
+  margin-bottom: 16px;
+}
+
+.event-detail-people-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.event-detail-person {
+  font-size: 0.85rem;
+  color: var(--text);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 4px 10px;
+}
+
+.event-detail-actions {
+  margin-bottom: 16px;
+}
+
+.event-detail-status-btns {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.event-status-btn {
+  min-height: 44px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--raised);
+  color: var(--text);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.event-status-btn:hover {
+  background: color-mix(in srgb, var(--accent), transparent 85%);
+  border-color: var(--accent);
+}
+
+.event-status-btn--active {
+  background: color-mix(in srgb, var(--accent), transparent 75%);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.event-detail-annotations {
+  margin-bottom: 16px;
+}
+
+.event-detail-annot-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.event-detail-annot {
+  font-size: 0.85rem;
+  color: var(--muted);
+  padding: 6px 10px;
+  background: var(--raised);
+  border-radius: 6px;
+  border-left: 2px solid var(--border);
+}
+
+.event-detail-note-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* Today card event button (next_event tap target) */
+.today-card-event-btn {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.today-card-event-btn .card-title {
+  color: var(--text);
+}
+
+.today-card-event-btn .card-meta {
+  color: var(--muted);
+}
+
+/* Timeline button (replaces span for tappability) */
+.today-tl-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.today-tl-btn:hover {
+  text-decoration: underline;
+  color: var(--accent);
+}

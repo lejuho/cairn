@@ -88,7 +88,9 @@ Data layer:
 Route layer:
 
 - [server/src/routes/events.ts](/home/pi/cairn/server/src/routes/events.ts)
-  - Local event creation APIs.
+  - `POST /api/events` — event creation with optional personIds (transactional).
+  - `GET /api/events/:id` — event detail: event + people + annotations (newest-first) + compact thread.
+  - `PATCH /api/events/:id/status` — status update (planned/confirmed/done/cancelled/moved/late). Deterministic; no LLM.
 - [server/src/routes/tasks.ts](/home/pi/cairn/server/src/routes/tasks.ts)
   - Task creation and status patch APIs.
 - [server/src/routes/watchers.ts](/home/pi/cairn/server/src/routes/watchers.ts)
@@ -175,6 +177,8 @@ Contracts by domain:
   - Lowercase persisted enum values and related constants.
 - [shared/src/people.ts](/home/pi/cairn/shared/src/people.ts)
   - `PersonChannelSchema` (none|kakao|sms|email|telegram), `PersonRowSchema`, `CreatePersonRequestSchema`, `EventPeopleResponseSchema`, `ReplaceEventPeopleRequestSchema`.
+- [shared/src/eventDetail.ts](/home/pi/cairn/shared/src/eventDetail.ts)
+  - `CompactThreadSchema`, `EventDetailDataSchema` (event+people+annotations+thread), `PatchEventStatusRequestSchema`, `PatchEventStatusResponseDataSchema`.
 
 Rule: when server and web disagree on payload shape, fix shared first.
 
@@ -204,8 +208,9 @@ Entry and routing:
   - Calls task status patch and annotation intake endpoints.
   - Manual intake bottom sheet (cycle 7): task + event creation via `POST /api/tasks` and `POST /api/events`. Sheet opens from quiet-state CTA and live-state "추가" button. `datetime-local` values serialized to RFC3339 with local timezone offset.
   - Daily timeline section (cycle 8): renders `dayEvents` from `GET /api/today` as a compact `오늘 일정` list. Active event marked via `Date.parse()` epoch comparison. Quiet state only when both cards and `dayEvents` are empty.
-  - Timeline events with `threadId` render as `<a href="/threads/:id">` links (cycle 9).
+  - Timeline events: title rendered as a `<button>` that opens the event detail sheet (cycle 16). Events with `threadId` additionally show an `↗` thread link.
   - Schedule prompt (cycle 13): `schedule_prompt` cards rendered in live stack after `needs_review`. "날짜 잡기" button fetches `GET /api/events/:id/slot-candidates`. Up to 3 candidate buttons shown; tap calls `PATCH /api/events/:id/schedule` then refetches Today. Error state keeps card visible with local message.
+  - Event detail bottom sheet (cycle 16): `selectedEventId` state; tap on `next_event` card or timeline event opens sheet via `GET /api/events/:id`. Shows title, time, thread name, people list, annotations (newest-first), outcome status buttons (done/cancelled/moved/late), note input. Status PATCH calls `PATCH /api/events/:id/status` then closes sheet + refetches. Note submit calls `POST /api/events/:id/annotations` then refetches detail.
   - Quick capture (cycle 12): compact one-line input shown in quiet and live states. Posts `POST /api/capture/flat-event` with `{text, now}`. Refetches Today on success. Shows "날짜 없이 저장됐어" for `raw_stored`/`unscheduled` outcomes (auto-clears after 4 s). Empty submit is client-side rejected.
   - Thread picker (cycle 10): `GET /api/threads` fetched lazily on bottom sheet open. Optional `<select>` shown when threads exist; `threadId` sent as number in `POST /api/tasks` or `POST /api/events`. Degrades gracefully when thread list fetch fails.
 - [web/src/ThreadIndex.tsx](/home/pi/cairn/web/src/ThreadIndex.tsx)

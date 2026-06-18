@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import type { AnnotationRow } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import { annotations } from "../db/schema.js";
@@ -33,6 +33,16 @@ export function updateAnnotationStructured(
     .returning()
     .all();
   return toRow(row!);
+}
+
+export function findAnnotationsByEvent(db: CairnDatabase, eventId: number): AnnotationRow[] {
+  return db
+    .select()
+    .from(annotations)
+    .where(eq(annotations.eventId, eventId))
+    .orderBy(desc(annotations.id))
+    .all()
+    .map(toRow);
 }
 
 function toRow(row: typeof annotations.$inferSelect): AnnotationRow {

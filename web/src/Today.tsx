@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { SlotCandidate, ThreadSummary, TodaySurface } from "@cairn/shared";
+import type { EventDetailData, SlotCandidate, ThreadSummary, TodaySurface } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString } from "./dateUtils.js";
 
 type ReplyState = { text: string; error: string | null; submitting: boolean };
+type EventDetailState =
+  | { tag: "idle" }
+  | { tag: "loading" }
+  | { tag: "loaded"; data: EventDetailData }
+  | { tag: "error"; message: string };
+type DetailNoteState = { text: string; submitting: boolean; error: string | null };
 type SlotState =
   | { tag: "idle" }
   | { tag: "loading" }
@@ -89,6 +95,22 @@ async function flatCapture(text: string): Promise<QuickCaptureResult> {
   return body.data!;
 }
 
+async function fetchEventDetail(id: number): Promise<EventDetailData> {
+  const res = await fetch(`/api/events/${id}`);
+  const body = (await res.json()) as { ok: boolean; data?: EventDetailData; error?: { message: string } };
+  if (!body.ok) throw new Error(body.error?.message ?? "불러오기 실패");
+  return body.data!;
+}
+
+async function patchStatus(id: number, status: string): Promise<void> {
+  const res = await fetch(`/api/events/${id}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status })
+  });
+  if (!res.ok) throw new Error("상태 변경 실패");
+}
+
 async function createEvent(title: string, start: string, end: string, threadId?: number): Promise<void> {
   const payload: Record<string, unknown> = { title, start, end };
   if (threadId != null) payload.threadId = threadId;
@@ -109,6 +131,9 @@ export function Today() {
   const [capture, setCapture] = useState<{ text: string; submitting: boolean; savedMsg: string | null }>({
     text: "", submitting: false, savedMsg: null
   });
+  const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
+  const [eventDetail, setEventDetail] = useState<EventDetailState>({ tag: "idle" });
+  const [detailNote, setDetailNote] = useState<DetailNoteState>({ text: "", submitting: false, error: null });
   const savedMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firstInputRef = useRef<HTMLInputElement>(null);
 
@@ -275,6 +300,137 @@ export function Today() {
     },
     [refresh]
   );
+
+  const handleCloseEventDetail = useCallback(() => {
+    setSelectedEventId(null);
+    setEventDetail({ tag: "idle" });
+    setDetailNote({ text: "", submitting: false, error: null });
+  }, []);
+
+  const handleOpenEventDetail = useCallback(async (id: number) => {
+    setSelectedEventId(id);
+    setEventDetail({ tag: "loading" });
+    setDetailNote({ text: "", submitting: false, error: null });
+    try {
+      const data = await fetchEventDetail(id);
+      setEventDetail({ tag: "loaded", data });
+    } catch (e) {
+      setEventDetail({ tag: "error", message: e instanceof Error ? e.message : "오류" });
+    }
+  }, []);
+
+  const handlePatchStatus = useCallback(async (status: string) => {
+    if (selectedEventId == null) return;
+    try {
+      await patchStatus(selectedEventId, status);
+      handleCloseEventDetail();
+      await refresh();
+    } catch {
+      // noop — sheet stays open
+    }
+  }, [selectedEventId, handleCloseEventDetail, refresh]);
+
+  const handleDetailNote = useCallback(async () => {
+    if (selectedEventId == null || detailNote.submitting || !detailNote.text.trim()) return;
+    setDetailNote((n) => ({ ...n, submitting: true, error: null }));
+    try {
+      await submitAnnotation(selectedEventId, detailNote.text);
+      setDetailNote({ text: "", submitting: false, error: null });
+      const data = await fetchEventDetail(selectedEventId);
+      setEventDetail({ tag: "loaded", data });
+    } catch (e) {
+      setDetailNote((n) => ({ ...n, submitting: false, error: e instanceof Error ? e.message : "오류" }));
+    }
+  }, [selectedEventId, detailNote]);
+
+  const eventDetailSheetEl = selectedEventId != null ? (
+    <>
+      <div className="sheet-backdrop" aria-hidden="true" onClick={handleCloseEventDetail} />
+      <div role="dialog" aria-modal="true" aria-label="일정 상세" className="sheet sheet--entering">
+        <span className="sheet-handle" aria-hidden="true" />
+        <button className="sheet-close-btn" onClick={handleCloseEventDetail} aria-label="닫기">✕</button>
+        {eventDetail.tag === "loading" && <p className="event-detail-loading">불러오는 중…</p>}
+        {eventDetail.tag === "error" && <p className="sheet-error" role="alert">{eventDetail.message}</p>}
+        {eventDetail.tag === "loaded" && (
+          <>
+            <div className="event-detail-header">
+              <p className="event-detail-title">{eventDetail.data.event.title}</p>
+              {(eventDetail.data.event.start || eventDetail.data.event.end) && (
+                <p className="event-detail-time">
+                  {eventDetail.data.event.start?.slice(11, 16)}
+                  {eventDetail.data.event.end ? ` — ${eventDetail.data.event.end.slice(11, 16)}` : ""}
+                </p>
+              )}
+              {eventDetail.data.thread && (
+                <p className="event-detail-thread">{eventDetail.data.thread.name}</p>
+              )}
+            </div>
+            {eventDetail.data.people.length > 0 && (
+              <div className="event-detail-people">
+                <p className="event-detail-section-label">참석자</p>
+                <ul className="event-detail-people-list" role="list">
+                  {eventDetail.data.people.map((p) => (
+                    <li key={p.id} className="event-detail-person">
+                      {p.name}{p.relation ? ` (${p.relation})` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="event-detail-actions">
+              <p className="event-detail-section-label">결과</p>
+              <div className="event-detail-status-btns">
+                {(["done", "cancelled", "moved", "late"] as const).map((s) => (
+                  <button
+                    key={s}
+                    className={`event-status-btn${eventDetail.data.event.status === s ? " event-status-btn--active" : ""}`}
+                    onClick={() => void handlePatchStatus(s)}
+                    aria-label={`상태: ${s === "done" ? "완료" : s === "cancelled" ? "취소" : s === "moved" ? "이동" : "지연"}`}
+                    aria-pressed={eventDetail.data.event.status === s}
+                  >
+                    {s === "done" ? "완료" : s === "cancelled" ? "취소" : s === "moved" ? "이동" : "지연"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {eventDetail.data.annotations.length > 0 && (
+              <div className="event-detail-annotations">
+                <p className="event-detail-section-label">메모</p>
+                <ul className="event-detail-annot-list" role="list">
+                  {eventDetail.data.annotations.map((a) => (
+                    <li key={a.id} className="event-detail-annot">{a.reasonText}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <form
+              className="event-detail-note-form"
+              onSubmit={(e) => { e.preventDefault(); void handleDetailNote(); }}
+              aria-label="메모 추가"
+            >
+              <input
+                className="today-reply-input"
+                value={detailNote.text}
+                onChange={(e) => setDetailNote((n) => ({ ...n, text: e.target.value }))}
+                disabled={detailNote.submitting}
+                placeholder="메모 추가"
+                aria-label="메모 입력"
+              />
+              <button
+                type="submit"
+                className="today-submit-btn"
+                disabled={detailNote.submitting || !detailNote.text.trim()}
+                aria-label="메모 제출"
+              >
+                {detailNote.submitting ? "…" : "→"}
+              </button>
+            </form>
+            {detailNote.error && <p className="sheet-error" role="alert">{detailNote.error}</p>}
+          </>
+        )}
+      </div>
+    </>
+  ) : null;
 
   const sheetEl = sheet.open ? (
     <>
@@ -504,6 +660,7 @@ export function Today() {
           )}
         </main>
         {sheetEl}
+        {eventDetailSheetEl}
       </>
     );
   }
@@ -576,10 +733,16 @@ export function Today() {
             return (
               <li key={`next_event-${i}`} className="today-card today-card--event" style={delay}>
                 <span className="card-chip">다음 일정</span>
-                <p className="card-title">{card.event.title}</p>
-                <p className="card-meta">
-                  {card.event.start?.slice(11, 16)} — {card.event.end?.slice(11, 16)}
-                </p>
+                <button
+                  className="today-card-event-btn"
+                  onClick={() => void handleOpenEventDetail(card.event.id)}
+                  aria-label={`${card.event.title} 상세 보기`}
+                >
+                  <p className="card-title">{card.event.title}</p>
+                  <p className="card-meta">
+                    {card.event.start?.slice(11, 16)} — {card.event.end?.slice(11, 16)}
+                  </p>
+                </button>
               </li>
             );
           }
@@ -715,15 +878,21 @@ export function Today() {
                       {event.start?.slice(11, 16)}
                       {event.end ? ` — ${event.end.slice(11, 16)}` : ""}
                     </span>
-                    {event.threadId != null ? (
+                    <button
+                      className="today-tl-title today-tl-btn"
+                      onClick={() => void handleOpenEventDetail(event.id)}
+                      aria-label={`${event.title} 상세 보기`}
+                    >
+                      {event.title}
+                    </button>
+                    {event.threadId != null && (
                       <a
-                        className="today-tl-title today-tl-link"
+                        className="today-tl-link"
                         href={`/threads/${event.threadId}`}
+                        aria-label={`${event.title} 스레드`}
                       >
-                        {event.title}
+                        ↗
                       </a>
-                    ) : (
-                      <span className="today-tl-title">{event.title}</span>
                     )}
                     {event.location && (
                       <span className="today-tl-loc">{event.location}</span>
@@ -736,6 +905,7 @@ export function Today() {
         )}
       </main>
       {sheetEl}
+      {eventDetailSheetEl}
     </>
   );
 }
