@@ -46,3 +46,18 @@ None found.
 <!-- RESOLVED-BOUNDARY · 위=Codex immutable, 아래=Executor append-only · check-resolved-immutable.sh가 강제 -->
 
 ## RESOLVED (Executor 응답, 파일 끝에 append)
+
+### Issue Classification
+- ISSUE-1: APPLY
+
+### Applied
+
+RESOLVED: ISSUE-1 — replace mixed-offset test data with timestamps where string order ≠ epoch order
+
+- `server/src/routes/feasibility.integration.test.ts:302`: replaced test events
+  - A: `2026-06-20T00:30:00-10:00` (10:30Z, string-first), ends `02:30-10:00` (12:30Z)
+  - B: `2026-06-20T09:00:00+09:00` (00:00Z, string-second), ends `10:00+09:00` (01:00Z)
+  - String sort (old): A first → gap = B.start(00:00Z) − A.end(12:30Z) = −750 min → "impossible" → test fails ✅ (catches bug)
+  - Epoch sort (new): B first → gap = A.start(10:30Z) − B.end(01:00Z) = 570 min → "ok" → test passes ✅
+
+자동 체크: test:integration ✅ (192 tests) / verify ✅

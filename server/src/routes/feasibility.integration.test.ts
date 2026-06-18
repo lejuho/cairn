@@ -301,21 +301,25 @@ describe("GET /api/feasibility/day — edge cases", () => {
 
   it("sorts mixed-offset events by epoch ms, not string, for gap math", async () => {
     const conn = makeTestDb();
-    // A at 11:00 UTC+00 = 11:00Z, B at 09:30 UTC+09 = 00:30Z.
-    // String order: A ("...11:00:00+00:00") > B ("...09:30:00+09:00") → A would come last.
-    // Epoch order: B starts at 00:30Z, A starts at 11:00Z → B comes first chronologically.
-    // Insert A (string-first), then B (string-second) to expose the bug when string sort is used.
+    // A: 2026-06-20T00:30:00-10:00  → epoch 10:30Z  (string-first: "00:30" < "09:00")
+    // B: 2026-06-20T09:00:00+09:00  → epoch 00:00Z  (string-second)
+    //
+    // String sort puts A first, B second:
+    //   gap = B.start(00:00Z) − A.end(12:30Z) = −750 min → would be "impossible" (wrong)
+    // Epoch sort puts B first (00:00Z), A second (10:30Z):
+    //   gap = A.start(10:30Z) − B.end(01:00Z) = 570 min → "ok" (correct)
+    //
+    // With the old localeCompare implementation this test would fail.
     conn.sqlite
-      .prepare("INSERT INTO events (title, start, end, source, self_imposed, status) VALUES ('A', '2026-06-20T11:00:00+00:00', '2026-06-20T12:00:00+00:00', 'cairn', 1, 'planned')")
+      .prepare("INSERT INTO events (title, start, end, source, self_imposed, status) VALUES ('A', '2026-06-20T00:30:00-10:00', '2026-06-20T02:30:00-10:00', 'cairn', 1, 'planned')")
       .run();
     conn.sqlite
-      .prepare("INSERT INTO events (title, start, end, source, self_imposed, status) VALUES ('B', '2026-06-20T09:30:00+09:00', '2026-06-20T10:30:00+09:00', 'cairn', 1, 'planned')")
+      .prepare("INSERT INTO events (title, start, end, source, self_imposed, status) VALUES ('B', '2026-06-20T09:00:00+09:00', '2026-06-20T10:00:00+09:00', 'cairn', 1, 'planned')")
       .run();
-    // B ends at 01:30Z, A starts at 11:00Z → gap = 9.5h → ok
     const res = await get(conn, "2026-06-20T00:00:00+00:00");
     expect(res.statusCode).toBe(200);
     const { gaps } = res.json().data;
-    // Exactly one gap between B (ends 01:30Z) and A (starts 11:00Z): ~570 min available → ok
+    // One gap: B ends 01:00Z, A starts 10:30Z → ~570 min → ok
     expect(gaps).toHaveLength(1);
     expect(gaps[0].availableMinutes).toBeGreaterThan(500);
     expect(gaps[0].status).toBe("ok");
