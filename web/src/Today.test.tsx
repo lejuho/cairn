@@ -485,6 +485,31 @@ describe("Today — needs_review card", () => {
     // Card still visible
     expect(screen.getByText("팀 회의 — 어떻게 됐어?")).toBeInTheDocument();
   });
+
+  it("clicking the title opens the event detail sheet without breaking the reply form", async () => {
+    const liveSurface: TodaySurface = {
+      ...BASE_SURFACE, state: "live",
+      needsReviewEvents: [REVIEW_EVENT],
+      cards: [{ kind: "needs_review", event: REVIEW_EVENT }]
+    };
+    const detail: EventDetailData = {
+      event: REVIEW_EVENT, people: [], annotations: [], thread: null
+    };
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (typeof url === "string" && url.match(/\/api\/events\/\d+$/) && !opts?.method) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: detail }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: liveSurface }) });
+    }));
+
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("팀 회의 메모")).toBeInTheDocument());
+    // reply form still present alongside the new title button
+    expect(screen.getByLabelText("팀 회의 메모 제출")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "팀 회의 상세 보기" }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "일정 상세" })).toBeInTheDocument());
+  });
 });
 
 const DAY_EVENT_A = {
@@ -884,6 +909,25 @@ describe("Today — schedule prompt", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("서버 오류");
   });
 
+  it("clicking the title opens the event detail sheet without breaking the slot button", async () => {
+    const detail: EventDetailData = {
+      event: UNSCHEDULED_EVENT, people: [], annotations: [], thread: null
+    };
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (typeof url === "string" && url.match(/\/api\/events\/\d+$/) && !opts?.method) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: detail }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: surfaceWithPrompt() }) });
+    }));
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("독서 날짜 잡기")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "독서 상세 보기" }));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "일정 상세" })).toBeInTheDocument());
+    // slot button still available behind the sheet
+    expect(screen.getByLabelText("독서 날짜 잡기")).toBeInTheDocument();
+  });
+
   it("quick capture regression — still works with unscheduled events present", async () => {
     const fetchSpy = vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
       if ((url as string).includes("flat-event") && opts?.method === "POST") {
@@ -1010,7 +1054,8 @@ describe("Today — event detail sheet", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
-  it("note submission calls annotation endpoint and refetches detail", async () => {
+  it("note submission calls annotation endpoint and refetches detail and Today", async () => {
+    let todayCalls = 0;
     const fetchSpy = vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
       if (typeof url === "string" && url.includes("/annotations") && opts?.method === "POST") {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, data: {} }) });
@@ -1018,11 +1063,15 @@ describe("Today — event detail sheet", () => {
       if (typeof url === "string" && url.match(/\/api\/events\/\d+$/) && !opts?.method) {
         return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: BASE_DETAIL }) });
       }
+      if (typeof url === "string" && url.includes("/api/today")) {
+        todayCalls++;
+      }
       return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: BASE_SURFACE_LIVE }) });
     });
     vi.stubGlobal("fetch", fetchSpy);
     render(<Today />);
     await waitFor(() => expect(screen.getByLabelText("팀 스프린트 상세 보기")).toBeInTheDocument());
+    const todayCallsBeforeNote = todayCalls;
     fireEvent.click(screen.getByLabelText("팀 스프린트 상세 보기"));
     await waitFor(() => expect(screen.getByLabelText("메모 입력")).toBeInTheDocument());
     fireEvent.change(screen.getByLabelText("메모 입력"), { target: { value: "좋은 회의였어" } });
@@ -1031,6 +1080,12 @@ describe("Today — event detail sheet", () => {
       expect.stringContaining("/annotations"),
       expect.objectContaining({ method: "POST" })
     ));
+    // detail refetch (single-arg fetch call)
+    await waitFor(() => expect(fetchSpy.mock.calls.some(
+      (c) => typeof c[0] === "string" && /\/api\/events\/\d+$/.test(c[0]) && c[1] === undefined
+    )).toBe(true));
+    // Today surface refetch happened after the note save
+    await waitFor(() => expect(todayCalls).toBeGreaterThan(todayCallsBeforeNote));
   });
 
   it("backdrop click closes the detail sheet", async () => {

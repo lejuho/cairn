@@ -78,6 +78,22 @@ describe("GET /api/events/:id", () => {
     expect(body.data.annotations[0].reasonText).toBe("두 번째 메모");
   });
 
+  it("returns attached people sorted by name then id", async () => {
+    const conn = makeTestDb();
+    const eventId = insertEvent(conn, "정렬 테스트");
+    // Insert in non-sorted order; ids ascend with insertion (charlie=1, alice=2, bob=3).
+    const charlie = insertPerson(conn, "charlie");
+    const alice = insertPerson(conn, "alice");
+    const bob = insertPerson(conn, "bob");
+    for (const pid of [charlie, alice, bob]) {
+      conn.sqlite.prepare("INSERT INTO event_people (event_id, person_id) VALUES (?, ?)").run(eventId, pid);
+    }
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "GET", url: `/api/events/${eventId}` });
+    const body = JSON.parse(res.body);
+    expect(body.data.people.map((p: { name: string }) => p.name)).toEqual(["alice", "bob", "charlie"]);
+  });
+
   it("returns compact thread when event has threadId", async () => {
     const conn = makeTestDb();
     const threadId = insertThread(conn, "프로젝트 A");

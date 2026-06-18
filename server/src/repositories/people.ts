@@ -35,6 +35,7 @@ export function findEventWithPeople(db: CairnDatabase, eventId: number): EventPe
     .from(eventPeople)
     .innerJoin(people, eq(eventPeople.personId, people.id))
     .where(eq(eventPeople.eventId, eventId))
+    .orderBy(asc(people.name), asc(people.id))
     .all() as PersonRow[];
   return { event: event as EventPeopleResponse["event"], people: personRows };
 }

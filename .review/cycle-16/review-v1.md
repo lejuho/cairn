@@ -51,3 +51,25 @@ None found.
 <!-- RESOLVED-BOUNDARY · 위=Codex immutable, 아래=Executor append-only · check-resolved-immutable.sh가 강제 -->
 
 ## RESOLVED (Executor 응답, 파일 끝에 append)
+
+### Issue Classification
+- ISSUE-1: APPLY
+- ISSUE-2: APPLY
+- ISSUE-3: APPLY
+
+### Applied
+
+RESOLVED: ISSUE-1 — Sheet note save now refetches Today as well as event detail.
+- `web/src/Today.tsx`: `handleDetailNote` awaits `fetchEventDetail` then `await refresh()` (sequential, so detail confirms persistence before Today refetch). `refresh` added to deps.
+- `web/src/Today.test.tsx`: note-submission test now asserts annotation POST, detail refetch, and `/api/today` surface refetch all occur after save.
+
+RESOLVED: ISSUE-2 — needs-review and schedule-prompt event titles open the detail sheet.
+- `web/src/Today.tsx`: title text in both cards wrapped in a `today-card-title-btn` button calling `handleOpenEventDetail(card.event.id)`. The reply form (needs_review) and slot-candidate buttons (schedule_prompt) remain separate siblings, not nested inside the button — no nested-interactive / event-capture conflict.
+- `web/src/styles.css`: added `today-card-title-btn` reset rule mirroring `today-card-event-btn`.
+- `web/src/Today.test.tsx`: two new tests assert each title opens the `일정 상세` dialog while the reply form / slot button stay present and functional.
+
+RESOLVED: ISSUE-3 — Event detail people sorted by name then id.
+- `server/src/repositories/people.ts`: `findEventWithPeople` attached-people query now has `.orderBy(asc(people.name), asc(people.id))` (matches `findAllPeople`).
+- `server/src/routes/events.integration.test.ts`: new test inserts charlie/alice/bob in non-sorted insertion order and asserts output order `[alice, bob, charlie]`.
+
+자동 체크: corepack pnpm verify ✅ (lint + typecheck + web unit 106 + integration 14 + build) / git diff --check ✅

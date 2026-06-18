@@ -338,10 +338,11 @@ export function Today() {
       setDetailNote({ text: "", submitting: false, error: null });
       const data = await fetchEventDetail(selectedEventId);
       setEventDetail({ tag: "loaded", data });
+      await refresh();
     } catch (e) {
       setDetailNote((n) => ({ ...n, submitting: false, error: e instanceof Error ? e.message : "오류" }));
     }
-  }, [selectedEventId, detailNote]);
+  }, [selectedEventId, detailNote, refresh]);
 
   const eventDetailSheetEl = selectedEventId != null ? (
     <>
@@ -768,10 +769,16 @@ export function Today() {
             return (
               <li key={`review-${card.event.id}`} className="today-card today-card--review" style={delay}>
                 <span className="card-chip">기록</span>
-                <p className="card-title">{card.event.title} — 어떻게 됐어?</p>
-                <p className="card-meta">
-                  {card.event.start?.slice(11, 16)} — {card.event.end?.slice(11, 16)}
-                </p>
+                <button
+                  className="today-card-title-btn"
+                  onClick={() => void handleOpenEventDetail(card.event.id)}
+                  aria-label={`${card.event.title} 상세 보기`}
+                >
+                  <span className="card-title">{card.event.title} — 어떻게 됐어?</span>
+                  <span className="card-meta">
+                    {card.event.start?.slice(11, 16)} — {card.event.end?.slice(11, 16)}
+                  </span>
+                </button>
                 <form
                   className="today-reply-form"
                   onSubmit={(e) => {
@@ -819,7 +826,13 @@ export function Today() {
             return (
               <li key={`slot-${card.event.id}`} className="today-card today-card--slot" style={delay}>
                 <span className="card-chip">날짜</span>
-                <p className="card-title">날짜 잡을까? — {card.event.title}</p>
+                <button
+                  className="today-card-title-btn"
+                  onClick={() => void handleOpenEventDetail(card.event.id)}
+                  aria-label={`${card.event.title} 상세 보기`}
+                >
+                  <span className="card-title">날짜 잡을까? — {card.event.title}</span>
+                </button>
                 {ss.tag === "idle" && (
                   <button
                     className="today-slot-btn"

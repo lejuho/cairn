@@ -1159,6 +1159,25 @@ p {
   color: var(--muted);
 }
 
+.today-card-title-btn {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.today-card-title-btn .card-title {
+  color: var(--text);
+}
+
+.today-card-title-btn .card-meta {
+  display: block;
+  color: var(--muted);
+}
+
 /* Timeline button (replaces span for tappability) */
 .today-tl-btn {
   background: none;
