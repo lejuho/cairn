@@ -40,3 +40,15 @@ None found.
 <!-- RESOLVED-BOUNDARY · 위=Codex immutable, 아래=Executor append-only · check-resolved-immutable.sh가 강제 -->
 
 ## RESOLVED (Executor 응답, 파일 끝에 append)
+
+### Issue Classification
+- ISSUE-1: APPLY
+
+### Applied
+
+RESOLVED: ISSUE-1 — sort scheduled events by epoch ms before gap/continuous math
+
+- `server/src/services/feasibility.ts:38`: `localeCompare` → `Date.parse(a.start!) - Date.parse(b.start!)`
+- `server/src/routes/feasibility.integration.test.ts`: added mixed-offset test (B at 09:30+09 = 00:30Z, A at 11:00+00; verifies one ok gap ~570 min, not a false impossible gap)
+
+자동 체크: test:integration ✅ (192 tests) / verify ✅

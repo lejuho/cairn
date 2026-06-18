@@ -35,7 +35,7 @@ export function computeDayFeasibility(
       e.end != null &&
       e.start.startsWith(date)
     )
-    .sort((a, b) => a.start!.localeCompare(b.start!));
+    .sort((a, b) => Date.parse(a.start!) - Date.parse(b.start!));
 
   const energy = computeEnergy(scheduled, p);
   const gaps = computeGaps(scheduled, now, p);
