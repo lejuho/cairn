@@ -9,7 +9,9 @@ import { createTelegramClient, type TelegramClient, type TelegramUpdate } from "
 
 const OFFSET_KEY = "telegram.offset";
 const DEFAULT_POLL_TIMEOUT_SECONDS = 20;
-const ERROR_BACKOFF_MS = 1_000;
+const DEFAULT_ERROR_BACKOFF_MS = 1_000;
+const DEFAULT_ERROR_BACKOFF_MAX_MS = 60_000;
+const DEFAULT_ERROR_LOG_THROTTLE_MS = 60_000;
 
 export type TelegramWorker = {
   pollOnce: () => Promise<void>;
@@ -24,12 +26,24 @@ export function createTelegramWorker(input: {
   chatId: string;
   now?: () => Date;
   pollTimeoutSeconds?: number;
+  errorBackoffMs?: number;
+  errorBackoffMaxMs?: number;
+  errorLogThrottleMs?: number;
+  nowMs?: () => number;
+  sleepMs?: (ms: number) => Promise<void>;
   logError?: (error: unknown) => void;
 }): TelegramWorker {
   const now = input.now ?? (() => new Date());
+  const nowMs = input.nowMs ?? (() => Date.now());
+  const sleepMs = input.sleepMs ?? sleep;
   const pollTimeoutSeconds = input.pollTimeoutSeconds ?? DEFAULT_POLL_TIMEOUT_SECONDS;
+  const errorBackoffMs = input.errorBackoffMs ?? DEFAULT_ERROR_BACKOFF_MS;
+  const errorBackoffMaxMs = input.errorBackoffMaxMs ?? DEFAULT_ERROR_BACKOFF_MAX_MS;
+  const errorLogThrottleMs = input.errorLogThrottleMs ?? DEFAULT_ERROR_LOG_THROTTLE_MS;
   const logError = input.logError ?? ((error) => console.error("[telegram]", error));
   let stopped = false;
+  let currentErrorBackoffMs = errorBackoffMs;
+  let lastErrorLogAtMs: number | null = null;
 
   return {
     async pollOnce() {
@@ -58,10 +72,24 @@ export function createTelegramWorker(input: {
       while (!stopped) {
         try {
           await this.pollOnce();
+          currentErrorBackoffMs = errorBackoffMs;
+          lastErrorLogAtMs = null;
         } catch (error) {
-          logError(error);
+          const currentTimeMs = nowMs();
+          if (
+            lastErrorLogAtMs === null ||
+            errorLogThrottleMs <= 0 ||
+            currentTimeMs - lastErrorLogAtMs >= errorLogThrottleMs
+          ) {
+            logError(error);
+            lastErrorLogAtMs = currentTimeMs;
+          }
           if (!stopped) {
-            await sleep(ERROR_BACKOFF_MS);
+            await sleepMs(currentErrorBackoffMs);
+            currentErrorBackoffMs = Math.min(
+              errorBackoffMaxMs,
+              Math.max(errorBackoffMs, currentErrorBackoffMs * 2)
+            );
           }
         }
       }
@@ -96,11 +124,29 @@ export function createTelegramWorkerFromEnv(input: {
     gateway: input.gateway,
     client: input.fetchImpl
       ? createTelegramClient({ botToken, fetchImpl: input.fetchImpl })
-      : createTelegramClient({ botToken }),
+      : createTelegramClient({ botToken, forceIpv4: process.env.TELEGRAM_FORCE_IPV4 === "1" }),
     chatId,
+    pollTimeoutSeconds: readPositiveIntegerEnv("TELEGRAM_POLL_TIMEOUT_SECONDS", DEFAULT_POLL_TIMEOUT_SECONDS),
+    errorBackoffMs: readPositiveIntegerEnv("TELEGRAM_ERROR_BACKOFF_MS", DEFAULT_ERROR_BACKOFF_MS),
+    errorBackoffMaxMs: readPositiveIntegerEnv("TELEGRAM_ERROR_BACKOFF_MAX_MS", DEFAULT_ERROR_BACKOFF_MAX_MS),
+    errorLogThrottleMs: readNonNegativeIntegerEnv("TELEGRAM_ERROR_LOG_THROTTLE_MS", DEFAULT_ERROR_LOG_THROTTLE_MS),
     ...(input.now === undefined ? {} : { now: input.now }),
     ...(input.logError === undefined ? {} : { logError: input.logError })
   });
+}
+
+function readPositiveIntegerEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readNonNegativeIntegerEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 async function maybeSendReviewPrompt(

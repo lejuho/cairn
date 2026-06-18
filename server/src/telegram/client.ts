@@ -1,3 +1,5 @@
+import { request as httpsRequest } from "node:https";
+import type { IncomingHttpHeaders } from "node:http";
 import { z } from "zod";
 
 const TelegramResponseEnvelopeSchema = z.object({
@@ -61,8 +63,9 @@ export type TelegramClient = {
 export function createTelegramClient(input: {
   botToken: string;
   fetchImpl?: typeof fetch;
+  forceIpv4?: boolean;
 }): TelegramClient {
-  const fetchImpl = input.fetchImpl ?? fetch;
+  const fetchImpl = input.fetchImpl ?? (input.forceIpv4 === true ? fetchIpv4 : fetch);
   const baseUrl = `https://api.telegram.org/bot${input.botToken}`;
 
   return {
@@ -134,4 +137,77 @@ export function createTelegramClient(input: {
       return { messageId: parsed.data.result.message_id };
     }
   };
+}
+
+function fetchIpv4(
+  input: Parameters<typeof fetch>[0],
+  init?: Parameters<typeof fetch>[1]
+): Promise<Response> {
+  const url = new URL(String(input));
+  const method = init?.method ?? "GET";
+  const headers = normalizeRequestHeaders(init?.headers);
+  const body = normalizeRequestBody(init?.body);
+
+  return new Promise((resolve, reject) => {
+    const req = httpsRequest(
+      url,
+      {
+        method,
+        family: 4,
+        headers,
+        timeout: 30_000
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          resolve(new Response(Buffer.concat(chunks), {
+            status: res.statusCode ?? 500,
+            headers: normalizeResponseHeaders(res.headers)
+          }));
+        });
+      }
+    );
+
+    req.on("timeout", () => {
+      req.destroy(new Error("Telegram IPv4 request timed out"));
+    });
+    req.on("error", reject);
+    if (body !== undefined) {
+      req.write(body);
+    }
+    req.end();
+  });
+}
+
+function normalizeRequestHeaders(headers: HeadersInit | undefined): Record<string, string> {
+  if (headers === undefined) return {};
+  const normalized: Record<string, string> = {};
+  new Headers(headers).forEach((value, key) => {
+    normalized[key] = value;
+  });
+  return normalized;
+}
+
+function normalizeRequestBody(body: BodyInit | null | undefined): string | Buffer | undefined {
+  if (body === null || body === undefined) return undefined;
+  if (typeof body === "string") return body;
+  if (body instanceof URLSearchParams) return body.toString();
+  if (body instanceof ArrayBuffer) return Buffer.from(body);
+  if (ArrayBuffer.isView(body)) {
+    return Buffer.from(body.buffer, body.byteOffset, body.byteLength);
+  }
+  throw new TypeError("Telegram IPv4 fetch only supports buffered request bodies");
+}
+
+function normalizeResponseHeaders(headers: IncomingHttpHeaders): Headers {
+  const normalized = new Headers();
+  for (const [key, value] of Object.entries(headers)) {
+    if (Array.isArray(value)) {
+      for (const item of value) normalized.append(key, item);
+    } else if (value !== undefined) {
+      normalized.set(key, String(value));
+    }
+  }
+  return normalized;
 }

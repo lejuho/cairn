@@ -113,12 +113,18 @@ Telegram long polling worker는 env가 켜진 경우에만 서버 부팅 중 같
 TELEGRAM_POLL_ENABLED=1 \
 TELEGRAM_BOT_TOKEN=<bot-token> \
 TELEGRAM_CHAT_ID=<chat-id> \
+TELEGRAM_FORCE_IPV4=1 \
+TELEGRAM_POLL_TIMEOUT_SECONDS=20 \
 DB_PATH=/home/pi/cairn/cairn.sqlite3 \
 corepack pnpm --filter @cairn/server dev
 ```
 
 Telegram env가 없거나 실패해도 `/health`, `/api/today`, annotation intake, GCal sync는
 계속 동작해야 한다.
+반복 timeout이 나면 worker는 지수 backoff와 로그 throttle을 적용한다.
+조정값은 `TELEGRAM_ERROR_BACKOFF_MS`, `TELEGRAM_ERROR_BACKOFF_MAX_MS`,
+`TELEGRAM_ERROR_LOG_THROTTLE_MS`로 바꿀 수 있다.
+`curl -4`는 되는데 Node `fetch`가 `ETIMEDOUT`이면 `TELEGRAM_FORCE_IPV4=1`을 둔다.
 
 ## 주요 화면과 API
 

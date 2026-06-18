@@ -142,6 +142,9 @@ External boundaries:
 - `server/src/telegram/`
   - Telegram Bot API client and long-poll worker for real needs-review prompts.
   - Uses `params` for offset/dedupe/message mapping state.
+  - Operational env: `TELEGRAM_POLL_ENABLED`, `TELEGRAM_BOT_TOKEN`,
+    `TELEGRAM_CHAT_ID`, `TELEGRAM_FORCE_IPV4`, `TELEGRAM_POLL_TIMEOUT_SECONDS`,
+    and error backoff/log-throttle knobs.
 - `server/scripts/`
   - One-shot operational entrypoints such as `gcal:auth` and `gcal:sync`.
 

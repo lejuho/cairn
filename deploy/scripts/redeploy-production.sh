@@ -40,14 +40,25 @@ run() {
 check_health() {
   local url="$1"
   local body
+  local attempt
 
-  body="$(curl -fsS "$url")"
-  printf '%s\n' "$body"
+  for attempt in $(seq 1 30); do
+    if body="$(curl -fsS "$url" 2>/dev/null)"; then
+      printf '%s\n' "$body"
 
-  if [[ "$body" != *'"ok":true'* ]]; then
-    printf 'Health check failed: %s did not return ok=true\n' "$url" >&2
-    exit 1
-  fi
+      if [[ "$body" == *'"ok":true'* ]]; then
+        return 0
+      fi
+
+      printf 'Health check failed: %s did not return ok=true\n' "$url" >&2
+      exit 1
+    fi
+
+    sleep 1
+  done
+
+  printf 'Health check failed: %s did not respond after 30s\n' "$url" >&2
+  exit 1
 }
 
 SKIP_PULL=0

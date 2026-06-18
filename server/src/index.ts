@@ -29,7 +29,24 @@ if (isMain) {
     void telegramWorker.start().catch((error) => {
       console.error("[telegram]", error);
     });
-    process.once("SIGINT", () => telegramWorker.stop());
-    process.once("SIGTERM", () => telegramWorker.stop());
   }
+
+  let shuttingDown = false;
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    telegramWorker?.stop();
+    try {
+      await app.close();
+    } finally {
+      connection.sqlite.close();
+    }
+  };
+
+  process.once("SIGINT", () => {
+    void shutdown().finally(() => process.exit(0));
+  });
+  process.once("SIGTERM", () => {
+    void shutdown().finally(() => process.exit(0));
+  });
 }

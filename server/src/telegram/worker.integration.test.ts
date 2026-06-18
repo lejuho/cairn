@@ -26,6 +26,10 @@ afterEach(async () => {
   delete process.env.TELEGRAM_POLL_ENABLED;
   delete process.env.TELEGRAM_BOT_TOKEN;
   delete process.env.TELEGRAM_CHAT_ID;
+  delete process.env.TELEGRAM_POLL_TIMEOUT_SECONDS;
+  delete process.env.TELEGRAM_ERROR_BACKOFF_MS;
+  delete process.env.TELEGRAM_ERROR_BACKOFF_MAX_MS;
+  delete process.env.TELEGRAM_ERROR_LOG_THROTTLE_MS;
 });
 
 function insertEndedEvent(
@@ -111,6 +115,19 @@ class MockTelegramClient implements TelegramClient {
     this.sentMessages.push(input);
     this.nextMessageId += 1;
     return { messageId: this.nextMessageId };
+  }
+}
+
+class FailingTelegramClient implements TelegramClient {
+  getUpdatesCalls = 0;
+
+  async getUpdates(): Promise<TelegramUpdate[]> {
+    this.getUpdatesCalls += 1;
+    throw new TypeError("fetch failed");
+  }
+
+  async sendMessage(): Promise<{ messageId: number }> {
+    throw new Error("sendMessage should not be called");
   }
 }
 
@@ -358,6 +375,72 @@ describe("Telegram worker: env absent", () => {
     });
     expect(today.statusCode).toBe(200);
     expect(today.json().data.needsReviewEvents[0].id).toBe(eventId);
+    conn.sqlite.close();
+  });
+});
+
+describe("Telegram worker: operations resilience", () => {
+  it("backs off exponentially and throttles repeated poll errors", async () => {
+    const conn = makeTestDb();
+    const client = new FailingTelegramClient();
+    const logError = vi.fn();
+    const sleeps: number[] = [];
+    let clockMs = 0;
+    const holder: { worker?: ReturnType<typeof createTelegramWorker> } = {};
+
+    const worker = createTelegramWorker({
+      db: conn.db,
+      gateway: parsedGateway("{\"reasonTags\":[]}"),
+      client,
+      chatId: "1234",
+      pollTimeoutSeconds: 0,
+      errorBackoffMs: 10,
+      errorBackoffMaxMs: 40,
+      errorLogThrottleMs: 25,
+      nowMs: () => clockMs,
+      sleepMs: async (ms) => {
+        sleeps.push(ms);
+        clockMs += ms;
+        if (sleeps.length >= 4) holder.worker?.stop();
+      },
+      logError
+    });
+    holder.worker = worker;
+
+    await worker.start();
+
+    expect(client.getUpdatesCalls).toBe(4);
+    expect(sleeps).toEqual([10, 20, 40, 40]);
+    expect(logError).toHaveBeenCalledTimes(3);
+    conn.sqlite.close();
+  });
+
+  it("reads TELEGRAM_POLL_TIMEOUT_SECONDS from env", async () => {
+    const conn = makeTestDb();
+    process.env.TELEGRAM_POLL_ENABLED = "1";
+    process.env.TELEGRAM_BOT_TOKEN = "test-token";
+    process.env.TELEGRAM_CHAT_ID = "1234";
+    process.env.TELEGRAM_POLL_TIMEOUT_SECONDS = "7";
+
+    const urls: string[] = [];
+    const fetchImpl = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      urls.push(String(input));
+      return new Response(JSON.stringify({ ok: true, result: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }) as unknown as typeof fetch;
+
+    const worker = createTelegramWorkerFromEnv({
+      db: conn.db,
+      gateway: parsedGateway("{\"reasonTags\":[]}"),
+      fetchImpl
+    });
+
+    expect(worker).not.toBeNull();
+    await worker!.pollOnce();
+
+    expect(urls[0]!).toContain("timeout=7");
     conn.sqlite.close();
   });
 });
