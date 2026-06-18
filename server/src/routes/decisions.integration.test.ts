@@ -284,8 +284,65 @@ describe("POST /api/decisions/conflicts/resolve — behavior", () => {
     const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T11:00:00+09:00");
     const idB = insertEvent(conn, "2026-06-20T12:00:00+09:00", "2026-06-20T13:00:00+09:00");
     await resolve(conn, { keepEventId: idA, changeEventId: idB, outcome: "moved" });
-    // Verify idB is still planned
     const row = conn.sqlite.prepare("SELECT status FROM events WHERE id = ?").get(idB) as { status: string };
     expect(row.status).toBe("planned");
+  });
+
+  // ISSUE-1: stale status check
+  it("returns 409 CONFLICT_STALE when changeEvent already moved/cancelled", async () => {
+    const conn = makeTestDb();
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
+    const idB = insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00", "moved");
+    const res = await resolve(conn, { keepEventId: idA, changeEventId: idB, outcome: "cancelled" });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("CONFLICT_STALE");
+  });
+
+  it("returns 409 CONFLICT_STALE when keepEvent already cancelled", async () => {
+    const conn = makeTestDb();
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00", "cancelled");
+    const idB = insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const res = await resolve(conn, { keepEventId: idA, changeEventId: idB, outcome: "moved" });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("CONFLICT_STALE");
+  });
+
+  // ISSUE-2: same event id rejected
+  it("returns 400 when keepEventId and changeEventId are the same", async () => {
+    const conn = makeTestDb();
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
+    const res = await resolve(conn, { keepEventId: idA, changeEventId: idA, outcome: "moved" });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
+  });
+});
+
+// ISSUE-3: reversible-only must not trigger suggestion
+describe("GET /api/decisions/conflicts — reversible-only no suggestion", () => {
+  it("no suggestion when cost fields are all zero/none and only reversible differs", async () => {
+    const conn = makeTestDb();
+    // A: non-reversible (reversible=0), zero costs
+    conn.sqlite
+      .prepare(
+        `INSERT INTO events (title, start, end, source, self_imposed, status,
+          cancel_money, cancel_social, cancel_effort, reversible)
+         VALUES ('A', '2026-06-20T10:00:00+09:00', '2026-06-20T12:00:00+09:00',
+           'cairn', 1, 'planned', 0, 0, 'none', 0)`
+      )
+      .run();
+    // B: reversible (reversible=1), zero costs
+    conn.sqlite
+      .prepare(
+        `INSERT INTO events (title, start, end, source, self_imposed, status,
+          cancel_money, cancel_social, cancel_effort, reversible)
+         VALUES ('B', '2026-06-20T11:00:00+09:00', '2026-06-20T13:00:00+09:00',
+           'cairn', 1, 'planned', 0, 0, 'none', 1)`
+      )
+      .run();
+    const res = await getConflicts(conn);
+    expect(res.statusCode).toBe(200);
+    const [optA, optB] = res.json().data.conflicts[0].options;
+    expect(optA.suggested).toBe(false);
+    expect(optB.suggested).toBe(false);
   });
 });

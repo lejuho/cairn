@@ -123,8 +123,9 @@ function hasKnownCost(e: EventWithCosts): boolean {
   const moneyKnown = e.cancelMoney != null && e.cancelMoney > 0;
   const socialKnown = e.cancelSocial != null && e.cancelSocial > 0;
   const effortKnown = e.cancelEffort != null && e.cancelEffort !== "none";
-  const reversibleKnown = e.reversible != null && e.reversible === 0;
-  return moneyKnown || socialKnown || effortKnown || reversibleKnown;
+  // reversible is intentionally excluded: it is used as a tiebreak penalty only
+  // after a cost gate, never as the sole trigger for a suggestion
+  return moneyKnown || socialKnown || effortKnown;
 }
 
 function internalScore(e: EventWithCosts): number {

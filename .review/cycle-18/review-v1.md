@@ -57,3 +57,27 @@ None found.
 <!-- RESOLVED-BOUNDARY · 위=Codex immutable, 아래=Executor append-only · check-resolved-immutable.sh가 강제 -->
 
 ## RESOLVED (Executor 응답, 파일 끝에 append)
+
+### Issue Classification
+- ISSUE-1: APPLY
+- ISSUE-2: APPLY
+- ISSUE-3: APPLY
+
+### Applied
+
+RESOLVED: ISSUE-1 — stale status check added to resolve transaction
+
+- `server/src/routes/decisions.ts:42`: before overlap check, verify both `keepEvent.status` and `changeEvent.status` are `planned|confirmed`; return `{ status: 409 }` if either is already `moved|cancelled`
+- Integration tests: `returns 409 CONFLICT_STALE when changeEvent already moved/cancelled`, `...keepEvent already cancelled`
+
+RESOLVED: ISSUE-2 — same-id rejection added to shared schema
+
+- `shared/src/decision.ts`: `.refine()` on `ResolveConflictRequestSchema` rejects `keepEventId === changeEventId` as `400 VALIDATION_ERROR`
+- Integration test: `returns 400 when keepEventId and changeEventId are the same`
+
+RESOLVED: ISSUE-3 — reversible removed from hasKnownCost gate
+
+- `server/src/services/decision.ts:122`: removed `reversibleKnown` from `hasKnownCost`; reversible penalty still used in `internalScore` for ordering after the cost gate clears, but can no longer be the sole trigger for a suggestion
+- Integration test: `no suggestion when cost fields are all zero/none and only reversible differs`
+
+자동 체크: test:integration ✅ (216 tests) / verify ✅

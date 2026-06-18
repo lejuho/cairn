@@ -41,6 +41,9 @@ export const ResolveConflictRequestSchema = z.object({
   changeEventId: z.number().int().positive(),
   outcome: z.enum(["moved", "cancelled"]),
   note: z.string().trim().min(1).optional()
+}).refine((v) => v.keepEventId !== v.changeEventId, {
+  message: "keepEventId and changeEventId must be different events",
+  path: ["changeEventId"]
 });
 
 export const ResolveConflictResponseDataSchema = z.object({

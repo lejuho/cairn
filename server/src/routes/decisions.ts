@@ -40,6 +40,11 @@ export function registerDecisionRoutes(app: FastifyInstance, db: CairnDatabase):
       const changeEvent = tx.select().from(events).where(eq(events.id, changeEventId)).get();
 
       if (!keepEvent || !changeEvent) return { status: 404 as const };
+      const activeStatuses = ["planned", "confirmed"] as const;
+      if (!activeStatuses.includes(keepEvent.status as "planned" | "confirmed") ||
+          !activeStatuses.includes(changeEvent.status as "planned" | "confirmed")) {
+        return { status: 409 as const };
+      }
       if (!eventsOverlap(keepEvent, changeEvent)) return { status: 409 as const };
 
       const [updated] = tx
