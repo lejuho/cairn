@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { ConflictDecisionQuerySchema, ResolveConflictRequestSchema } from "@cairn/shared";
 import { findEventsWithCostsForDate } from "../repositories/events.js";
-import { buildConflictDecisions, eventsOverlap } from "../services/decision.js";
+import { buildConflictDecisions, eventsOverlap, isResolvable } from "../services/decision.js";
 import type { CairnDatabase } from "../db/index.js";
 import { annotations, events } from "../db/schema.js";
 
@@ -32,7 +32,8 @@ export function registerDecisionRoutes(app: FastifyInstance, db: CairnDatabase):
       });
     }
 
-    const { keepEventId, changeEventId, outcome, note } = parsed.data;
+    const { keepEventId, changeEventId, outcome, note, now: bodyNow } = parsed.data;
+    const nowMs = Date.parse(bodyNow ?? new Date().toISOString());
 
     // Single transaction: recheck overlap + update status + insert annotation atomically
     const result = db.transaction((tx) => {
@@ -43,9 +44,17 @@ export function registerDecisionRoutes(app: FastifyInstance, db: CairnDatabase):
       const activeStatuses = ["planned", "confirmed"] as const;
       if (!activeStatuses.includes(keepEvent.status as "planned" | "confirmed") ||
           !activeStatuses.includes(changeEvent.status as "planned" | "confirmed")) {
-        return { status: 409 as const };
+        return { status: 409 as const, code: "CONFLICT_STALE" as const };
       }
-      if (!eventsOverlap(keepEvent, changeEvent)) return { status: 409 as const };
+      if (!eventsOverlap(keepEvent, changeEvent)) {
+        return { status: 409 as const, code: "CONFLICT_STALE" as const };
+      }
+      // Actionability gate: at least one event must start within [now, now+6h]
+      const keepStart = keepEvent.start ? Date.parse(keepEvent.start) : NaN;
+      const changeStart = changeEvent.start ? Date.parse(changeEvent.start) : NaN;
+      if (!isResolvable(nowMs, keepStart) && !isResolvable(nowMs, changeStart)) {
+        return { status: 409 as const, code: "CONFLICT_NOT_ACTIONABLE" as const };
+      }
 
       const [updated] = tx
         .update(events)
@@ -74,7 +83,7 @@ export function registerDecisionRoutes(app: FastifyInstance, db: CairnDatabase):
       return reply.code(404).send({ ok: false, error: { code: "NOT_FOUND" } });
     }
     if (result.status === 409) {
-      return reply.code(409).send({ ok: false, error: { code: "CONFLICT_STALE" } });
+      return reply.code(409).send({ ok: false, error: { code: result.code } });
     }
 
     return reply.send({

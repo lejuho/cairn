@@ -58,8 +58,9 @@ export function buildConflictDecisions(
 
       const id = [a.id, b.id].sort((x, y) => x - y).join(":");
       const options = buildOptions(a, b);
+      const { actionability, disabledReasonCodes } = computeActionability(nowMs, aStart, bStart);
 
-      decisions.push({ id, pair: { a: toEventRow(a), b: toEventRow(b) }, overlapMinutes, urgency, options });
+      decisions.push({ id, pair: { a: toEventRow(a), b: toEventRow(b) }, overlapMinutes, urgency, actionability, disabledReasonCodes, options });
     }
   }
 
@@ -135,6 +136,29 @@ function internalScore(e: EventWithCosts): number {
   // Non-reversible adds a penalty for ordering only; never returned to client
   const irreversiblePenalty = e.reversible === 0 ? 10 : 0;
   return money + social + effort + irreversiblePenalty;
+}
+
+// Strict forward-only gate: start must be at or after now AND within the 6h horizon.
+// Past-start events (start < now) are NOT resolvable even if still ongoing.
+export function isResolvable(nowMs: number, startMs: number): boolean {
+  return startMs >= nowMs && startMs - nowMs <= NEAR_HORIZON_MS;
+}
+
+function computeActionability(
+  nowMs: number,
+  aStart: number,
+  bStart: number
+): { actionability: ConflictDecision["actionability"]; disabledReasonCodes: string[] } {
+  if (isResolvable(nowMs, aStart) || isResolvable(nowMs, bStart)) {
+    return { actionability: "resolvable", disabledReasonCodes: [] };
+  }
+  // Determine why not resolvable for UI copy
+  const aInPast = aStart < nowMs;
+  const bInPast = bStart < nowMs;
+  if (aInPast || bInPast) {
+    return { actionability: "read_only", disabledReasonCodes: ["past_start"] };
+  }
+  return { actionability: "read_only", disabledReasonCodes: ["far_future"] };
 }
 
 export function eventsOverlap(a: EventWithCosts, b: EventWithCosts): boolean {

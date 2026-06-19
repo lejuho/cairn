@@ -214,7 +214,7 @@ function ConflictDecisionSheet({
               <div className="conflict-actions">
                 <button
                   className="conflict-btn conflict-btn--move"
-                  disabled={submitting}
+                  disabled={submitting || conflict.actionability === "read_only"}
                   onClick={() => onResolve(other.event.id, opt.event.id, "moved")}
                   aria-label={`${opt.event.title} 이동 처리`}
                 >
@@ -222,7 +222,7 @@ function ConflictDecisionSheet({
                 </button>
                 <button
                   className="conflict-btn conflict-btn--cancel"
-                  disabled={submitting}
+                  disabled={submitting || conflict.actionability === "read_only"}
                   onClick={() => onResolve(other.event.id, opt.event.id, "cancelled")}
                   aria-label={`${opt.event.title} 취소 처리`}
                 >
@@ -232,6 +232,9 @@ function ConflictDecisionSheet({
             </div>
           );
         })}
+        {conflict.actionability === "read_only" && (
+          <p className="conflict-read-only-hint" role="note">아직 계획 구간이라 해소 버튼은 잠가둠</p>
+        )}
         {error && <p className="conflict-error" role="alert">{error}</p>}
       </div>
     </div>
@@ -495,7 +498,10 @@ export function Today() {
       });
       const body = (await res.json()) as { ok: boolean; error?: { code: string } };
       if (!body.ok) {
-        const msg = body.error?.code === "CONFLICT_STALE" ? "충돌이 이미 해소됐어" : "처리 실패";
+        const msg =
+          body.error?.code === "CONFLICT_STALE" ? "충돌이 이미 해소됐어" :
+          body.error?.code === "CONFLICT_NOT_ACTIONABLE" ? "아직 해소할 수 있는 시간대가 아니야" :
+          "처리 실패";
         setConflictSheet((s) => s.open ? { ...s, submitting: false, error: msg } : s);
         return;
       }

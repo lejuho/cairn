@@ -1249,6 +1249,8 @@ describe("Today — conflict decision sheet", () => {
     pair: { a: eventA, b: eventB },
     overlapMinutes: 60,
     urgency: "near",
+    actionability: "resolvable",
+    disabledReasonCodes: [],
     options: [
       {
         event: eventA, action: "move_or_cancel",
@@ -1263,6 +1265,12 @@ describe("Today — conflict decision sheet", () => {
         suggested: true, reasonCodes: ["lower_cancel_cost"]
       }
     ]
+  };
+
+  const READ_ONLY_CONFLICT: ConflictDecision = {
+    ...CONFLICT,
+    actionability: "read_only",
+    disabledReasonCodes: ["far_future"]
   };
 
   const SURFACE_WITH_CONFLICT: TodaySurface = {
@@ -1376,5 +1384,50 @@ describe("Today — conflict decision sheet", () => {
     fireEvent.click(screen.getByLabelText("미팅 B 이동 처리"));
     await waitFor(() => expect(screen.getByText("충돌이 이미 해소됐어")).toBeInTheDocument());
     expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument();
+  });
+
+  it("read_only conflict sheet shows disabled buttons and explanatory copy", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        if (String(url).includes("/api/decisions/conflicts")) {
+          return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { conflicts: [READ_ONLY_CONFLICT] } }) });
+        }
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: SURFACE_WITH_CONFLICT }) });
+      })
+    );
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/충돌 해결/));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
+    expect(screen.getByText("아직 계획 구간이라 해소 버튼은 잠가둠")).toBeInTheDocument();
+    const moveBtns = screen.getAllByRole("button", { name: /이동 처리/ });
+    moveBtns.forEach((btn) => expect(btn).toBeDisabled());
+    const cancelBtns = screen.getAllByRole("button", { name: /취소 처리/ });
+    cancelBtns.forEach((btn) => expect(btn).toBeDisabled());
+  });
+
+  it("resolvable conflict sheet still submits resolve payload and refetches Today", async () => {
+    const fetchSpy = vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes("/api/decisions/conflicts/resolve")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { changedEvent: { ...eventB, status: "moved" }, annotation: { id: 1, eventId: 2, outcome: "moved", reasonTags: '["conflict_resolution"]', reasonText: "conflict_resolution", energyAtTime: null, loggedAt: "" } } }) });
+      }
+      if (String(url).includes("/api/decisions/conflicts")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { conflicts: [CONFLICT] } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: SURFACE_WITH_CONFLICT }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/충돌 해결/));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
+    expect(screen.queryByText("아직 계획 구간이라 해소 버튼은 잠가둠")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("미팅 B 이동 처리"));
+    await waitFor(() =>
+      expect(fetchSpy.mock.calls.some(
+        (c) => typeof c[0] === "string" && c[0].includes("/api/decisions/conflicts/resolve")
+      )).toBe(true)
+    );
   });
 });

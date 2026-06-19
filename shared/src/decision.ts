@@ -29,6 +29,8 @@ export const ConflictDecisionSchema = z.object({
   pair: z.object({ a: EventRowSchema, b: EventRowSchema }),
   overlapMinutes: z.number(),
   urgency: z.enum(["near", "planning"]),
+  actionability: z.enum(["resolvable", "read_only"]),
+  disabledReasonCodes: z.array(z.string()),
   options: z.tuple([ConflictDecisionOptionSchema, ConflictDecisionOptionSchema])
 });
 
@@ -40,7 +42,8 @@ export const ResolveConflictRequestSchema = z.object({
   keepEventId: z.number().int().positive(),
   changeEventId: z.number().int().positive(),
   outcome: z.enum(["moved", "cancelled"]),
-  note: z.string().trim().min(1).optional()
+  note: z.string().trim().min(1).optional(),
+  now: z.string().datetime({ offset: true }).optional()
 }).refine((v) => v.keepEventId !== v.changeEventId, {
   message: "keepEventId and changeEventId must be different events",
   path: ["changeEventId"]

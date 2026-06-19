@@ -240,7 +240,7 @@ describe("POST /api/decisions/conflicts/resolve — behavior", () => {
     const conn = makeTestDb();
     const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
     const idB = insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
-    const res = await resolve(conn, { keepEventId: idA, changeEventId: idB, outcome: "moved" });
+    const res = await resolve(conn, { keepEventId: idA, changeEventId: idB, outcome: "moved", now: "2026-06-20T08:00:00+09:00" });
     expect(res.statusCode).toBe(200);
     const { changedEvent, annotation } = res.json().data;
     expect(changedEvent.status).toBe("moved");
@@ -255,7 +255,7 @@ describe("POST /api/decisions/conflicts/resolve — behavior", () => {
     const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
     const idB = insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
     const res = await resolve(conn, {
-      keepEventId: idA, changeEventId: idB, outcome: "cancelled", note: "중요한 이유"
+      keepEventId: idA, changeEventId: idB, outcome: "cancelled", note: "중요한 이유", now: "2026-06-20T08:00:00+09:00"
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().data.annotation.reasonText).toBe("중요한 이유");
@@ -344,5 +344,105 @@ describe("GET /api/decisions/conflicts — reversible-only no suggestion", () =>
     const [optA, optB] = res.json().data.conflicts[0].options;
     expect(optA.suggested).toBe(false);
     expect(optB.suggested).toBe(false);
+  });
+});
+
+// ── cycle-19: actionability ───────────────────────────────────────────────────
+
+describe("GET /api/decisions/conflicts — actionability", () => {
+  it("conflict starting in 2h is resolvable", async () => {
+    const conn = makeTestDb();
+    const now = "2026-06-20T08:00:00+09:00"; // 8am KST
+    insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
+    insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const res = await getConflicts(conn, now);
+    expect(res.json().data.conflicts[0].actionability).toBe("resolvable");
+    expect(res.json().data.conflicts[0].disabledReasonCodes).toHaveLength(0);
+  });
+
+  it("conflict starting in 8h is read_only", async () => {
+    const conn = makeTestDb();
+    const now = "2026-06-20T02:00:00+09:00"; // 2am KST; events start at 10am = 8h away
+    insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
+    insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const res = await getConflicts(conn, now);
+    expect(res.json().data.conflicts[0].actionability).toBe("read_only");
+    expect(res.json().data.conflicts[0].disabledReasonCodes).toContain("far_future");
+  });
+
+  it("past-start conflict is read_only with past_start code", async () => {
+    const conn = makeTestDb();
+    const now = "2026-06-20T11:30:00+09:00"; // both already started
+    insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
+    insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const res = await getConflicts(conn, now);
+    expect(res.json().data.conflicts[0].actionability).toBe("read_only");
+    expect(res.json().data.conflicts[0].disabledReasonCodes).toContain("past_start");
+  });
+
+  it("read_only conflict still exposes overlap, cost chips, and no scalar total", async () => {
+    const conn = makeTestDb();
+    const now = "2026-06-20T02:00:00+09:00"; // far future
+    insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00", "planned", { cancelMoney: 3000 });
+    insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const res = await getConflicts(conn, now);
+    const conflict = res.json().data.conflicts[0];
+    expect(conflict.overlapMinutes).toBeGreaterThan(0);
+    expect(conflict.options[0].cost).toHaveProperty("money");
+    expect(conflict).not.toHaveProperty("totalCost");
+  });
+});
+
+describe("POST /api/decisions/conflicts/resolve — actionability gating", () => {
+  it("resolves a resolvable conflict (now within 6h of event start)", async () => {
+    const conn = makeTestDb();
+    const now = "2026-06-20T08:00:00+09:00"; // 2h before events
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
+    const idB = insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const res = await resolve(conn, { keepEventId: idA, changeEventId: idB, outcome: "moved", now });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.changedEvent.status).toBe("moved");
+  });
+
+  it("returns 409 CONFLICT_NOT_ACTIONABLE for far-future conflict", async () => {
+    const conn = makeTestDb();
+    const now = "2026-06-20T02:00:00+09:00"; // 8h before events
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
+    const idB = insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const res = await resolve(conn, { keepEventId: idA, changeEventId: idB, outcome: "moved", now });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("CONFLICT_NOT_ACTIONABLE");
+  });
+
+  it("returns 409 CONFLICT_NOT_ACTIONABLE for past-start conflict", async () => {
+    const conn = makeTestDb();
+    const now = "2026-06-20T12:00:00+09:00"; // both already started
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T14:00:00+09:00");
+    const idB = insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T15:00:00+09:00");
+    const res = await resolve(conn, { keepEventId: idA, changeEventId: idB, outcome: "cancelled", now });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("CONFLICT_NOT_ACTIONABLE");
+  });
+
+  it("not-actionable resolve has no partial event or annotation write", async () => {
+    const conn = makeTestDb();
+    const now = "2026-06-20T02:00:00+09:00";
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
+    const idB = insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    await resolve(conn, { keepEventId: idA, changeEventId: idB, outcome: "moved", now });
+    const row = conn.sqlite.prepare("SELECT status FROM events WHERE id = ?").get(idB) as { status: string };
+    expect(row.status).toBe("planned");
+    const ann = conn.sqlite.prepare("SELECT id FROM annotations WHERE event_id = ?").all(idB);
+    expect(ann).toHaveLength(0);
+  });
+
+  it("existing CONFLICT_STALE checks still pass after actionability addition", async () => {
+    const conn = makeTestDb();
+    const now = "2026-06-20T08:00:00+09:00";
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
+    const idB = insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00", "moved");
+    const res = await resolve(conn, { keepEventId: idA, changeEventId: idB, outcome: "cancelled", now });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("CONFLICT_STALE");
   });
 });
