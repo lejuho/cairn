@@ -104,6 +104,40 @@ describe("InputHub — error state", () => {
   });
 });
 
+describe("InputHub — Access session error state", () => {
+  it("shows 로그인 세션이 필요해 and recovery button on rejected fetch", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByText("로그인 세션이 필요해")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Access 로그인 다시 열기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "다시 시도" })).toBeInTheDocument();
+  });
+
+  it("Access 로그인 다시 열기 triggers full-page navigation in InputHub", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    const assignMock = vi.fn();
+    vi.stubGlobal("location", { href: "http://localhost/input", assign: assignMock });
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Access 로그인 다시 열기" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Access 로그인 다시 열기" }));
+    expect(assignMock).toHaveBeenCalledWith("http://localhost/input");
+    vi.unstubAllGlobals();
+  });
+
+  it("generic API failure still shows generic error not Access copy", async () => {
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      if (url.includes("/api/threads")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: false, error: { message: "API 오류" } }) });
+    }));
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-error")).toBeInTheDocument());
+    expect(screen.queryByText("로그인 세션이 필요해")).not.toBeInTheDocument();
+    expect(screen.getByText("API 오류")).toBeInTheDocument();
+  });
+});
+
 // ── quick capture ─────────────────────────────────────────────────────────────
 
 describe("InputHub — quick capture", () => {

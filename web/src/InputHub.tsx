@@ -89,19 +89,19 @@ export function InputHub() {
     setCapture((c) => ({ ...c, submitting: true, savedMsg: null, error: null }));
     if (savedMsgTimer.current) clearTimeout(savedMsgTimer.current);
     try {
-      const res = await fetch("/api/capture/flat-event", {
+      const body = await apiJson<{ ok: boolean; data?: { captureStatus: string }; error?: { message: string } }>("/api/capture/flat-event", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: capture.text.trim(), now: localNowRfc3339() })
       });
-      const body = (await res.json()) as { ok: boolean; data?: { captureStatus: string }; error?: { message: string } };
       if (!body.ok) throw new Error(body.error?.message ?? "캡처 실패");
       const msg = body.data?.captureStatus === "scheduled" ? "저장됐어" : "날짜 없이 저장됐어";
       setCapture((c) => ({ ...c, text: "", submitting: false, savedMsg: msg, error: null }));
       savedMsgTimer.current = setTimeout(() => setCapture((c) => ({ ...c, savedMsg: null })), 4000);
       await loadData();
     } catch (e) {
-      setCapture((c) => ({ ...c, submitting: false, savedMsg: null, error: e instanceof Error ? e.message : "캡처 실패" }));
+      const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "캡처 실패";
+      setCapture((c) => ({ ...c, submitting: false, savedMsg: null, error: msg }));
     }
   }, [capture, loadData]);
 
@@ -121,12 +121,11 @@ export function InputHub() {
         const tid = parseInt(threadId, 10);
         if (tid > 0) payload.threadId = tid;
         if (personIds.length > 0) payload.personIds = personIds;
-        const res = await fetch("/api/events", {
+        const body = await apiJson<{ ok: boolean; error?: { message: string } }>("/api/events", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
-        const body = (await res.json()) as { ok: boolean; error?: { message: string } };
         if (!body.ok) throw new Error(body.error?.message ?? "저장 실패");
         setForm((f) => ({ ...f, eventForm: EMPTY_EVENT, submitting: false, saved: true, error: null }));
       } else {
@@ -140,17 +139,17 @@ export function InputHub() {
         if (mins > 0) payload.estMinutes = mins;
         const tid = parseInt(threadId, 10);
         if (tid > 0) payload.threadId = tid;
-        const res = await fetch("/api/tasks", {
+        const body = await apiJson<{ ok: boolean; error?: { message: string } }>("/api/tasks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
-        const body = (await res.json()) as { ok: boolean; error?: { message: string } };
         if (!body.ok) throw new Error(body.error?.message ?? "저장 실패");
         setForm((f) => ({ ...f, taskForm: EMPTY_TASK, submitting: false, saved: true, error: null }));
       }
     } catch (e) {
-      setForm((f) => ({ ...f, submitting: false, error: e instanceof Error ? e.message : "저장 실패" }));
+      const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "저장 실패";
+      setForm((f) => ({ ...f, submitting: false, error: msg }));
     }
   }, [form]);
 
@@ -161,8 +160,9 @@ export function InputHub() {
     try {
       const now = localNowRfc3339();
       const date = localDateString();
-      const res = await fetch(`/api/events/${eventId}/slot-candidates?date=${date}&now=${encodeURIComponent(now)}&days=7`);
-      const body = (await res.json()) as { ok: boolean; data?: { candidates: SlotCandidate[] }; error?: { message: string } };
+      const body = await apiJson<{ ok: boolean; data?: { candidates: SlotCandidate[] }; error?: { message: string } }>(
+        `/api/events/${eventId}/slot-candidates?date=${date}&now=${encodeURIComponent(now)}&days=7`
+      );
       if (!body.ok) throw new Error(body.error?.message ?? "후보 로딩 실패");
       setSlots((s) => ({ ...s, [eventId]: { tag: "loaded", candidates: body.data!.candidates } }));
     } catch (e) {
@@ -172,30 +172,28 @@ export function InputHub() {
 
   const handleSchedule = useCallback(async (eventId: number, start: string, end: string) => {
     try {
-      const res = await fetch(`/api/events/${eventId}/schedule`, {
+      const body = await apiJson<{ ok: boolean; error?: { message: string } }>(`/api/events/${eventId}/schedule`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ start, end })
       });
-      const body = (await res.json()) as { ok: boolean; error?: { message: string } };
       if (!body.ok) {
         setSlots((s) => ({ ...s, [eventId]: { tag: "error", message: body.error?.message ?? "일정 저장 실패" } }));
         return;
       }
       setSlots((s) => ({ ...s, [eventId]: { tag: "idle" } }));
       await loadData();
-    } catch {
-      setSlots((s) => ({ ...s, [eventId]: { tag: "error", message: "일정 저장 실패" } }));
+    } catch (e) {
+      setSlots((s) => ({ ...s, [eventId]: { tag: "error", message: e instanceof Error ? e.message : "오류" } }));
     }
   }, [loadData]);
 
   // ── people ──────────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    fetch("/api/people")
-      .then((r) => r.json() as Promise<{ ok: boolean; data?: PersonRow[] }>)
+    apiJson<{ ok: boolean; data?: PersonRow[] }>("/api/people")
       .then((body) => { if (body.ok && Array.isArray(body.data)) setPeople(body.data); })
-      .catch(() => {});
+      .catch(() => {}); // best-effort; missing people list degrades gracefully
   }, []);
 
   const handleAddPerson = useCallback(async () => {
@@ -204,21 +202,20 @@ export function InputHub() {
     try {
       const payload: Record<string, unknown> = { displayName: newPerson.name.trim(), channel: newPerson.channel };
       if (newPerson.relation.trim()) payload.relation = newPerson.relation.trim();
-      const res = await fetch("/api/people", {
+      const body = await apiJson<{ ok: boolean; data?: { person: PersonRow }; error?: { message: string } }>("/api/people", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
-      const body = (await res.json()) as { ok: boolean; data?: { person: PersonRow }; error?: { message: string } };
       if (!body.ok) throw new Error(body.error?.message ?? "저장 실패");
       const created = body.data!.person;
-      const refreshRes = await fetch("/api/people");
-      const refreshBody = (await refreshRes.json()) as { ok: boolean; data?: PersonRow[] };
+      const refreshBody = await apiJson<{ ok: boolean; data?: PersonRow[] }>("/api/people");
       if (refreshBody.ok && Array.isArray(refreshBody.data)) setPeople(refreshBody.data);
       setForm((f) => ({ ...f, eventForm: { ...f.eventForm, personIds: [...f.eventForm.personIds, created.id] } }));
       setNewPerson({ show: false, name: "", channel: "none", relation: "", submitting: false, error: null });
     } catch (e) {
-      setNewPerson((s) => ({ ...s, submitting: false, error: e instanceof Error ? e.message : "저장 실패" }));
+      const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "저장 실패";
+      setNewPerson((s) => ({ ...s, submitting: false, error: msg }));
     }
   }, [newPerson]);
 

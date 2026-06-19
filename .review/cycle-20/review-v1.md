@@ -44,3 +44,29 @@ No extra backend/config scope found. However, `docs/codebase-map.md` documents m
 <!-- RESOLVED-BOUNDARY · 위=Codex immutable, 아래=Executor append-only · check-resolved-immutable.sh가 강제 -->
 
 ## RESOLVED (Executor 응답, 파일 끝에 append)
+
+### Issue Classification
+- ISSUE-1: APPLY
+- ISSUE-2: APPLY
+- ISSUE-3: APPLY
+
+### Applied
+
+RESOLVED: ISSUE-1 — api.ts에 302 status 분기 추가 + 단위 테스트
+- `web/src/api.ts:41`: `res.status === 302 || 401 || 403` 분기에 302 추가
+- `web/src/api.test.ts`: `status: 302` 케이스 단위 테스트 추가 (총 8 테스트)
+
+RESOLVED: ISSUE-2 — Today.tsx + InputHub.tsx 직접 fetch → apiJson 전면 전환
+- `web/src/Today.tsx`: `markTaskDone`, `submitAnnotation`, `loadThreadOptions`, `createTask`, `flatCapture`, `fetchEventDetail`, `patchStatus`, `createEvent` 모두 `apiJson` 사용
+- `web/src/Today.tsx`: `handleCapture` silent `catch {}` → AccessSessionError `savedMsg` 표시
+- `web/src/Today.tsx`: 시트 submit catch에서 `(e as AccessSessionError).kind` 패턴 적용 (plain object이므로 `instanceof Error` 불가)
+- `web/src/Today.tsx`: reply, detail note submit catch 동일 패턴 적용
+- `web/src/InputHub.tsx`: `handleCapture`, `handleFormSubmit` (event/task), `handleLoadCandidates`, `handleSchedule`, `handleAddPerson`, people useEffect 모두 `apiJson` 사용
+- AccessSessionError는 top-level load → `setView(access_error)`, mutation → local error slot (화면 전환 없음)
+
+RESOLVED: ISSUE-3 — InputHub Access 에러 UI 테스트 3개 추가
+- `web/src/InputHub.test.tsx`: "로그인 세션이 필요해" 렌더 확인
+- `web/src/InputHub.test.tsx`: "Access 로그인 다시 열기" 버튼 → `window.location.assign` 호출 확인
+- `web/src/InputHub.test.tsx`: generic API 실패 시 Access copy 미노출 확인
+
+자동 체크: lint ✅ / tsc ✅ / test (135 web + 225 integration) ✅ / build ✅

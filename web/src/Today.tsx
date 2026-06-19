@@ -50,29 +50,29 @@ async function loadSurface(): Promise<TodaySurface> {
 }
 
 async function markTaskDone(id: number): Promise<void> {
-  const res = await fetch(`/api/tasks/${id}/status`, {
+  const body = await apiJson<{ ok: boolean; error?: { message: string } }>(`/api/tasks/${id}/status`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status: "done" })
   });
-  if (!res.ok) throw new Error("완료 처리 실패");
+  if (!body.ok) throw new Error("완료 처리 실패");
 }
 
 async function submitAnnotation(eventId: number, text: string): Promise<void> {
-  const res = await fetch(`/api/events/${eventId}/annotations`, {
+  const body = await apiJson<{ ok: boolean; error?: { message: string } }>(`/api/events/${eventId}/annotations`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text })
   });
-  if (!res.ok) throw new Error("제출 실패");
+  if (!body.ok) throw new Error("제출 실패");
 }
 
 async function loadThreadOptions(): Promise<ThreadSummary[]> {
   try {
-    const res = await fetch("/api/threads");
-    const body = (await res.json()) as { ok: boolean; data?: ThreadSummary[] };
+    const body = await apiJson<{ ok: boolean; data?: ThreadSummary[] }>("/api/threads");
     return body.ok ? (body.data ?? []) : [];
   } catch {
+    // Non-critical — missing thread dropdown is acceptable degradation
     return [];
   }
 }
@@ -80,53 +80,51 @@ async function loadThreadOptions(): Promise<ThreadSummary[]> {
 async function createTask(title: string, estMinutes: number, threadId?: number): Promise<void> {
   const payload: Record<string, unknown> = { title, estMinutes };
   if (threadId != null) payload.threadId = threadId;
-  const res = await fetch("/api/tasks", {
+  const body = await apiJson<{ ok: boolean; error?: { message: string } }>("/api/tasks", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
-  if (!res.ok) throw new Error("작업 생성 실패");
+  if (!body.ok) throw new Error("작업 생성 실패");
 }
 
 type QuickCaptureResult = { captureStatus: "scheduled" | "unscheduled" | "raw_stored" };
 
 async function flatCapture(text: string): Promise<QuickCaptureResult> {
   const now = new Date().toISOString().replace("Z", "+00:00");
-  const res = await fetch("/api/capture/flat-event", {
+  const body = await apiJson<{ ok: boolean; data?: QuickCaptureResult; error?: { message: string } }>("/api/capture/flat-event", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, now })
   });
-  const body = (await res.json()) as { ok: boolean; data?: QuickCaptureResult; error?: { message: string } };
   if (!body.ok) throw new Error(body.error?.message ?? "캡처 실패");
   return body.data!;
 }
 
 async function fetchEventDetail(id: number): Promise<EventDetailData> {
-  const res = await fetch(`/api/events/${id}`);
-  const body = (await res.json()) as { ok: boolean; data?: EventDetailData; error?: { message: string } };
+  const body = await apiJson<{ ok: boolean; data?: EventDetailData; error?: { message: string } }>(`/api/events/${id}`);
   if (!body.ok) throw new Error(body.error?.message ?? "불러오기 실패");
   return body.data!;
 }
 
 async function patchStatus(id: number, status: string): Promise<void> {
-  const res = await fetch(`/api/events/${id}/status`, {
+  const body = await apiJson<{ ok: boolean; error?: { message: string } }>(`/api/events/${id}/status`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status })
   });
-  if (!res.ok) throw new Error("상태 변경 실패");
+  if (!body.ok) throw new Error("상태 변경 실패");
 }
 
 async function createEvent(title: string, start: string, end: string, threadId?: number): Promise<void> {
   const payload: Record<string, unknown> = { title, start, end };
   if (threadId != null) payload.threadId = threadId;
-  const res = await fetch("/api/events", {
+  const body = await apiJson<{ ok: boolean; error?: { message: string } }>("/api/events", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
-  if (!res.ok) throw new Error("일정 생성 실패");
+  if (!body.ok) throw new Error("일정 생성 실패");
 }
 
 function FeasibilityPanel({ f }: { f: DayFeasibility }) {
@@ -314,7 +312,8 @@ export function Today() {
         setSheet({ open: false });
         await refresh();
       } catch (e) {
-        setSheet((prev) => prev.open ? { ...prev, submitting: false, error: e instanceof Error ? e.message : "오류" } : prev);
+        const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "오류";
+        setSheet((prev) => prev.open ? { ...prev, submitting: false, error: msg } : prev);
       }
     } else {
       const title = sheet.eventForm.title.trim();
@@ -332,7 +331,8 @@ export function Today() {
         setSheet({ open: false });
         await refresh();
       } catch (e) {
-        setSheet((prev) => prev.open ? { ...prev, submitting: false, error: e instanceof Error ? e.message : "오류" } : prev);
+        const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "오류";
+        setSheet((prev) => prev.open ? { ...prev, submitting: false, error: msg } : prev);
       }
     }
   }, [sheet, refresh]);
@@ -351,8 +351,11 @@ export function Today() {
         savedMsgTimer.current = setTimeout(() => setCapture((c) => ({ ...c, savedMsg: null })), 4000);
       }
       await refresh();
-    } catch {
-      setCapture((c) => ({ ...c, submitting: false, savedMsg: null }));
+    } catch (e) {
+      const msg = (e as AccessSessionError).kind === "access_session_required"
+        ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : null;
+      setCapture((c) => ({ ...c, submitting: false, savedMsg: msg }));
+      if (msg) savedMsgTimer.current = setTimeout(() => setCapture((c) => ({ ...c, savedMsg: null })), 6000);
     }
   }, [capture, refresh]);
 
@@ -361,10 +364,9 @@ export function Today() {
     try {
       const now = new Date().toISOString().replace("Z", "+00:00");
       const date = now.slice(0, 10);
-      const res = await fetch(
+      const body = await apiJson<{ ok: boolean; data?: { candidates: SlotCandidate[] }; error?: { message: string } }>(
         `/api/events/${eventId}/slot-candidates?date=${date}&now=${encodeURIComponent(now)}&days=7`
       );
-      const body = (await res.json()) as { ok: boolean; data?: { candidates: SlotCandidate[] }; error?: { message: string } };
       if (!body.ok) throw new Error(body.error?.message ?? "후보 로딩 실패");
       setSlotState((s) => ({ ...s, [eventId]: { tag: "loaded", candidates: body.data!.candidates } }));
     } catch (e) {
@@ -374,20 +376,19 @@ export function Today() {
 
   const handleSchedule = useCallback(async (eventId: number, start: string, end: string) => {
     try {
-      const res = await fetch(`/api/events/${eventId}/schedule`, {
+      const body = await apiJson<{ ok: boolean; error?: { message: string } }>(`/api/events/${eventId}/schedule`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ start, end })
       });
-      const body = (await res.json()) as { ok: boolean; error?: { message: string } };
       if (!body.ok) {
         setSlotState((s) => ({ ...s, [eventId]: { tag: "error", message: body.error?.message ?? "일정 저장 실패" } }));
         return;
       }
       setSlotState((s) => ({ ...s, [eventId]: { tag: "idle" } }));
       await refresh();
-    } catch {
-      setSlotState((s) => ({ ...s, [eventId]: { tag: "error", message: "일정 저장 실패" } }));
+    } catch (e) {
+      setSlotState((s) => ({ ...s, [eventId]: { tag: "error", message: e instanceof Error ? e.message : "오류" } }));
     }
   }, [refresh]);
 
@@ -403,13 +404,10 @@ export function Today() {
         await submitAnnotation(eventId, rs.text);
         await refresh();
       } catch (e) {
+        const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "오류";
         setReplyState((prev) => ({
           ...prev,
-          [eventId]: {
-            text: rs.text,
-            error: e instanceof Error ? e.message : "오류",
-            submitting: false
-          }
+          [eventId]: { text: rs.text, error: msg, submitting: false }
         }));
       }
     },
@@ -421,8 +419,11 @@ export function Today() {
       try {
         await markTaskDone(taskId);
         await refresh();
-      } catch {
-        // noop — refresh will show current state
+      } catch (e) {
+        // Access errors are re-surfaced via refresh(); generic errors are silent
+        if ((e as AccessSessionError).kind === "access_session_required") {
+          await refresh();
+        }
       }
     },
     [refresh]
@@ -452,8 +453,11 @@ export function Today() {
       await patchStatus(selectedEventId, status);
       handleCloseEventDetail();
       await refresh();
-    } catch {
-      // noop — sheet stays open
+    } catch (e) {
+      if ((e as AccessSessionError).kind === "access_session_required") {
+        await refresh(); // triggers access_error view
+      }
+      // generic errors: sheet stays open
     }
   }, [selectedEventId, handleCloseEventDetail, refresh]);
 
@@ -467,7 +471,8 @@ export function Today() {
       setEventDetail({ tag: "loaded", data });
       await refresh();
     } catch (e) {
-      setDetailNote((n) => ({ ...n, submitting: false, error: e instanceof Error ? e.message : "오류" }));
+      const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "오류";
+      setDetailNote((n) => ({ ...n, submitting: false, error: msg }));
     }
   }, [selectedEventId, detailNote, refresh]);
 
@@ -475,16 +480,20 @@ export function Today() {
     const date = localDateString();
     const now = new Date().toISOString();
     try {
-      const res = await fetch(`/api/decisions/conflicts?date=${date}&now=${encodeURIComponent(now)}`);
-      const body = (await res.json()) as { ok: boolean; data?: { conflicts: ConflictDecision[] } };
+      const body = await apiJson<{ ok: boolean; data?: { conflicts: ConflictDecision[] } }>(
+        `/api/decisions/conflicts?date=${date}&now=${encodeURIComponent(now)}`
+      );
       if (!body.ok) return;
       const conflict = body.data?.conflicts.find((c) => c.id === pairId);
       if (!conflict) return;
       setConflictSheet({ open: true, conflict, submitting: false, error: null });
-    } catch {
-      // noop — don't open sheet on fetch failure
+    } catch (e) {
+      if ((e as AccessSessionError).kind === "access_session_required") {
+        await refresh(); // triggers access_error view
+      }
+      // other errors: noop — don't open sheet on fetch failure
     }
-  }, []);
+  }, [refresh]);
 
   const handleCloseConflictSheet = useCallback(() => {
     setConflictSheet({ open: false });
@@ -498,12 +507,11 @@ export function Today() {
     if (!conflictSheet.open) return;
     setConflictSheet((s) => s.open ? { ...s, submitting: true, error: null } : s);
     try {
-      const res = await fetch("/api/decisions/conflicts/resolve", {
+      const body = await apiJson<{ ok: boolean; error?: { code: string } }>("/api/decisions/conflicts/resolve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ keepEventId, changeEventId, outcome })
       });
-      const body = (await res.json()) as { ok: boolean; error?: { code: string } };
       if (!body.ok) {
         const msg =
           body.error?.code === "CONFLICT_STALE" ? "충돌이 이미 해소됐어" :
@@ -515,9 +523,10 @@ export function Today() {
       setConflictSheet({ open: false });
       await refresh();
     } catch (e) {
-      setConflictSheet((s) =>
-        s.open ? { ...s, submitting: false, error: e instanceof Error ? e.message : "오류" } : s
-      );
+      const msg = (e as AccessSessionError).kind === "access_session_required"
+        ? "로그인 세션이 만료됐거나 네트워크가 끊겼어"
+        : e instanceof Error ? e.message : "오류";
+      setConflictSheet((s) => s.open ? { ...s, submitting: false, error: msg } : s);
     }
   }, [conflictSheet, refresh]);
 

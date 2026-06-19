@@ -32,6 +32,11 @@ describe("apiJson — success", () => {
 });
 
 describe("apiJson — access_session_required", () => {
+  it("throws access_session_required for 302", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(makeResponse({ status: 302, body: "" })));
+    await expect(apiJson("/api/test")).rejects.toMatchObject({ kind: "access_session_required" });
+  });
+
   it("throws access_session_required for 401", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(makeResponse({ status: 401 })));
     await expect(apiJson("/api/test")).rejects.toMatchObject({ kind: "access_session_required" });

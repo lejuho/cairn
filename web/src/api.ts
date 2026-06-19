@@ -37,8 +37,8 @@ export async function apiJson<T>(input: RequestInfo, init?: RequestInit): Promis
     throw err;
   }
 
-  // 401/403 → Access boundary
-  if (res.status != null && (res.status === 401 || res.status === 403)) {
+  // 302/401/403 → Access boundary
+  if (res.status != null && (res.status === 302 || res.status === 401 || res.status === 403)) {
     const err: AccessSessionError = { kind: "access_session_required", message: "로그인 세션이 만료됐거나 네트워크가 끊겼어" };
     throw err;
   }
