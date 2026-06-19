@@ -11,6 +11,7 @@ export * from "./today.js";
 export * from "./slots.js";
 export * from "./watchers.js";
 export * from "./people.js";
+export * from "./people-directory.js";
 export * from "./eventDetail.js";
 export * from "./feasibility.js";
 export * from "./decision.js";

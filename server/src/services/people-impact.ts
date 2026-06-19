@@ -1,4 +1,4 @@
-import type { HardConstraint, PeopleGuard, RelationshipContribution, SocialContext, Weekday } from "@cairn/shared";
+import type { FrequencyBand, HardConstraint, PeopleGuard, RelationshipContribution, SocialContext, Weekday } from "@cairn/shared";
 import type { PersonContextItem } from "../repositories/people.js";
 
 const WEEKDAY_NAMES: Weekday[] = [
@@ -32,8 +32,6 @@ export function parseHardConstraints(json: string | null): HardConstraint[] {
   }
   return result;
 }
-
-export type FrequencyBand = "cold_start" | "rare" | "established" | "frequent";
 
 export function toFrequencyBand(totalMeets: number): { band: FrequencyBand; adjustment: number } {
   if (totalMeets === 0) return { band: "cold_start", adjustment: 0 };

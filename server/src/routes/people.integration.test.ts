@@ -425,3 +425,220 @@ describe("PUT /api/people/:id/hard-constraints", () => {
   });
 });
 
+// ── GET /api/people/directory ─────────────────────────────────────────────────
+
+const NOW_DIR = "2026-06-20T09:00:00+09:00";
+
+function insertPastMeeting(conn: SqliteConnection, personId: number, end: string, status = "done"): void {
+  conn.sqlite.prepare("INSERT INTO events (title, start, end, source, self_imposed, status) VALUES ('past', '2026-01-01T10:00:00+09:00', ?, 'cairn', 1, ?)").run(end, status);
+  const ev = conn.sqlite.prepare("SELECT id FROM events ORDER BY id DESC LIMIT 1").get() as { id: number };
+  conn.sqlite.prepare("INSERT OR IGNORE INTO event_people (event_id, person_id) VALUES (?, ?)").run(ev.id, personId);
+}
+
+describe("GET /api/people/directory", () => {
+  it("requires now query param — 400 on missing", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "GET", url: "/api/people/directory" });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns empty list when no people", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "GET", url: `/api/people/directory?now=${encodeURIComponent(NOW_DIR)}` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.people).toEqual([]);
+  });
+
+  it("each person appears once with all directory fields", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const pid = insertPerson(conn, "Alice", "kakao");
+    conn.sqlite.prepare("UPDATE people SET hard_constraints = ? WHERE id = ?")
+      .run(JSON.stringify([{ type: "weekday_unavailable", weekday: "monday", text: "monday 불가", firmness: "hard" }]), pid);
+    const res = await app.inject({ method: "GET", url: `/api/people/directory?now=${encodeURIComponent(NOW_DIR)}` });
+    const people = res.json().data.people;
+    expect(people).toHaveLength(1);
+    const p = people[0];
+    expect(p.id).toBe(pid);
+    expect(p.name).toBe("Alice");
+    expect(p.channel).toBe("kakao");
+    expect(p.totalMeets).toBe(0);
+    expect(p.lastMet).toBeNull();
+    expect(p.frequencyBand).toBe("cold_start");
+    expect(p.hardConstraints[0].weekday).toBe("monday");
+  });
+
+  it("qualifying done/confirmed events counted; planned/cancelled/moved/late excluded", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const pid = insertPerson(conn, "TestPerson");
+    insertPastMeeting(conn, pid, "2026-05-01T11:00:00+09:00", "done");
+    insertPastMeeting(conn, pid, "2026-05-02T11:00:00+09:00", "confirmed");
+    insertPastMeeting(conn, pid, "2026-05-03T11:00:00+09:00", "planned");     // excluded
+    insertPastMeeting(conn, pid, "2026-05-04T11:00:00+09:00", "cancelled");   // excluded
+    const res = await app.inject({ method: "GET", url: `/api/people/directory?now=${encodeURIComponent(NOW_DIR)}` });
+    const p = res.json().data.people[0];
+    expect(p.totalMeets).toBe(2);
+  });
+
+  it("mixed RFC3339 offsets compared by epoch — +09:00 event past Z now is counted", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const pid = insertPerson(conn, "MixedPerson");
+    // now = "2026-06-20T00:30:00Z"; event end = "2026-06-20T09:00:00+09:00" = "2026-06-20T00:00Z" — past by epoch
+    const nowZ = "2026-06-20T00:30:00Z";
+    insertPastMeeting(conn, pid, "2026-06-20T09:00:00+09:00", "done");
+    const res = await app.inject({ method: "GET", url: `/api/people/directory?now=${encodeURIComponent(nowZ)}` });
+    const p = res.json().data.people[0];
+    expect(p.totalMeets).toBe(1);
+  });
+
+  it("lastMet is epoch-latest (not lexically latest)", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const pid = insertPerson(conn, "LastMetPerson");
+    // epoch-later: "2026-05-09T20:00:00Z" vs lexically-later: "2026-05-10T01:00:00+09:00" = "2026-05-09T16:00Z"
+    insertPastMeeting(conn, pid, "2026-05-09T20:00:00Z", "done");    // epoch-latest
+    insertPastMeeting(conn, pid, "2026-05-10T01:00:00+09:00", "done"); // lexically larger
+    const res = await app.inject({ method: "GET", url: `/api/people/directory?now=${encodeURIComponent(NOW_DIR)}` });
+    const p = res.json().data.people[0];
+    expect(p.lastMet).toBe("2026-05-09T20:00:00Z");
+  });
+
+  it("directory sort: lastMet desc, null last, then name asc, id asc", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const pA = insertPerson(conn, "Alice");    // null lastMet
+    const pB = insertPerson(conn, "Bob");      // older lastMet
+    const pC = insertPerson(conn, "Charlie");  // newer lastMet
+    insertPastMeeting(conn, pB, "2026-04-01T11:00:00+09:00", "done");
+    insertPastMeeting(conn, pC, "2026-05-01T11:00:00+09:00", "done");
+    const res = await app.inject({ method: "GET", url: `/api/people/directory?now=${encodeURIComponent(NOW_DIR)}` });
+    const ids = res.json().data.people.map((p: { id: number }) => p.id);
+    expect(ids).toEqual([pC, pB, pA]);
+  });
+
+  it("tied lastMet: name asc, then id asc as tiebreak", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const pZ = insertPerson(conn, "Zebra");
+    const pA = insertPerson(conn, "Aaron");
+    const SAME_END = "2026-05-01T11:00:00+09:00";
+    insertPastMeeting(conn, pZ, SAME_END, "done");
+    insertPastMeeting(conn, pA, SAME_END, "done");
+    const res = await app.inject({ method: "GET", url: `/api/people/directory?now=${encodeURIComponent(NOW_DIR)}` });
+    const names = res.json().data.people.map((p: { name: string }) => p.name);
+    expect(names).toEqual(["Aaron", "Zebra"]);
+  });
+
+  it("frequency bands: 0→cold_start, 1→rare, 3→established, 8→frequent", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    insertPerson(conn, "Cold");
+    const pRare = insertPerson(conn, "Rare");
+    const pEst = insertPerson(conn, "Est");
+    const pFreq = insertPerson(conn, "Freq");
+    insertPastMeeting(conn, pRare, "2026-05-01T11:00:00+09:00", "done");
+    for (let i = 0; i < 3; i++) insertPastMeeting(conn, pEst, `2026-0${i + 2}-01T11:00:00+09:00`, "done");
+    for (let i = 0; i < 8; i++) insertPastMeeting(conn, pFreq, `2025-0${i + 1}-01T11:00:00+09:00`, "done");
+    const res = await app.inject({ method: "GET", url: `/api/people/directory?now=${encodeURIComponent(NOW_DIR)}` });
+    const byName = Object.fromEntries(res.json().data.people.map((p: { name: string; frequencyBand: string }) => [p.name, p.frequencyBand]));
+    expect(byName["Cold"]).toBe("cold_start");
+    expect(byName["Rare"]).toBe("rare");
+    expect(byName["Est"]).toBe("established");
+    expect(byName["Freq"]).toBe("frequent");
+  });
+});
+
+// ── GET /api/people/:id/detail ────────────────────────────────────────────────
+
+describe("GET /api/people/:id/detail", () => {
+  it("400 on invalid id", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "GET", url: `/api/people/abc/detail?now=${encodeURIComponent(NOW_DIR)}` });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("400 on missing now", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const pid = insertPerson(conn, "Alice");
+    const res = await app.inject({ method: "GET", url: `/api/people/${pid}/detail` });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("404 on unknown person id", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "GET", url: `/api/people/9999/detail?now=${encodeURIComponent(NOW_DIR)}` });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe("NOT_FOUND");
+  });
+
+  it("returns person with stats and empty recentMeetings when no qualifying events", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const pid = insertPerson(conn, "Alice", "kakao");
+    const res = await app.inject({ method: "GET", url: `/api/people/${pid}/detail?now=${encodeURIComponent(NOW_DIR)}` });
+    expect(res.statusCode).toBe(200);
+    const { person, recentMeetings } = res.json().data;
+    expect(person.id).toBe(pid);
+    expect(person.totalMeets).toBe(0);
+    expect(person.frequencyBand).toBe("cold_start");
+    expect(recentMeetings).toEqual([]);
+  });
+
+  it("recentMeetings contains only qualifying linked events, newest-ended first", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const pid = insertPerson(conn, "DetailPerson");
+    insertPastMeeting(conn, pid, "2026-05-01T11:00:00+09:00", "done");   // older
+    insertPastMeeting(conn, pid, "2026-05-20T11:00:00+09:00", "done");   // newer
+    insertPastMeeting(conn, pid, "2026-05-10T11:00:00+09:00", "planned"); // excluded
+    const res = await app.inject({ method: "GET", url: `/api/people/${pid}/detail?now=${encodeURIComponent(NOW_DIR)}` });
+    const { recentMeetings } = res.json().data;
+    expect(recentMeetings).toHaveLength(2);
+    // newest first
+    expect(recentMeetings[0].end).toBe("2026-05-20T11:00:00+09:00");
+    expect(recentMeetings[1].end).toBe("2026-05-01T11:00:00+09:00");
+  });
+
+  it("recentMeetings limited to 10", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const pid = insertPerson(conn, "ManyMeets");
+    for (let i = 1; i <= 12; i++) {
+      insertPastMeeting(conn, pid, `2025-${String(i).padStart(2, "0")}-01T11:00:00+09:00`, "done");
+    }
+    const res = await app.inject({ method: "GET", url: `/api/people/${pid}/detail?now=${encodeURIComponent(NOW_DIR)}` });
+    expect(res.json().data.recentMeetings).toHaveLength(10);
+  });
+
+  it("recentMeetings epoch-sorted: +09:00 event sorted correctly against Z events", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const pid = insertPerson(conn, "SortPerson");
+    // "2026-05-10T01:00:00+09:00" = May 9 16:00Z; "2026-05-09T20:00:00Z" = May 9 20:00Z (later)
+    insertPastMeeting(conn, pid, "2026-05-10T01:00:00+09:00", "done");
+    insertPastMeeting(conn, pid, "2026-05-09T20:00:00Z", "done");
+    const res = await app.inject({ method: "GET", url: `/api/people/${pid}/detail?now=${encodeURIComponent(NOW_DIR)}` });
+    const ends = res.json().data.recentMeetings.map((e: { end: string }) => e.end);
+    // "2026-05-09T20:00:00Z" is epoch-later → should be first
+    expect(ends[0]).toBe("2026-05-09T20:00:00Z");
+  });
+
+  it("existing GET /api/people does not regress", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    insertPerson(conn, "Reg1");
+    const res = await app.inject({ method: "GET", url: "/api/people" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data).toHaveLength(1);
+  });
+});
+

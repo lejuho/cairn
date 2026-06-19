@@ -1,7 +1,8 @@
 const NAV_LINKS = [
   { href: "/today", label: "Today" },
   { href: "/input", label: "입력" },
-  { href: "/threads", label: "스레드" }
+  { href: "/threads", label: "스레드" },
+  { href: "/people", label: "사람" }
 ] as const;
 
 export function AppNav({ path }: { path: string }) {
@@ -13,7 +14,12 @@ export function AppNav({ path }: { path: string }) {
             <a
               className="app-nav-link"
               href={href}
-              aria-current={path === href || (href === "/today" && path === "/") ? "page" : undefined}
+              aria-current={
+                path === href ||
+                (href === "/today" && path === "/") ||
+                (href === "/people" && path.startsWith("/people/"))
+                  ? "page" : undefined
+              }
             >
               {label}
             </a>

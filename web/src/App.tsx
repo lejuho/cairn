@@ -1,6 +1,8 @@
 import { useEffect, useMemo } from "react";
 import { AppNav } from "./AppNav.js";
 import { InputHub } from "./InputHub.js";
+import { PeopleDirectory } from "./PeopleDirectory.js";
+import { PersonDetail } from "./PersonDetail.js";
 import { Thread } from "./Thread.js";
 import { ThreadIndex } from "./ThreadIndex.js";
 import { ThreadNew } from "./ThreadNew.js";
@@ -37,6 +39,17 @@ export function App() {
     const id = parseInt(path.slice("/threads/".length), 10);
     if (Number.isFinite(id) && id > 0) {
       return <><AppNav path="/threads" /><Thread id={id} /></>;
+    }
+  }
+
+  if (path === "/people") {
+    return <><AppNav path="/people" /><PeopleDirectory /></>;
+  }
+
+  if (path.startsWith("/people/")) {
+    const id = parseInt(path.slice("/people/".length), 10);
+    if (Number.isFinite(id) && id > 0) {
+      return <><AppNav path="/people" /><PersonDetail id={id} /></>;
     }
   }
 

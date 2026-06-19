@@ -1,8 +1,16 @@
 import { asc, eq, inArray } from "drizzle-orm";
-import type { CreatePersonRequest, EventPeopleResponse, HardConstraint, PersonRow, Weekday } from "@cairn/shared";
+import type { CreatePersonRequest, EventPeopleResponse, EventRow, FrequencyBand, HardConstraint, PersonDirectoryRow, PersonRow, Weekday } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import { eventPeople, events, people } from "../db/schema.js";
-import { parseHardConstraints } from "../services/people-impact.js";
+import { parseHardConstraints, toFrequencyBand } from "../services/people-impact.js";
+
+// Qualifying meeting predicate shared by directory and decision paths.
+// A past meeting is: status done|confirmed AND end is a finite epoch before nowMs.
+export function isQualifyingMeet(end: string | null | undefined, status: string | null, nowMs: number): boolean {
+  if (!end) return false;
+  const endMs = Date.parse(end);
+  return Number.isFinite(endMs) && endMs < nowMs && (status === "done" || status === "confirmed");
+}
 
 export function findAllPeople(db: CairnDatabase): PersonRow[] {
   const rows = db
@@ -60,14 +68,7 @@ export function queryMeetingStats(
       inArray(eventPeople.personId, personIds)
     )
     .all()
-    .filter(
-      (r) => {
-        if (r.end == null) return false;
-        const endMs = Date.parse(r.end);
-        return Number.isFinite(endMs) && endMs < nowMs &&
-          (r.status === "done" || r.status === "confirmed");
-      }
-    );
+    .filter((r) => isQualifyingMeet(r.end, r.status, nowMs));
 
   for (const personId of personIds) {
     const mine = rows.filter((r) => r.personId === personId);
@@ -216,4 +217,74 @@ export function findPeopleByIds(db: CairnDatabase, ids: number[]): PersonRow[] {
     .from(people)
     .all()
     .filter((p) => ids.includes(p.id)) as PersonRow[];
+}
+
+export function findPeopleDirectoryRows(db: CairnDatabase, nowIso: string): PersonDirectoryRow[] {
+  const allPeople = db
+    .select({ id: people.id, name: people.name, relation: people.relation, channel: people.channel, hardConstraintsJson: people.hardConstraints })
+    .from(people)
+    .all();
+
+  const personIds = allPeople.map((p) => p.id);
+  const statsMap = personIds.length > 0 ? queryMeetingStats(db, personIds, nowIso) : new Map<number, MeetingStats>();
+
+  const rows: PersonDirectoryRow[] = allPeople.map((p) => {
+    const stats = statsMap.get(p.id) ?? { totalMeets: 0, lastMet: null };
+    const { band } = toFrequencyBand(stats.totalMeets);
+    return {
+      id: p.id,
+      name: p.name,
+      relation: p.relation ?? null,
+      channel: p.channel as PersonRow["channel"] ?? null,
+      hardConstraints: parseHardConstraints(p.hardConstraintsJson ?? null),
+      totalMeets: stats.totalMeets,
+      lastMet: stats.lastMet,
+      frequencyBand: band as FrequencyBand
+    };
+  });
+
+  // Sort: lastMet desc by epoch (nulls last), then name asc, then id asc
+  return rows.sort((a, b) => {
+    const aMs = a.lastMet != null ? Date.parse(a.lastMet) : null;
+    const bMs = b.lastMet != null ? Date.parse(b.lastMet) : null;
+    if (aMs !== null && bMs !== null) {
+      if (bMs !== aMs) return bMs - aMs;
+    } else if (aMs !== null) return -1;
+    else if (bMs !== null) return 1;
+    if (a.name !== b.name) return a.name.localeCompare(b.name);
+    return a.id - b.id;
+  });
+}
+
+export function findRecentMeetings(db: CairnDatabase, personId: number, nowIso: string, limit = 10): EventRow[] {
+  const nowMs = Date.parse(nowIso);
+  const rows = db
+    .select({ events })
+    .from(eventPeople)
+    .innerJoin(events, eq(eventPeople.eventId, events.id))
+    .where(eq(eventPeople.personId, personId))
+    .all()
+    .filter((r) => isQualifyingMeet(r.events.end, r.events.status, nowMs))
+    .sort((a, b) => {
+      const aMs = Date.parse(a.events.end!);
+      const bMs = Date.parse(b.events.end!);
+      if (bMs !== aMs) return bMs - aMs; // newest first
+      return a.events.id - b.events.id;  // id asc as tiebreak
+    })
+    .slice(0, limit)
+    .map((r) => ({
+      id: r.events.id,
+      title: r.events.title,
+      start: r.events.start,
+      end: r.events.end,
+      source: r.events.source as EventRow["source"],
+      selfImposed: r.events.selfImposed,
+      status: r.events.status as EventRow["status"],
+      threadId: r.events.threadId,
+      type: r.events.type,
+      location: r.events.location,
+      createdAt: r.events.createdAt,
+      updatedAt: r.events.updatedAt
+    }));
+  return rows;
 }

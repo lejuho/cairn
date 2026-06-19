@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AnnotationRowSchema } from "./annotations.js";
 import { EventRowSchema } from "./events.js";
+import { FrequencyBandSchema } from "./people.js";
 
 export const ConflictDecisionQuerySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD"),
@@ -19,7 +20,7 @@ export const RelationshipContributionSchema = z.object({
   personName: z.string(),
   totalMeets: z.number(),
   lastMet: z.string().nullable(),
-  frequencyBand: z.enum(["cold_start", "rare", "established", "frequent"]),
+  frequencyBand: FrequencyBandSchema,
   adjustment: z.number()
 });
 export type RelationshipContribution = z.infer<typeof RelationshipContributionSchema>;

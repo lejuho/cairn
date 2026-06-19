@@ -117,6 +117,8 @@ Route layer:
   - `POST /api/decisions/conflicts/resolve` — transaction order: exist→404, active-status→CONFLICT_STALE, overlap→CONFLICT_STALE, actionability→CONFLICT_NOT_ACTIONABLE, then update+annotation. Optional `now` body field for test-clock injection.
   - `PATCH /api/events/:id/schedule` — assigns `start`+`end` to an unscheduled Cairn event. Re-checks conflict; returns 409 on stale selection.
 - [server/src/routes/people.ts](/home/pi/cairn/server/src/routes/people.ts)
+  - `GET /api/people/directory?now=` — sorted people list with totalMeets, lastMet, frequencyBand per person. Sorted: lastMet desc by epoch (nulls last), then name asc, id asc. 400 on missing/invalid now.
+  - `GET /api/people/:id/detail?now=` — person (with stats) + up to 10 recent qualifying meetings newest-first. 400 on invalid id/now, 404 on missing person.
   - `GET /api/people` — list all people sorted by name. Includes `hardConstraints: HardConstraint[]` (parsed from JSON column; malformed entries fail-open to `[]`).
   - `POST /api/people` — create person (`displayName`, `channel`, optional `relation`). Trims whitespace.
   - `GET /api/events/:id/people` — event + attached people list.
@@ -127,7 +129,7 @@ Repository/service split:
 
 - `server/src/repositories/*.ts`
   - Direct DB queries for events, tasks, watchers, annotations, people.
-  - [server/src/repositories/people.ts](/home/pi/cairn/server/src/repositories/people.ts) — `findAllPeople` (+ hardConstraints), `findPersonById`, `createPerson`, `findEventWithPeople`, `replaceEventPeople` (transaction), `findPeopleByIds`, `queryMeetingStats` (past events done/confirmed per person), `findEventPeopleContext` (people + stats per eventId batch), `replaceHardConstraints`.
+  - [server/src/repositories/people.ts](/home/pi/cairn/server/src/repositories/people.ts) — `findAllPeople` (+ hardConstraints), `findPersonById`, `createPerson`, `findEventWithPeople`, `replaceEventPeople` (transaction), `findPeopleByIds`, `isQualifyingMeet` (shared predicate: done|confirmed + end epoch < nowMs), `queryMeetingStats` (past qualifying events per person), `findPeopleDirectoryRows` (all people with stats+band, sorted), `findRecentMeetings` (qualifying events for one person, newest-first, limit 10), `findEventPeopleContext` (people + stats per eventId batch), `replaceHardConstraints`.
 - [server/src/services/people-impact.ts](/home/pi/cairn/server/src/services/people-impact.ts)
   - Pure service (no DB). `parseHardConstraints` (fail-open JSON → HardConstraint[]), `toFrequencyBand` (0→cold_start/+0, 1-2→rare/+2, 3-7→established/+1, 8+→frequent/+0), `computeSocialContext` (base + adjustments from people history), `extractWeekday` (literal-date UTC — `isoStart.slice(0,10)+"T00:00:00Z"`), `evaluatePeopleGuard` (kept event weekday vs people's weekday_unavailable constraints; fail-open on malformed JSON).
 - [server/src/services/today.ts](/home/pi/cairn/server/src/services/today.ts)
@@ -194,6 +196,11 @@ Contracts by domain:
 - [shared/src/people.ts](/home/pi/cairn/shared/src/people.ts)
   - `PersonChannelSchema` (none|kakao|sms|email|telegram), `PersonRowSchema` (now includes optional `hardConstraints: HardConstraint[]`), `CreatePersonRequestSchema`, `EventPeopleResponseSchema`, `ReplaceEventPeopleRequestSchema`.
   - `WeekdaySchema`, `HardConstraintSchema` (discriminated union; `weekday_unavailable` variant has `weekday`, `text`, `firmness: "hard"`), `ReplaceHardConstraintsRequestSchema`.
+  - `FrequencyBandSchema` — canonical enum: `cold_start|rare|established|frequent`. Canonical location; `decision.ts` and `people-directory.ts` import from here, not inline.
+- [shared/src/people-directory.ts](/home/pi/cairn/shared/src/people-directory.ts)
+  - `PersonDirectoryQuerySchema`, `PersonDetailQuerySchema` (both require `now: RFC3339 datetime with offset`).
+  - `PersonDirectoryRowSchema` = `PersonRowSchema` extended with `totalMeets`, `lastMet`, `frequencyBand`.
+  - `PersonDirectoryResponseSchema`, `PersonDetailResponseSchema`.
 - [shared/src/decision.ts](/home/pi/cairn/shared/src/decision.ts) (or merged location)
   - `RelationshipContributionSchema`, `SocialContextSchema` (`base/adjustment/effective/confidence/contributions`), `PeopleGuardConstraintSchema`, `PeopleGuardSchema` (`blocked/keepEventId/reasonCodes/constraints`).
   - `ConflictDecisionOptionSchema` extended with optional `socialContext` and `peopleGuard`.
@@ -210,10 +217,10 @@ Entry and routing:
   - Redirects `/` to `/today`.
   - Renders `AppNav` on all primary routes.
   - Handles simple not-found surface (nav still visible).
-  - Routes: `/today`, `/input`, `/threads`, `/threads/new`, `/threads/:id`.
+  - Routes: `/today`, `/input`, `/threads`, `/threads/new`, `/threads/:id`, `/people`, `/people/:id`.
 - [web/src/AppNav.tsx](/home/pi/cairn/web/src/AppNav.tsx)
-  - Shared top navigation bar (cycle 14). Links: Today (`/today`), 입력 (`/input`), 스레드 (`/threads`).
-  - `aria-current="page"` on active link. Touch targets ≥44px. Reduced-motion safe.
+  - Shared top navigation bar. Links: Today (`/today`), 입력 (`/input`), 스레드 (`/threads`), 사람 (`/people`).
+  - `aria-current="page"` on active link (including `/people/:id` matching 사람 link). Touch targets ≥44px. Reduced-motion safe.
 - [web/src/api.ts](/home/pi/cairn/web/src/api.ts)
   - Frontend fetch boundary (cycle 20). Wraps `fetch` + JSON parsing; classifies errors as `AccessSessionError` (`kind: "access_session_required"`) or `ApiError`.
   - Detection order: (1) 302/401/403 status → access_session_required; (2) `response.redirected` + cloudflareaccess.com URL → access_session_required; (3) HTML/text body with CF Access markers (`/cdn-cgi/access/login`, `cloudflareaccess.com`) → access_session_required; (4) HTML without markers → api_error; (5) fetch() rejection (network error) → access_session_required with "로그인 세션이 만료됐거나 네트워크가 끊겼어".
@@ -239,6 +246,15 @@ Entry and routing:
   - Event detail bottom sheet (cycle 16): `selectedEventId` state; tap on `next_event` card or timeline event opens sheet via `GET /api/events/:id`. Shows title, time, thread name, people list, annotations (newest-first), outcome status buttons (done/cancelled/moved/late), note input. Status PATCH calls `PATCH /api/events/:id/status` then closes sheet + refetches. Note submit calls `POST /api/events/:id/annotations` then refetches detail.
   - Quick capture (cycle 12): compact one-line input shown in quiet and live states. Posts `POST /api/capture/flat-event` with `{text, now}`. Refetches Today on success. Shows "날짜 없이 저장됐어" for `raw_stored`/`unscheduled` outcomes (auto-clears after 4 s). Empty submit is client-side rejected.
   - Thread picker (cycle 10): `GET /api/threads` fetched lazily on bottom sheet open. Optional `<select>` shown when threads exist; `threadId` sent as number in `POST /api/tasks` or `POST /api/events`. Degrades gracefully when thread list fetch fails.
+- [web/src/PeopleDirectory.tsx](/home/pi/cairn/web/src/PeopleDirectory.tsx)
+  - `/people` screen. States: loading, quiet (no people), live (person cards), error, access_error.
+  - Quiet: "아직 사람이 없어" + link to /input. Live: card list showing name, relation, frequencyLabel, totalMeets, lastMet. Each card links to `/people/:id`.
+  - Fetches `GET /api/people/directory?now=` via `apiJson`.
+- [web/src/PersonDetail.tsx](/home/pi/cairn/web/src/PersonDetail.tsx)
+  - `/people/:id` screen. States: loading, live, not_found, error, access_error.
+  - Live: person header (name, relation, channel if not "none"), stats (totalMeets, lastMet, frequencyBand), hard constraints list, recentMeetings list.
+  - Not-found: "사람을 찾을 수 없어" + link to /people.
+  - Fetches `GET /api/people/:id/detail?now=` via `apiJson`.
 - [web/src/ThreadIndex.tsx](/home/pi/cairn/web/src/ThreadIndex.tsx)
   - `/threads` index page (cycle 10). Loading/empty/live/error states. Lists thread summaries with progress/deadline chips, each linking to `/threads/:id`. "+ 새 스레드" links to `/threads/new`.
 - [web/src/ThreadNew.tsx](/home/pi/cairn/web/src/ThreadNew.tsx)
@@ -289,6 +305,8 @@ Runtime boundary: Fastify binds `127.0.0.1:3100` (loopback only). Caddy fronts a
 - Web unit/component:
   - [web/src/App.test.tsx](/home/pi/cairn/web/src/App.test.tsx)
   - [web/src/Today.test.tsx](/home/pi/cairn/web/src/Today.test.tsx)
+  - [web/src/PeopleDirectory.test.tsx](/home/pi/cairn/web/src/PeopleDirectory.test.tsx)
+  - [web/src/PersonDetail.test.tsx](/home/pi/cairn/web/src/PersonDetail.test.tsx)
 
 ## Review And Cycle Control
 

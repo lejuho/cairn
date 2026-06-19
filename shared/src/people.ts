@@ -4,6 +4,9 @@ import { EventRowSchema } from "./events.js";
 export const PersonChannelSchema = z.enum(["none", "kakao", "sms", "email", "telegram"]);
 export type PersonChannel = z.infer<typeof PersonChannelSchema>;
 
+export const FrequencyBandSchema = z.enum(["cold_start", "rare", "established", "frequent"]);
+export type FrequencyBand = z.infer<typeof FrequencyBandSchema>;
+
 export const WeekdaySchema = z.enum([
   "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
 ]);

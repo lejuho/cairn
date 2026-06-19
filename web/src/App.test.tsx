@@ -27,10 +27,18 @@ const QUIET_SURFACE = {
   }
 };
 
+const EMPTY_DIRECTORY = { ok: true, data: { people: [] } };
+
 function stubFetch() {
   vi.stubGlobal("fetch", vi.fn((url: string) => {
     if (typeof url === "string" && url.includes("/api/threads")) {
       return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+    }
+    if (typeof url === "string" && url.includes("/api/people/directory")) {
+      return Promise.resolve({ json: () => Promise.resolve(EMPTY_DIRECTORY) });
+    }
+    if (typeof url === "string" && url.match(/\/api\/people\/\d+\/detail/)) {
+      return Promise.resolve({ json: () => Promise.resolve({ ok: false, error: { code: "NOT_FOUND", message: "person not found" } }) });
     }
     return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
   }));
@@ -64,13 +72,14 @@ describe("App shell", () => {
 });
 
 describe("App navigation", () => {
-  it("renders nav on /today", async () => {
+  it("renders all 4 nav links on /today", async () => {
     window.history.replaceState(null, "", "/today");
     render(<App />);
     expect(screen.getByRole("navigation", { name: "주요 메뉴" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Today" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "입력" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "스레드" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "사람" })).toBeInTheDocument();
   });
 
   it("sets aria-current=page on Today link when on /today", async () => {
@@ -120,5 +129,38 @@ describe("App navigation", () => {
     }));
     render(<App />);
     expect(screen.getByRole("navigation", { name: "주요 메뉴" })).toBeInTheDocument();
+  });
+
+  it("sets aria-current=page on 사람 link when on /people", async () => {
+    window.history.replaceState(null, "", "/people");
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByRole("link", { name: "사람" })).toHaveAttribute("aria-current", "page");
+    });
+    expect(screen.getByRole("link", { name: "Today" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("sets aria-current=page on 사람 link when on /people/:id", async () => {
+    window.history.replaceState(null, "", "/people/1");
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByRole("link", { name: "사람" })).toHaveAttribute("aria-current", "page");
+    });
+  });
+
+  it("renders /people quiet state when no people", async () => {
+    window.history.replaceState(null, "", "/people");
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByTestId("people-quiet")).toBeInTheDocument();
+    });
+  });
+
+  it("renders /people/:id not-found when person missing", async () => {
+    window.history.replaceState(null, "", "/people/9999");
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByTestId("person-not-found")).toBeInTheDocument();
+    });
   });
 });

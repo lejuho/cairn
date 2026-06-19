@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { CreatePersonRequestSchema, ReplaceEventPeopleRequestSchema, ReplaceHardConstraintsRequestSchema } from "@cairn/shared";
+import { CreatePersonRequestSchema, PersonDetailQuerySchema, PersonDirectoryQuerySchema, ReplaceEventPeopleRequestSchema, ReplaceHardConstraintsRequestSchema } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import { findEventById } from "../repositories/events.js";
 import {
@@ -7,12 +7,42 @@ import {
   findAllPeople,
   findEventWithPeople,
   findPeopleByIds,
+  findPeopleDirectoryRows,
   findPersonById,
+  findRecentMeetings,
   replaceEventPeople,
   replaceHardConstraints
 } from "../repositories/people.js";
 
 export function registerPeopleRoutes(app: FastifyInstance, db: CairnDatabase): void {
+  app.get("/api/people/directory", async (req, reply) => {
+    const parsed = PersonDirectoryQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: parsed.error.message } });
+    }
+    const rows = findPeopleDirectoryRows(db, parsed.data.now);
+    return reply.send({ ok: true, data: { people: rows } });
+  });
+
+  app.get("/api/people/:id/detail", async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: "id must be a positive integer" } });
+    }
+    const parsed = PersonDetailQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: parsed.error.message } });
+    }
+    // Use directory rows for consistent stat computation (same qualifying rule as directory)
+    const allDir = findPeopleDirectoryRows(db, parsed.data.now);
+    const personDir = allDir.find((p) => p.id === id);
+    if (!personDir) {
+      return reply.code(404).send({ ok: false, error: { code: "NOT_FOUND", message: "person not found" } });
+    }
+    const recentMeetings = findRecentMeetings(db, id, parsed.data.now);
+    return reply.send({ ok: true, data: { person: personDir, recentMeetings } });
+  });
+
   app.get("/api/people", async (_req, reply) => {
     const rows = findAllPeople(db);
     return reply.send({ ok: true, data: rows });
