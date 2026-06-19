@@ -48,3 +48,18 @@ None found.
 <!-- RESOLVED-BOUNDARY · 위=Codex immutable, 아래=Executor append-only · check-resolved-immutable.sh가 강제 -->
 
 ## RESOLVED (Executor 응답, 파일 끝에 append)
+
+### Issue Classification
+- ISSUE-4: APPLY
+- ISSUE-5: APPLY
+
+### Applied
+
+RESOLVED: ISSUE-4 — codebase-map.md API boundary 기술 현행화
+- `docs/codebase-map.md:212`: detection order에 302 추가
+- `docs/codebase-map.md:213`: "top-level loads만 사용, mutation은 deferred" → "Today/InputHub 모든 API 호출 (top-level, secondary reads, mutations) apiJson 사용. Thread 계열은 미이전."
+
+RESOLVED: ISSUE-5 — step-003.md git 추적 복구
+- `.review/cycle-20/advisor-feedback/step-003.md` git add + commit (내용 수정 없음)
+
+자동 체크: lint ✅ / tsc ✅ / test ✅ / build ✅

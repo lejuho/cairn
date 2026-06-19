@@ -209,8 +209,8 @@ Entry and routing:
   - `aria-current="page"` on active link. Touch targets ≥44px. Reduced-motion safe.
 - [web/src/api.ts](/home/pi/cairn/web/src/api.ts)
   - Frontend fetch boundary (cycle 20). Wraps `fetch` + JSON parsing; classifies errors as `AccessSessionError` (`kind: "access_session_required"`) or `ApiError`.
-  - Detection order: (1) 401/403 status → access_session_required; (2) `response.redirected` + cloudflareaccess.com URL → access_session_required; (3) HTML/text body with CF Access markers (`/cdn-cgi/access/login`, `cloudflareaccess.com`) → access_session_required; (4) HTML without markers → api_error; (5) fetch() rejection (network error) → access_session_required with "로그인 세션이 만료됐거나 네트워크가 끊겼어".
-  - Used by Today.tsx and InputHub.tsx top-level loads. Mutation fetches (capture POST, resolve POST, slot PATCH) remain direct fetch calls pending follow-up migration.
+  - Detection order: (1) 302/401/403 status → access_session_required; (2) `response.redirected` + cloudflareaccess.com URL → access_session_required; (3) HTML/text body with CF Access markers (`/cdn-cgi/access/login`, `cloudflareaccess.com`) → access_session_required; (4) HTML without markers → api_error; (5) fetch() rejection (network error) → access_session_required with "로그인 세션이 만료됐거나 네트워크가 끊겼어".
+  - Used by Today.tsx and InputHub.tsx for all API calls: top-level loads, secondary reads, and mutations. Thread/ThreadIndex/ThreadNew screens use direct fetch (not yet migrated).
 - [web/src/InputHub.tsx](/home/pi/cairn/web/src/InputHub.tsx)
   - `/input` pull-surface hub (cycle 14). Five states: loading, quiet, live, error, access_error.
   - Quiet when `unscheduledEvents.length === 0`; live otherwise.
