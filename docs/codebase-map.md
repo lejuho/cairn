@@ -207,16 +207,20 @@ Entry and routing:
 - [web/src/AppNav.tsx](/home/pi/cairn/web/src/AppNav.tsx)
   - Shared top navigation bar (cycle 14). Links: Today (`/today`), 입력 (`/input`), 스레드 (`/threads`).
   - `aria-current="page"` on active link. Touch targets ≥44px. Reduced-motion safe.
+- [web/src/api.ts](/home/pi/cairn/web/src/api.ts)
+  - Frontend fetch boundary (cycle 20). Wraps `fetch` + JSON parsing; classifies errors as `AccessSessionError` (`kind: "access_session_required"`) or `ApiError`.
+  - Detection order: (1) 401/403 status → access_session_required; (2) `response.redirected` + cloudflareaccess.com URL → access_session_required; (3) HTML/text body with CF Access markers (`/cdn-cgi/access/login`, `cloudflareaccess.com`) → access_session_required; (4) HTML without markers → api_error; (5) fetch() rejection (network error) → access_session_required with "로그인 세션이 만료됐거나 네트워크가 끊겼어".
+  - Used by Today.tsx and InputHub.tsx top-level loads. Mutation fetches (capture POST, resolve POST, slot PATCH) remain direct fetch calls pending follow-up migration.
 - [web/src/InputHub.tsx](/home/pi/cairn/web/src/InputHub.tsx)
-  - `/input` pull-surface hub (cycle 14). Four states: loading, quiet, live, error.
+  - `/input` pull-surface hub (cycle 14). Five states: loading, quiet, live, error, access_error.
   - Quiet when `unscheduledEvents.length === 0`; live otherwise.
   - Sections: quick capture (`POST /api/capture/flat-event`), manual add (event/task forms + optional thread picker + people checklist), unscheduled events list.
   - Event form: optional people checklist (cycle 15) from `GET /api/people`; inline person creation (`POST /api/people`). Selected personIds sent in `POST /api/events`. People fetch is best-effort (degraded silently).
   - Unscheduled events: loads slot candidates via `GET /api/events/:id/slot-candidates`, schedules via `PATCH /api/events/:id/schedule`, refetches hub on success.
-  - Loads data concurrently: `GET /api/today` + `GET /api/threads` via `Promise.allSettled`. Thread list degrades gracefully on failure.
+  - Loads data concurrently: `GET /api/today` + `GET /api/threads` via `apiJson`. Thread list degrades gracefully on failure. Access session errors show "Access 로그인 다시 열기" button (`window.location.assign`).
 - [web/src/Today.tsx](/home/pi/cairn/web/src/Today.tsx)
   - Main Today screen.
-  - Owns loading, quiet, live, error states.
+  - Five states: loading, quiet, live, error, access_error. Top-level load via `apiJson`; Access session failures show "로그인 세션이 필요해" title and "Access 로그인 다시 열기" button (`window.location.assign`).
   - Fetches `/api/today`.
   - Calls task status patch and annotation intake endpoints.
   - Manual intake bottom sheet (cycle 7): task + event creation via `POST /api/tasks` and `POST /api/events`. Sheet opens from quiet-state CTA and live-state "추가" button. `datetime-local` values serialized to RFC3339 with local timezone offset.

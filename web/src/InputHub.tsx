@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { EventRow, PersonRow, SlotCandidate, ThreadSummary, TodaySurface } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString, localNowRfc3339 } from "./dateUtils.js";
+import { apiJson, type AccessSessionError } from "./api.js";
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -8,7 +9,8 @@ type HubViewState =
   | { tag: "loading" }
   | { tag: "quiet"; threads: ThreadSummary[] }
   | { tag: "live"; unscheduled: EventRow[]; threads: ThreadSummary[] }
-  | { tag: "error"; message: string };
+  | { tag: "error"; message: string }
+  | { tag: "access_error" };
 
 type CaptureState = { text: string; submitting: boolean; savedMsg: string | null; error: string | null };
 
@@ -50,26 +52,31 @@ export function InputHub() {
     try {
       const now = localNowRfc3339();
       const date = localDateString();
-      const [todayRes, threadsResult] = await Promise.allSettled([
-        fetch(`/api/today?date=${date}&now=${encodeURIComponent(now)}`),
-        fetch("/api/threads")
+      const [todayBody, threadsBody] = await Promise.allSettled([
+        apiJson<{ ok: boolean; data?: TodaySurface; error?: { message: string } }>(
+          `/api/today?date=${date}&now=${encodeURIComponent(now)}`
+        ),
+        apiJson<{ ok: boolean; data?: ThreadSummary[] }>("/api/threads")
       ]);
-      if (todayRes.status === "rejected") throw new Error("로드 실패");
-      const todayBody = (await todayRes.value.json()) as { ok: boolean; data?: TodaySurface; error?: { message: string } };
-      if (!todayBody.ok) throw new Error(todayBody.error?.message ?? "로드 실패");
+      if (todayBody.status === "rejected") throw todayBody.reason;
+      const today = todayBody.value;
+      if (!today.ok) throw new Error(today.error?.message ?? "로드 실패");
       let threads: ThreadSummary[] = [];
-      if (threadsResult.status === "fulfilled") {
-        const threadsBody = (await threadsResult.value.json()) as { ok: boolean; data?: ThreadSummary[] };
-        if (threadsBody.ok) threads = threadsBody.data ?? [];
+      if (threadsBody.status === "fulfilled" && threadsBody.value.ok) {
+        threads = threadsBody.value.data ?? [];
       }
-      const unscheduled = todayBody.data!.unscheduledEvents ?? [];
+      const unscheduled = today.data!.unscheduledEvents ?? [];
       if (unscheduled.length === 0) {
         setView({ tag: "quiet", threads });
       } else {
         setView({ tag: "live", unscheduled, threads });
       }
     } catch (e) {
-      setView({ tag: "error", message: e instanceof Error ? e.message : "로드 실패" });
+      if ((e as AccessSessionError).kind === "access_session_required") {
+        setView({ tag: "access_error" });
+      } else {
+        setView({ tag: "error", message: e instanceof Error ? e.message : "로드 실패" });
+      }
     }
   }, []);
 
@@ -521,6 +528,19 @@ export function InputHub() {
     return (
       <main className="app-shell input-hub" aria-label="입력 허브">
         <p className="input-loading" role="status">불러오는 중…</p>
+      </main>
+    );
+  }
+
+  if (view.tag === "access_error") {
+    return (
+      <main className="app-shell input-hub" aria-label="입력 허브">
+        <p className="input-error" role="alert" data-testid="input-error">로그인 세션이 필요해</p>
+        <p>Cloudflare Access 세션이 만료됐거나 아직 인증되지 않았어. 다시 로그인한 뒤 이 화면으로 돌아오면 돼.</p>
+        <button className="input-submit-btn" onClick={() => { window.location.assign(window.location.href); }}>
+          Access 로그인 다시 열기
+        </button>
+        <button className="input-submit-btn" onClick={() => void loadData()}>다시 시도</button>
       </main>
     );
   }

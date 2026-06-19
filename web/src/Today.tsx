@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ConflictDecision, DayFeasibility, EventDetailData, SlotCandidate, ThreadSummary, TodaySurface } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString } from "./dateUtils.js";
+import { apiJson, type AccessSessionError } from "./api.js";
 
 type ReplyState = { text: string; error: string | null; submitting: boolean };
 type EventDetailState =
@@ -31,7 +32,8 @@ type ViewState =
   | { tag: "loading" }
   | { tag: "quiet"; surface: TodaySurface }
   | { tag: "live"; surface: TodaySurface }
-  | { tag: "error"; message: string };
+  | { tag: "error"; message: string }
+  | { tag: "access_error" };
 
 const EMPTY_TASK_FORM: TaskForm = { title: "", estMinutes: "2", threadId: "" };
 const EMPTY_EVENT_FORM: EventForm = { title: "", start: "", end: "", threadId: "" };
@@ -40,8 +42,9 @@ const EMPTY_EVENT_FORM: EventForm = { title: "", start: "", end: "", threadId: "
 async function loadSurface(): Promise<TodaySurface> {
   const date = localDateString();
   const now = new Date().toISOString();
-  const res = await fetch(`/api/today?date=${date}&now=${encodeURIComponent(now)}`);
-  const body = (await res.json()) as { ok: boolean; data?: TodaySurface; error?: { message: string } };
+  const body = await apiJson<{ ok: boolean; data?: TodaySurface; error?: { message: string } }>(
+    `/api/today?date=${date}&now=${encodeURIComponent(now)}`
+  );
   if (!body.ok) throw new Error(body.error?.message ?? "알 수 없는 오류");
   return body.data!;
 }
@@ -267,7 +270,11 @@ export function Today() {
           : { tag: "live", surface }
       );
     } catch (e) {
-      setView({ tag: "error", message: e instanceof Error ? e.message : "오류" });
+      if ((e as AccessSessionError).kind === "access_session_required") {
+        setView({ tag: "access_error" });
+      } else {
+        setView({ tag: "error", message: e instanceof Error ? e.message : "오류" });
+      }
     }
   }, []);
 
@@ -768,6 +775,27 @@ export function Today() {
           <div className="today-skel" />
           <div className="today-skel today-skel--delay" />
         </div>
+      </main>
+    );
+  }
+
+  if (view.tag === "access_error") {
+    return (
+      <main className="app-shell" aria-labelledby="today-title">
+        <section className="quiet-card" role="alert">
+          <p className="eyebrow">Today</p>
+          <h1 id="today-title">로그인 세션이 필요해</h1>
+          <p>Cloudflare Access 세션이 만료됐거나 아직 인증되지 않았어. 다시 로그인한 뒤 이 화면으로 돌아오면 돼.</p>
+          <button
+            className="today-access-login"
+            onClick={() => { window.location.assign(window.location.href); }}
+          >
+            Access 로그인 다시 열기
+          </button>
+          <button className="today-retry" onClick={() => void refresh()}>
+            다시 시도
+          </button>
+        </section>
       </main>
     );
   }

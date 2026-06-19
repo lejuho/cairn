@@ -44,8 +44,18 @@ function mockFetch(surface: TodaySurface) {
 function mockFetchError(message = "서버 오류") {
   vi.stubGlobal(
     "fetch",
-    vi.fn().mockRejectedValue(new Error(message))
+    vi.fn().mockResolvedValue({
+      ok: true,
+      redirected: false,
+      url: "",
+      headers: { get: () => "application/json" },
+      json: () => Promise.resolve({ ok: false, error: { message } })
+    })
   );
+}
+
+function mockFetchAccessError() {
+  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
 }
 
 describe("Today — loading state", () => {
@@ -172,6 +182,33 @@ describe("Today — error state", () => {
       expect(screen.getByText("데이터를 불러오지 못했어")).toBeInTheDocument();
     });
     expect(screen.getByRole("button", { name: "다시 시도" })).toBeInTheDocument();
+  });
+});
+
+describe("Today — Access session error state", () => {
+  it("renders Access-specific title and recovery action for rejected fetch", async () => {
+    mockFetchAccessError();
+    render(<Today />);
+    await waitFor(() => expect(screen.getByText("로그인 세션이 필요해")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Access 로그인 다시 열기" })).toBeInTheDocument();
+  });
+
+  it("Access 로그인 다시 열기 triggers full-page navigation", async () => {
+    mockFetchAccessError();
+    const assignMock = vi.fn();
+    vi.stubGlobal("location", { href: "http://localhost/", assign: assignMock });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Access 로그인 다시 열기" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Access 로그인 다시 열기" }));
+    expect(assignMock).toHaveBeenCalledWith("http://localhost/");
+    vi.unstubAllGlobals();
+  });
+
+  it("generic API failure still shows 데이터를 불러오지 못했어 not Access copy", async () => {
+    mockFetchError("API 오류");
+    render(<Today />);
+    await waitFor(() => expect(screen.getByText("데이터를 불러오지 못했어")).toBeInTheDocument());
+    expect(screen.queryByText("로그인 세션이 필요해")).not.toBeInTheDocument();
   });
 });
 
