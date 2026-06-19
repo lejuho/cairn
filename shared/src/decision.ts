@@ -14,6 +14,41 @@ export const ConflictCostSchema = z.object({
   window: z.string().nullable()
 });
 
+export const RelationshipContributionSchema = z.object({
+  personId: z.number(),
+  personName: z.string(),
+  totalMeets: z.number(),
+  lastMet: z.string().nullable(),
+  frequencyBand: z.enum(["cold_start", "rare", "established", "frequent"]),
+  adjustment: z.number()
+});
+export type RelationshipContribution = z.infer<typeof RelationshipContributionSchema>;
+
+export const SocialContextSchema = z.object({
+  base: z.number().nullable(),
+  adjustment: z.number().nullable(),
+  effective: z.number().nullable(),
+  confidence: z.enum(["none", "cold_start", "derived"]),
+  contributions: z.array(RelationshipContributionSchema)
+});
+export type SocialContext = z.infer<typeof SocialContextSchema>;
+
+export const PeopleGuardConstraintSchema = z.object({
+  personId: z.number(),
+  personName: z.string(),
+  keptEventId: z.number(),
+  constraintText: z.string()
+});
+export type PeopleGuardConstraint = z.infer<typeof PeopleGuardConstraintSchema>;
+
+export const PeopleGuardSchema = z.object({
+  blocked: z.boolean(),
+  keepEventId: z.number(),
+  reasonCodes: z.array(z.string()),
+  constraints: z.array(PeopleGuardConstraintSchema)
+});
+export type PeopleGuard = z.infer<typeof PeopleGuardSchema>;
+
 export const ConflictDecisionOptionSchema = z.object({
   event: EventRowSchema,
   action: z.literal("move_or_cancel"),
@@ -21,7 +56,9 @@ export const ConflictDecisionOptionSchema = z.object({
   reversible: z.number().nullable(),
   commitment: z.number().nullable(),
   suggested: z.boolean(),
-  reasonCodes: z.array(z.string())
+  reasonCodes: z.array(z.string()),
+  socialContext: SocialContextSchema.optional(),
+  peopleGuard: PeopleGuardSchema.optional()
 });
 
 export const ConflictDecisionSchema = z.object({

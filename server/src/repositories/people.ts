@@ -1,14 +1,155 @@
-import { asc, eq } from "drizzle-orm";
-import type { CreatePersonRequest, EventPeopleResponse, PersonRow } from "@cairn/shared";
+import { asc, eq, inArray, lt, or } from "drizzle-orm";
+import type { CreatePersonRequest, EventPeopleResponse, HardConstraint, PersonRow, Weekday } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import { eventPeople, events, people } from "../db/schema.js";
+import { parseHardConstraints } from "../services/people-impact.js";
 
 export function findAllPeople(db: CairnDatabase): PersonRow[] {
-  return db
-    .select({ id: people.id, name: people.name, relation: people.relation, channel: people.channel })
+  const rows = db
+    .select({ id: people.id, name: people.name, relation: people.relation, channel: people.channel, hardConstraintsJson: people.hardConstraints })
     .from(people)
     .orderBy(asc(people.name), asc(people.id))
-    .all() as PersonRow[];
+    .all();
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    relation: r.relation ?? null,
+    channel: r.channel as PersonRow["channel"] ?? null,
+    hardConstraints: parseHardConstraints(r.hardConstraintsJson ?? null)
+  }));
+}
+
+export function findPersonById(db: CairnDatabase, id: number): PersonRow | null {
+  const row = db
+    .select({ id: people.id, name: people.name, relation: people.relation, channel: people.channel, hardConstraintsJson: people.hardConstraints })
+    .from(people)
+    .where(eq(people.id, id))
+    .get();
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    relation: row.relation ?? null,
+    channel: row.channel as PersonRow["channel"] ?? null,
+    hardConstraints: parseHardConstraints(row.hardConstraintsJson ?? null)
+  };
+}
+
+export type MeetingStats = { totalMeets: number; lastMet: string | null };
+
+export function queryMeetingStats(
+  db: CairnDatabase,
+  personIds: number[],
+  nowIso: string
+): Map<number, MeetingStats> {
+  const result = new Map<number, MeetingStats>();
+  if (personIds.length === 0) return result;
+  // Count qualifying past events: done or confirmed, ended before now
+  const rows = db
+    .select({
+      personId: eventPeople.personId,
+      end: events.end,
+      status: events.status
+    })
+    .from(eventPeople)
+    .innerJoin(events, eq(eventPeople.eventId, events.id))
+    .where(
+      inArray(eventPeople.personId, personIds)
+    )
+    .all()
+    .filter(
+      (r) =>
+        r.end != null &&
+        r.end < nowIso &&
+        (r.status === "done" || r.status === "confirmed")
+    );
+
+  for (const personId of personIds) {
+    const mine = rows.filter((r) => r.personId === personId);
+    const totalMeets = mine.length;
+    const lastMet = mine.length > 0
+      ? mine.reduce((best, r) => (r.end! > best ? r.end! : best), mine[0]!.end!)
+      : null;
+    result.set(personId, { totalMeets, lastMet });
+  }
+  return result;
+}
+
+export type PersonContextItem = {
+  personId: number;
+  personName: string;
+  hardConstraints: HardConstraint[];
+  totalMeets: number;
+  lastMet: string | null;
+};
+
+export function findEventPeopleContext(
+  db: CairnDatabase,
+  eventIds: number[],
+  nowIso: string
+): Map<number, PersonContextItem[]> {
+  const result = new Map<number, PersonContextItem[]>();
+  if (eventIds.length === 0) return result;
+
+  const links = db
+    .select({
+      eventId: eventPeople.eventId,
+      personId: people.id,
+      personName: people.name,
+      hardConstraintsJson: people.hardConstraints
+    })
+    .from(eventPeople)
+    .innerJoin(people, eq(eventPeople.personId, people.id))
+    .where(inArray(eventPeople.eventId, eventIds))
+    .all();
+
+  const personIds = [...new Set(links.map((l) => l.personId))];
+  const statsMap = queryMeetingStats(db, personIds, nowIso);
+
+  for (const link of links) {
+    const stats = statsMap.get(link.personId) ?? { totalMeets: 0, lastMet: null };
+    const item: PersonContextItem = {
+      personId: link.personId,
+      personName: link.personName,
+      hardConstraints: parseHardConstraints(link.hardConstraintsJson ?? null),
+      totalMeets: stats.totalMeets,
+      lastMet: stats.lastMet
+    };
+    const existing = result.get(link.eventId) ?? [];
+    existing.push(item);
+    result.set(link.eventId, existing);
+  }
+  return result;
+}
+
+export function replaceHardConstraints(
+  db: CairnDatabase,
+  personId: number,
+  unavailableWeekdays: Weekday[]
+): PersonRow | null {
+  const deduped = [...new Set(unavailableWeekdays)] as Weekday[];
+  const constraints: HardConstraint[] = deduped.map((weekday) => ({
+    type: "weekday_unavailable" as const,
+    weekday,
+    text: `${weekday} 불가`,
+    firmness: "hard" as const
+  }));
+  const json = constraints.length > 0 ? JSON.stringify(constraints) : null;
+  const rows = db
+    .update(people)
+    .set({ hardConstraints: json })
+    .where(eq(people.id, personId))
+    .returning()
+    .all();
+  if (rows.length === 0) return null;
+  const updated = rows[0]!;
+  return {
+    id: updated.id,
+    name: updated.name,
+    relation: updated.relation ?? null,
+    channel: updated.channel as PersonRow["channel"] ?? null,
+    hardConstraints: constraints
+  };
 }
 
 export function createPerson(db: CairnDatabase, input: CreatePersonRequest): PersonRow {

@@ -117,20 +117,23 @@ Route layer:
   - `POST /api/decisions/conflicts/resolve` — transaction order: exist→404, active-status→CONFLICT_STALE, overlap→CONFLICT_STALE, actionability→CONFLICT_NOT_ACTIONABLE, then update+annotation. Optional `now` body field for test-clock injection.
   - `PATCH /api/events/:id/schedule` — assigns `start`+`end` to an unscheduled Cairn event. Re-checks conflict; returns 409 on stale selection.
 - [server/src/routes/people.ts](/home/pi/cairn/server/src/routes/people.ts)
-  - `GET /api/people` — list all people sorted by name.
+  - `GET /api/people` — list all people sorted by name. Includes `hardConstraints: HardConstraint[]` (parsed from JSON column; malformed entries fail-open to `[]`).
   - `POST /api/people` — create person (`displayName`, `channel`, optional `relation`). Trims whitespace.
   - `GET /api/events/:id/people` — event + attached people list.
   - `PUT /api/events/:id/people` — replace event's people atomically (dedup, FK-check, transaction delete+insert).
+  - `PUT /api/people/:id/hard-constraints` — replace person's hard constraints from `{ unavailableWeekdays: Weekday[] }`. Deduplicates, serializes to JSON column. Returns `{ ok: true, data: { person } }`. 404 on unknown id.
 
 Repository/service split:
 
 - `server/src/repositories/*.ts`
   - Direct DB queries for events, tasks, watchers, annotations, people.
-  - [server/src/repositories/people.ts](/home/pi/cairn/server/src/repositories/people.ts) — findAllPeople, createPerson, findEventWithPeople, replaceEventPeople (transaction), findPeopleByIds.
+  - [server/src/repositories/people.ts](/home/pi/cairn/server/src/repositories/people.ts) — `findAllPeople` (+ hardConstraints), `findPersonById`, `createPerson`, `findEventWithPeople`, `replaceEventPeople` (transaction), `findPeopleByIds`, `queryMeetingStats` (past events done/confirmed per person), `findEventPeopleContext` (people + stats per eventId batch), `replaceHardConstraints`.
+- [server/src/services/people-impact.ts](/home/pi/cairn/server/src/services/people-impact.ts)
+  - Pure service (no DB). `parseHardConstraints` (fail-open JSON → HardConstraint[]), `toFrequencyBand` (0→cold_start/+0, 1-2→rare/+2, 3-7→established/+1, 8+→frequent/+0), `computeSocialContext` (base + adjustments from people history), `extractWeekday` (literal-date UTC — `isoStart.slice(0,10)+"T00:00:00Z"`), `evaluatePeopleGuard` (kept event weekday vs people's weekday_unavailable constraints; fail-open on malformed JSON).
 - [server/src/services/today.ts](/home/pi/cairn/server/src/services/today.ts)
   - Builds Today card surface and priority order. Now receives `DayFeasibility` and includes it in `TodaySurface`.
 - [server/src/services/decision.ts](/home/pi/cairn/server/src/services/decision.ts)
-  - Pure deterministic conflict decision service: detects overlapping planned/confirmed events by epoch ms, computes overlap minutes, urgency (near/planning), actionability (`isResolvable` — strict forward gate: start ≥ now AND start ≤ now+6h), per-event cost extraction, internal score for suggestion ordering (never returned to client). No LLM dependency.
+  - Pure deterministic conflict decision service: detects overlapping planned/confirmed events by epoch ms, computes overlap minutes, urgency (near/planning), actionability (`isResolvable` — strict forward gate: start ≥ now AND start ≤ now+6h), per-event cost extraction, internal score for suggestion ordering (never returned to client). Now accepts optional `eventPeopleContext: Map<number, PersonContextItem[]>` for social cost and guard evaluation. Blocked options excluded from suggestions; one-side-block adds `"required_by_people_constraint"` to unblocked side's reasonCodes. Resolve route re-checks guard in-transaction; returns 409 `PEOPLE_CONSTRAINT_BLOCKED` if blocked. No LLM dependency.
 - [server/src/repositories/annotations.ts](/home/pi/cairn/server/src/repositories/annotations.ts)
   - `insertStructuredAnnotation` added: one-shot ledger insert with outcome+reasonTags+reasonText (used by conflict resolve).
 - [server/src/services/feasibility.ts](/home/pi/cairn/server/src/services/feasibility.ts)
@@ -189,7 +192,11 @@ Contracts by domain:
 - [shared/src/enums.ts](/home/pi/cairn/shared/src/enums.ts)
   - Lowercase persisted enum values and related constants.
 - [shared/src/people.ts](/home/pi/cairn/shared/src/people.ts)
-  - `PersonChannelSchema` (none|kakao|sms|email|telegram), `PersonRowSchema`, `CreatePersonRequestSchema`, `EventPeopleResponseSchema`, `ReplaceEventPeopleRequestSchema`.
+  - `PersonChannelSchema` (none|kakao|sms|email|telegram), `PersonRowSchema` (now includes optional `hardConstraints: HardConstraint[]`), `CreatePersonRequestSchema`, `EventPeopleResponseSchema`, `ReplaceEventPeopleRequestSchema`.
+  - `WeekdaySchema`, `HardConstraintSchema` (discriminated union; `weekday_unavailable` variant has `weekday`, `text`, `firmness: "hard"`), `ReplaceHardConstraintsRequestSchema`.
+- [shared/src/decision.ts](/home/pi/cairn/shared/src/decision.ts) (or merged location)
+  - `RelationshipContributionSchema`, `SocialContextSchema` (`base/adjustment/effective/confidence/contributions`), `PeopleGuardConstraintSchema`, `PeopleGuardSchema` (`blocked/keepEventId/reasonCodes/constraints`).
+  - `ConflictDecisionOptionSchema` extended with optional `socialContext` and `peopleGuard`.
 - [shared/src/eventDetail.ts](/home/pi/cairn/shared/src/eventDetail.ts)
   - `CompactThreadSchema`, `EventDetailDataSchema` (event+people+annotations+thread), `PatchEventStatusRequestSchema`, `PatchEventStatusResponseDataSchema`.
 
@@ -216,6 +223,7 @@ Entry and routing:
   - Quiet when `unscheduledEvents.length === 0`; live otherwise.
   - Sections: quick capture (`POST /api/capture/flat-event`), manual add (event/task forms + optional thread picker + people checklist), unscheduled events list.
   - Event form: optional people checklist (cycle 15) from `GET /api/people`; inline person creation (`POST /api/people`). Selected personIds sent in `POST /api/events`. People fetch is best-effort (degraded silently).
+  - People checklist (cycle 21): each person row has a "제약" button (`aria-label="{name} 요일 제약 설정"`) that opens a weekday constraint bottom sheet. Sheet reads existing `hardConstraints` from the loaded person list, toggles weekdays (aria-pressed), saves via `PUT /api/people/:id/hard-constraints`, then re-fetches people and closes. Save failure keeps sheet open with error; personIds selection preserved across open/save.
   - Unscheduled events: loads slot candidates via `GET /api/events/:id/slot-candidates`, schedules via `PATCH /api/events/:id/schedule`, refetches hub on success.
   - Loads data concurrently: `GET /api/today` + `GET /api/threads` via `apiJson`. Thread list degrades gracefully on failure. Access session errors show "Access 로그인 다시 열기" button (`window.location.assign`).
 - [web/src/Today.tsx](/home/pi/cairn/web/src/Today.tsx)
@@ -225,6 +233,7 @@ Entry and routing:
   - Calls task status patch and annotation intake endpoints.
   - Manual intake bottom sheet (cycle 7): task + event creation via `POST /api/tasks` and `POST /api/events`. Sheet opens from quiet-state CTA and live-state "추가" button. `datetime-local` values serialized to RFC3339 with local timezone offset.
   - Daily timeline section (cycle 8): renders `dayEvents` from `GET /api/today` as a compact `오늘 일정` list. Active event marked via `Date.parse()` epoch comparison. Quiet state only when both cards and `dayEvents` are empty.
+  - Conflict sheet (cycle 21): renders per-option `socialContext.contributions` (person name, meet count, frequency band, adjustment). Blocked options (`peopleGuard.blocked === true`) show "제약" badge (`.conflict-blocked-badge`), constraint reasons list, and disabled action buttons. One-side-blocked unblocked option remains actionable. Both-blocked shows "두 선택지 모두 사람 제약에 걸려있어. 직접 일정을 조율해줘." copy and no action buttons.
   - Timeline events: title rendered as a `<button>` that opens the event detail sheet (cycle 16). Events with `threadId` additionally show an `↗` thread link.
   - Schedule prompt (cycle 13): `schedule_prompt` cards rendered in live stack after `needs_review`. "날짜 잡기" button fetches `GET /api/events/:id/slot-candidates`. Up to 3 candidate buttons shown; tap calls `PATCH /api/events/:id/schedule` then refetches Today. Error state keeps card visible with local message.
   - Event detail bottom sheet (cycle 16): `selectedEventId` state; tap on `next_event` card or timeline event opens sheet via `GET /api/events/:id`. Shows title, time, thread name, people list, annotations (newest-first), outcome status buttons (done/cancelled/moved/late), note input. Status PATCH calls `PATCH /api/events/:id/status` then closes sheet + refetches. Note submit calls `POST /api/events/:id/annotations` then refetches detail.

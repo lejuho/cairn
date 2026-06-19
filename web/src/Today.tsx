@@ -189,14 +189,17 @@ function ConflictDecisionSheet({
           if (!opt) return null;
           const other = opt === optA ? optB : optA;
           if (!other) return null;
+          const guardBlocked = opt.peopleGuard?.blocked ?? false;
+          const isDisabled = submitting || conflict.actionability === "read_only" || guardBlocked;
           return (
-            <div key={opt.event.id} className={`conflict-option${opt.suggested ? " conflict-option--suggested" : ""}`}>
+            <div key={opt.event.id} className={`conflict-option${opt.suggested ? " conflict-option--suggested" : ""}${guardBlocked ? " conflict-option--blocked" : ""}`}>
               <div className="conflict-option-header">
                 <span className="conflict-option-title">{opt.event.title}</span>
                 <span className="conflict-option-time">
                   {fmtTime(opt.event.start)} – {fmtTime(opt.event.end)}
                 </span>
                 {opt.suggested && <span className="conflict-suggested-badge" role="note">추천</span>}
+                {guardBlocked && <span className="conflict-blocked-badge" role="note">제약</span>}
               </div>
               <div className="conflict-costs" aria-label="취소 비용">
                 {opt.cost.money != null && opt.cost.money > 0 && (
@@ -212,10 +215,27 @@ function ConflictDecisionSheet({
                   <span className="cost-chip cost-chip--zero">비용 없음</span>
                 )}
               </div>
+              {(opt.socialContext?.contributions ?? []).length > 0 && (
+                <ul className="conflict-social-contributions" aria-label="관계 기여">
+                  {(opt.socialContext?.contributions ?? []).map((c) => (
+                    <li key={c.personId} className="conflict-contribution">
+                      {c.personName} — {c.totalMeets}회 ({c.frequencyBand})
+                      {c.adjustment > 0 && <span className="conflict-contribution-adj"> +{c.adjustment}</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {guardBlocked && (opt.peopleGuard?.constraints ?? []).length > 0 && (
+                <ul className="conflict-guard-reasons" aria-label="제약 이유" role="note">
+                  {(opt.peopleGuard?.constraints ?? []).map((g, i) => (
+                    <li key={i} className="conflict-guard-reason">{g.personName}: {g.constraintText}</li>
+                  ))}
+                </ul>
+              )}
               <div className="conflict-actions">
                 <button
                   className="conflict-btn conflict-btn--move"
-                  disabled={submitting || conflict.actionability === "read_only"}
+                  disabled={isDisabled}
                   onClick={() => onResolve(other.event.id, opt.event.id, "moved")}
                   aria-label={`${opt.event.title} 이동 처리`}
                 >
@@ -223,7 +243,7 @@ function ConflictDecisionSheet({
                 </button>
                 <button
                   className="conflict-btn conflict-btn--cancel"
-                  disabled={submitting || conflict.actionability === "read_only"}
+                  disabled={isDisabled}
                   onClick={() => onResolve(other.event.id, opt.event.id, "cancelled")}
                   aria-label={`${opt.event.title} 취소 처리`}
                 >
@@ -235,6 +255,9 @@ function ConflictDecisionSheet({
         })}
         {conflict.actionability === "read_only" && (
           <p className="conflict-read-only-hint" role="note">아직 계획 구간이라 해소 버튼은 잠가둠</p>
+        )}
+        {optA?.peopleGuard?.blocked && optB?.peopleGuard?.blocked && (
+          <p className="conflict-both-blocked" role="note">두 선택지 모두 사람 제약에 걸려있어. 직접 일정을 조율해줘.</p>
         )}
         {error && <p className="conflict-error" role="alert">{error}</p>}
       </div>

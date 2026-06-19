@@ -1,4 +1,6 @@
 import type { ConflictDecision, ConflictDecisionOption, EventRow } from "@cairn/shared";
+import type { PersonContextItem } from "../repositories/people.js";
+import { computeSocialContext, evaluatePeopleGuard } from "./people-impact.js";
 
 const NEAR_HORIZON_MS = 6 * 60 * 60 * 1000;
 
@@ -23,7 +25,8 @@ export type EventWithCosts = {
 
 export function buildConflictDecisions(
   now: string,
-  events: EventWithCosts[]
+  events: EventWithCosts[],
+  eventPeopleContext?: Map<number, PersonContextItem[]>
 ): ConflictDecision[] {
   const scheduled = events.filter(
     (e) =>
@@ -57,7 +60,9 @@ export function buildConflictDecisions(
           : "planning";
 
       const id = [a.id, b.id].sort((x, y) => x - y).join(":");
-      const options = buildOptions(a, b);
+      const aPeople = eventPeopleContext?.get(a.id) ?? [];
+      const bPeople = eventPeopleContext?.get(b.id) ?? [];
+      const options = buildOptions(a, b, aPeople, bPeople);
       const { actionability, disabledReasonCodes } = computeActionability(nowMs, aStart, bStart);
 
       decisions.push({ id, pair: { a: toEventRow(a), b: toEventRow(b) }, overlapMinutes, urgency, actionability, disabledReasonCodes, options });
@@ -69,22 +74,43 @@ export function buildConflictDecisions(
 
 function buildOptions(
   a: EventWithCosts,
-  b: EventWithCosts
+  b: EventWithCosts,
+  aPeople: PersonContextItem[],
+  bPeople: PersonContextItem[]
 ): [ConflictDecisionOption, ConflictDecisionOption] {
-  const scoreA = internalScore(a);
-  const scoreB = internalScore(b);
-  const anyKnownA = hasKnownCost(a);
-  const anyKnownB = hasKnownCost(b);
+  // socialContext: for option A (cancel A), A's linked people affect A's social cost
+  const socialCtxA = computeSocialContext(a.cancelSocial ?? null, aPeople);
+  const socialCtxB = computeSocialContext(b.cancelSocial ?? null, bPeople);
+
+  // peopleGuard: for option A (keep B), check B's linked people constraints against B's start
+  const guardA = evaluatePeopleGuard(b.id, b.start ?? null, bPeople);
+  const guardB = evaluatePeopleGuard(a.id, a.start ?? null, aPeople);
+
+  const effectiveSocialA = socialCtxA.effective;
+  const effectiveSocialB = socialCtxB.effective;
+
+  const scoreA = internalScoreWithContext(a, effectiveSocialA);
+  const scoreB = internalScoreWithContext(b, effectiveSocialB);
+  const anyKnownA = hasKnownCostWithContext(a, effectiveSocialA);
+  const anyKnownB = hasKnownCostWithContext(b, effectiveSocialB);
 
   let suggestedA = false;
   let suggestedB = false;
-  // Only suggest when at least one side has a known value and one side is clearly lower
+  // Blocked options are never suggested
   if ((anyKnownA || anyKnownB) && scoreA !== scoreB) {
-    if (scoreA < scoreB) {
-      suggestedA = true; // lower cost to cancel A → suggest cancelling A
-    } else {
+    if (scoreA < scoreB && !guardA.blocked) {
+      suggestedA = true;
+    } else if (scoreB < scoreA && !guardB.blocked) {
       suggestedB = true;
     }
+  }
+  // If one side is blocked and the other is not, mark the unblocked as required by guard
+  let reasonCodesA = suggestedA ? ["lower_cancel_cost"] : [];
+  let reasonCodesB = suggestedB ? ["lower_cancel_cost"] : [];
+  if (guardA.blocked && !guardB.blocked) {
+    reasonCodesB = [...new Set([...reasonCodesB, "required_by_people_constraint"])];
+  } else if (guardB.blocked && !guardA.blocked) {
+    reasonCodesA = [...new Set([...reasonCodesA, "required_by_people_constraint"])];
   }
 
   const optA: ConflictDecisionOption = {
@@ -92,14 +118,16 @@ function buildOptions(
     action: "move_or_cancel",
     cost: {
       money: a.cancelMoney ?? null,
-      social: a.cancelSocial ?? null,
+      social: effectiveSocialA,
       effort: a.cancelEffort ?? null,
       window: a.cancelWindow ?? null
     },
     reversible: a.reversible ?? null,
     commitment: a.commitment ?? null,
     suggested: suggestedA,
-    reasonCodes: suggestedA ? ["lower_cancel_cost"] : []
+    reasonCodes: reasonCodesA,
+    socialContext: socialCtxA,
+    peopleGuard: guardA
   };
 
   const optB: ConflictDecisionOption = {
@@ -107,31 +135,33 @@ function buildOptions(
     action: "move_or_cancel",
     cost: {
       money: b.cancelMoney ?? null,
-      social: b.cancelSocial ?? null,
+      social: effectiveSocialB,
       effort: b.cancelEffort ?? null,
       window: b.cancelWindow ?? null
     },
     reversible: b.reversible ?? null,
     commitment: b.commitment ?? null,
     suggested: suggestedB,
-    reasonCodes: suggestedB ? ["lower_cancel_cost"] : []
+    reasonCodes: reasonCodesB,
+    socialContext: socialCtxB,
+    peopleGuard: guardB
   };
 
   return [optA, optB];
 }
 
-function hasKnownCost(e: EventWithCosts): boolean {
+function hasKnownCostWithContext(e: EventWithCosts, effectiveSocial: number | null): boolean {
   const moneyKnown = e.cancelMoney != null && e.cancelMoney > 0;
-  const socialKnown = e.cancelSocial != null && e.cancelSocial > 0;
+  const socialKnown = effectiveSocial != null && effectiveSocial > 0;
   const effortKnown = e.cancelEffort != null && e.cancelEffort !== "none";
   // reversible is intentionally excluded: it is used as a tiebreak penalty only
   // after a cost gate, never as the sole trigger for a suggestion
   return moneyKnown || socialKnown || effortKnown;
 }
 
-function internalScore(e: EventWithCosts): number {
+function internalScoreWithContext(e: EventWithCosts, effectiveSocial: number | null): number {
   const money = e.cancelMoney ?? 0;
-  const social = e.cancelSocial ?? 0;
+  const social = effectiveSocial ?? 0;
   const effort = EFFORT_ORDINAL[e.cancelEffort ?? "none"] ?? 0;
   // Non-reversible adds a penalty for ordering only; never returned to client
   const irreversiblePenalty = e.reversible === 0 ? 10 : 0;

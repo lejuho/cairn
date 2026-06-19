@@ -187,6 +187,32 @@ bash .claude/hooks/check-marker-sync.sh
 
 > 실패/의도와 다른 에러 발생 시 한 줄씩 추가. blameless 원칙 — "누가 실수했다"가 아니라 "이런 패턴이 위험하다"로 기록.
 
+- Cloudflare Access, Tunnel, Caddy, systemd, OAuth/LLM proxy, external API,
+  network, or deployment incidents that require multi-step diagnosis or recur
+  must be documented in `docs/postmortems/YYYY-MM-DD-<slug>.md` before the work
+  is considered complete. Create `docs/postmortems/` when the first qualifying
+  incident occurs.
+- Apply the same postmortem rule to code debugging when an error signature
+  repeats, the same behavior needs more than one corrective patch, a regression
+  reopens a fixed bug, or the root cause crosses module/API/DB boundaries.
+  Before another fix attempt, search `docs/postmortems/` for the signature and
+  affected boundary so an already-failed approach is not repeated.
+- Each postmortem records: symptom and impact, relevant timeline/evidence, root
+  cause, resolution commands or configuration changes, verification, and a
+  prevention/follow-up rule. For code defects, also record the stable error
+  signature, affected contract/files, prior fixes that proved insufficient,
+  and the regression test added. If automation is impossible, state the exact
+  manual verification and why. Keep it blameless and distinguish confirmed
+  facts from hypotheses.
+- Never include secrets, full tokens, session cookies, OAuth credentials, or
+  private key material. Redact identifiers when they are not needed to
+  reproduce the diagnosis.
+- Trivial typos, immediately corrected one-off command mistakes, and code bugs
+  fixed once with an adequate regression test do not need a postmortem. Add the
+  durable lesson as one line in this Hansei section; use
+  `docs/codebase-map.md` only for navigation or boundary changes, not incident
+  narrative.
+
 <!-- 예: -->
 <!-- - mock verify 단위 테스트로는 FK constraint violation을 검증할 수 없다. 실제 DB 통합 테스트 필수. -->
 

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { CreatePersonRequestSchema, ReplaceEventPeopleRequestSchema } from "@cairn/shared";
+import { CreatePersonRequestSchema, ReplaceEventPeopleRequestSchema, ReplaceHardConstraintsRequestSchema } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import { findEventById } from "../repositories/events.js";
 import {
@@ -7,7 +7,9 @@ import {
   findAllPeople,
   findEventWithPeople,
   findPeopleByIds,
-  replaceEventPeople
+  findPersonById,
+  replaceEventPeople,
+  replaceHardConstraints
 } from "../repositories/people.js";
 
 export function registerPeopleRoutes(app: FastifyInstance, db: CairnDatabase): void {
@@ -49,6 +51,23 @@ export function registerPeopleRoutes(app: FastifyInstance, db: CairnDatabase): v
       return reply.code(404).send({ ok: false, error: { code: "NOT_FOUND", message: "event not found" } });
     }
     return reply.send({ ok: true, data: result });
+  });
+
+  app.put("/api/people/:id/hard-constraints", async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: "id must be a positive integer" } });
+    }
+    const parsed = ReplaceHardConstraintsRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: parsed.error.message } });
+    }
+    const existing = findPersonById(db, id);
+    if (!existing) {
+      return reply.code(404).send({ ok: false, error: { code: "NOT_FOUND", message: "person not found" } });
+    }
+    const person = replaceHardConstraints(db, id, parsed.data.unavailableWeekdays);
+    return reply.send({ ok: true, data: { person } });
   });
 
   app.put("/api/events/:id/people", async (req, reply) => {

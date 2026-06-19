@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EventRow, PersonRow, TodaySurface } from "@cairn/shared";
 import { InputHub } from "./InputHub.js";
@@ -602,5 +602,128 @@ describe("InputHub — thread picker degrades gracefully", () => {
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
     expect(screen.getByLabelText("빠른 입력")).toBeInTheDocument();
     expect(screen.queryByLabelText("스레드")).not.toBeInTheDocument();
+  });
+});
+
+// ── InputHub — constraint sheet ───────────────────────────────────────────────
+
+describe("InputHub — constraint sheet", () => {
+  const ALICE_WITH_CONSTRAINTS: PersonRow = {
+    id: 1, name: "Alice", relation: null, channel: null,
+    hardConstraints: [{ type: "weekday_unavailable", weekday: "monday", text: "monday 불가", firmness: "hard" }]
+  };
+
+  function setupConstraintMock(people: PersonRow[] = [ALICE_WITH_CONSTRAINTS]) {
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      if (url.includes("/api/threads")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url.includes("/api/people")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: people }) });
+      if (url.includes("/api/today")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true }) });
+    }));
+  }
+
+  async function renderAndOpenSheet() {
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByLabelText("일정 추가 폼")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("Alice 요일 제약 설정"));
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+  }
+
+  it("shows 제약 button for each person in the checklist", async () => {
+    setupConstraintMock();
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByLabelText("Alice 요일 제약 설정")).toBeInTheDocument());
+  });
+
+  it("clicking 제약 button opens constraint sheet with person name", async () => {
+    setupConstraintMock();
+    await renderAndOpenSheet();
+    expect(screen.getByRole("dialog", { name: "Alice 요일 제약" })).toBeInTheDocument();
+  });
+
+  it("constraint sheet shows all 7 weekday toggle buttons", async () => {
+    setupConstraintMock();
+    await renderAndOpenSheet();
+    expect(screen.getByRole("button", { name: "월" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "토" })).toBeInTheDocument();
+  });
+
+  it("existing constraint pre-selects the weekday toggle", async () => {
+    setupConstraintMock();
+    await renderAndOpenSheet();
+    expect(screen.getByRole("button", { name: "월" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "화" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("toggling a weekday changes its aria-pressed state", async () => {
+    setupConstraintMock();
+    await renderAndOpenSheet();
+    fireEvent.click(screen.getByRole("button", { name: "화" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "화" })).toHaveAttribute("aria-pressed", "true"));
+  });
+
+  it("save calls PUT /api/people/:id/hard-constraints with correct weekdays", async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (url.includes("/api/threads")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url.includes("/api/people") && !url.includes("hard-constraints")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [ALICE_WITH_CONSTRAINTS] }) });
+      if (url.includes("/api/today")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { person: ALICE_WITH_CONSTRAINTS } }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await renderAndOpenSheet();
+    fireEvent.click(screen.getByRole("button", { name: "수" })); // add wednesday
+    fireEvent.click(screen.getByRole("button", { name: "제약 저장" }));
+    await waitFor(() => {
+      const putCall = fetchMock.mock.calls.find(
+        (c) => typeof c[0] === "string" && c[0].includes("/hard-constraints") && c[1]?.method === "PUT"
+      );
+      expect(putCall).toBeDefined();
+      const body = JSON.parse(putCall![1].body as string);
+      expect(body.unavailableWeekdays).toContain("monday");
+      expect(body.unavailableWeekdays).toContain("wednesday");
+    });
+  });
+
+  it("save success closes constraint sheet without losing event person selection", async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (url.includes("/api/threads")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url.includes("/api/people") && !url.includes("hard-constraints")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [ALICE_WITH_CONSTRAINTS] }) });
+      if (url.includes("/api/today")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { person: ALICE_WITH_CONSTRAINTS } }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByLabelText("일정 추가 폼")).toBeInTheDocument());
+    // Select Alice in the event form
+    const checkbox = screen.getByRole("checkbox", { name: /Alice/ });
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+    // Open and save constraint sheet
+    fireEvent.click(screen.getByLabelText("Alice 요일 제약 설정"));
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "제약 저장" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    // Alice checkbox still checked
+    expect(screen.getByRole("checkbox", { name: /Alice/ })).toBeChecked();
+  });
+
+  it("save failure keeps sheet open with error message", async () => {
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      if (url.includes("/api/threads")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url.includes("/api/people") && !url.includes("hard-constraints")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [ALICE_WITH_CONSTRAINTS] }) });
+      if (url.includes("/api/today")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
+      return Promise.resolve({ json: () => Promise.resolve({ ok: false, error: { message: "저장 실패" } }) });
+    }));
+    await renderAndOpenSheet();
+    fireEvent.click(screen.getByRole("button", { name: "제약 저장" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("저장 실패"));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("취소 button closes constraint sheet", async () => {
+    setupConstraintMock();
+    await renderAndOpenSheet();
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 });

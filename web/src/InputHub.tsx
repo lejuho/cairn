@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { EventRow, PersonRow, SlotCandidate, ThreadSummary, TodaySurface } from "@cairn/shared";
+import type { EventRow, PersonRow, SlotCandidate, ThreadSummary, TodaySurface, Weekday } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString, localNowRfc3339 } from "./dateUtils.js";
 import { apiJson, type AccessSessionError } from "./api.js";
 
@@ -16,6 +16,13 @@ type CaptureState = { text: string; submitting: boolean; savedMsg: string | null
 
 type EventForm = { title: string; start: string; end: string; threadId: string; personIds: number[] };
 type NewPersonState = { show: boolean; name: string; channel: string; relation: string; submitting: boolean; error: string | null };
+type ConstraintSheetState = { open: false } | { open: true; personId: number; personName: string; weekdays: Weekday[]; submitting: boolean; error: string | null };
+
+const ALL_WEEKDAYS: { key: Weekday; label: string }[] = [
+  { key: "monday", label: "월" }, { key: "tuesday", label: "화" }, { key: "wednesday", label: "수" },
+  { key: "thursday", label: "목" }, { key: "friday", label: "금" },
+  { key: "saturday", label: "토" }, { key: "sunday", label: "일" }
+];
 type TaskForm = { title: string; estMinutes: string; threadId: string };
 
 type FormSectionState = {
@@ -45,6 +52,7 @@ export function InputHub() {
   const [slots, setSlots] = useState<SlotMap>({});
   const [people, setPeople] = useState<PersonRow[]>([]);
   const [newPerson, setNewPerson] = useState<NewPersonState>({ show: false, name: "", channel: "none", relation: "", submitting: false, error: null });
+  const [constraintSheet, setConstraintSheet] = useState<ConstraintSheetState>({ open: false });
   const savedMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadData = useCallback(async () => {
@@ -219,6 +227,41 @@ export function InputHub() {
     }
   }, [newPerson]);
 
+  const handleOpenConstraintSheet = useCallback((person: PersonRow) => {
+    const existing = (person.hardConstraints ?? [])
+      .filter((c) => c.type === "weekday_unavailable")
+      .map((c) => c.weekday as Weekday);
+    setConstraintSheet({ open: true, personId: person.id, personName: person.name, weekdays: existing, submitting: false, error: null });
+  }, []);
+
+  const handleToggleConstraintWeekday = useCallback((weekday: Weekday) => {
+    setConstraintSheet((s) => {
+      if (!s.open) return s;
+      const next = s.weekdays.includes(weekday) ? s.weekdays.filter((w) => w !== weekday) : [...s.weekdays, weekday];
+      return { ...s, weekdays: next };
+    });
+  }, []);
+
+  const handleSaveConstraints = useCallback(async () => {
+    if (!constraintSheet.open || constraintSheet.submitting) return;
+    setConstraintSheet((s) => s.open ? { ...s, submitting: true, error: null } : s);
+    try {
+      const { personId, weekdays } = constraintSheet;
+      const body = await apiJson<{ ok: boolean; data?: { person: PersonRow }; error?: { message: string } }>(
+        `/api/people/${personId}/hard-constraints`,
+        { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ unavailableWeekdays: weekdays }) }
+      );
+      if (!body.ok) throw new Error(body.error?.message ?? "저장 실패");
+      const refreshBody = await apiJson<{ ok: boolean; data?: PersonRow[] }>("/api/people");
+      if (refreshBody.ok && Array.isArray(refreshBody.data)) setPeople(refreshBody.data);
+      setConstraintSheet({ open: false });
+    } catch (e) {
+      const msg = (e as AccessSessionError).kind === "access_session_required"
+        ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "저장 실패";
+      setConstraintSheet((s) => s.open ? { ...s, submitting: false, error: msg } : s);
+    }
+  }, [constraintSheet]);
+
   const togglePerson = useCallback((personId: number) => {
     setForm((f) => {
       const ids = f.eventForm.personIds;
@@ -336,15 +379,26 @@ export function InputHub() {
             <fieldset className="input-people-checklist" aria-label="참석자">
               <legend className="input-people-legend">참석자</legend>
               {people.map((p) => (
-                <label key={p.id} className="input-person-label">
-                  <input
-                    type="checkbox"
-                    checked={form.eventForm.personIds.includes(p.id)}
-                    onChange={() => togglePerson(p.id)}
+                <div key={p.id} className="input-person-row">
+                  <label className="input-person-label">
+                    <input
+                      type="checkbox"
+                      checked={form.eventForm.personIds.includes(p.id)}
+                      onChange={() => togglePerson(p.id)}
+                      disabled={form.submitting}
+                    />
+                    {p.name}
+                  </label>
+                  <button
+                    type="button"
+                    className="input-constraint-btn"
+                    onClick={() => handleOpenConstraintSheet(p)}
+                    aria-label={`${p.name} 요일 제약 설정`}
                     disabled={form.submitting}
-                  />
-                  {p.name}
-                </label>
+                  >
+                    제약
+                  </button>
+                </div>
               ))}
             </fieldset>
           )}
@@ -551,20 +605,68 @@ export function InputHub() {
     );
   }
 
+  const constraintSheetOverlay = constraintSheet.open ? (
+    <div className="sheet-overlay" role="dialog" aria-modal="true" aria-label={`${constraintSheet.personName} 요일 제약`}>
+      <div className="sheet-panel">
+        <button className="sheet-close-btn" onClick={() => setConstraintSheet({ open: false })} aria-label="닫기">✕</button>
+        <h2 className="sheet-title">{constraintSheet.personName} 요일 제약</h2>
+        <p className="constraint-hint">만나기 어려운 요일을 선택해.</p>
+        <div className="constraint-weekdays" role="group" aria-label="요일 선택">
+          {ALL_WEEKDAYS.map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              className={`constraint-weekday-btn${constraintSheet.weekdays.includes(key) ? " constraint-weekday-btn--active" : ""}`}
+              onClick={() => handleToggleConstraintWeekday(key)}
+              aria-pressed={constraintSheet.weekdays.includes(key)}
+              disabled={constraintSheet.submitting}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {constraintSheet.error && <p className="input-error" role="alert">{constraintSheet.error}</p>}
+        <div className="sheet-actions">
+          <button
+            className="input-submit-btn"
+            onClick={() => void handleSaveConstraints()}
+            disabled={constraintSheet.submitting}
+            aria-label="제약 저장"
+          >
+            {constraintSheet.submitting ? "저장 중…" : "저장"}
+          </button>
+          <button
+            className="input-cancel-btn"
+            onClick={() => setConstraintSheet({ open: false })}
+            disabled={constraintSheet.submitting}
+          >
+            취소
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   if (view.tag === "quiet") {
     return (
-      <main className="app-shell input-hub" aria-label="입력 허브" data-testid="input-quiet">
-        {captureSection}
-        {formSection}
-      </main>
+      <>
+        <main className="app-shell input-hub" aria-label="입력 허브" data-testid="input-quiet">
+          {captureSection}
+          {formSection}
+        </main>
+        {constraintSheetOverlay}
+      </>
     );
   }
 
   return (
-    <main className="app-shell input-hub" aria-label="입력 허브" data-testid="input-live">
-      {captureSection}
-      {formSection}
-      {renderUnscheduledSection(view.unscheduled)}
-    </main>
+    <>
+      <main className="app-shell input-hub" aria-label="입력 허브" data-testid="input-live">
+        {captureSection}
+        {formSection}
+        {renderUnscheduledSection(view.unscheduled)}
+      </main>
+      {constraintSheetOverlay}
+    </>
   );
 }

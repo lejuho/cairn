@@ -1,10 +1,12 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { ConflictDecisionQuerySchema, ResolveConflictRequestSchema } from "@cairn/shared";
 import { findEventsWithCostsForDate } from "../repositories/events.js";
+import { findEventPeopleContext } from "../repositories/people.js";
 import { buildConflictDecisions, eventsOverlap, isResolvable } from "../services/decision.js";
+import { evaluatePeopleGuard, parseHardConstraints } from "../services/people-impact.js";
 import type { CairnDatabase } from "../db/index.js";
-import { annotations, events } from "../db/schema.js";
+import { annotations, eventPeople, events, people } from "../db/schema.js";
 
 export function registerDecisionRoutes(app: FastifyInstance, db: CairnDatabase): void {
   app.get("/api/decisions/conflicts", async (req, reply) => {
@@ -18,7 +20,9 @@ export function registerDecisionRoutes(app: FastifyInstance, db: CairnDatabase):
 
     const { date, now } = parsed.data;
     const dayEvents = findEventsWithCostsForDate(db, date);
-    const conflicts = buildConflictDecisions(now, dayEvents);
+    const eventIds = dayEvents.map((e) => e.id);
+    const eventPeopleContext = findEventPeopleContext(db, eventIds, now);
+    const conflicts = buildConflictDecisions(now, dayEvents, eventPeopleContext);
 
     return reply.send({ ok: true, data: { conflicts } });
   });
@@ -54,6 +58,25 @@ export function registerDecisionRoutes(app: FastifyInstance, db: CairnDatabase):
       const changeStart = changeEvent.start ? Date.parse(changeEvent.start) : NaN;
       if (!isResolvable(nowMs, keepStart) && !isResolvable(nowMs, changeStart)) {
         return { status: 409 as const, code: "CONFLICT_NOT_ACTIONABLE" as const };
+      }
+
+      // People guard re-check: re-read kept event's linked people with fresh constraints
+      const keptPeopleLinks = tx
+        .select({ personId: people.id, personName: people.name, hardConstraintsJson: people.hardConstraints })
+        .from(eventPeople)
+        .innerJoin(people, eq(eventPeople.personId, people.id))
+        .where(eq(eventPeople.eventId, keepEventId))
+        .all();
+      const keptPeopleContext = keptPeopleLinks.map((l) => ({
+        personId: l.personId,
+        personName: l.personName,
+        hardConstraints: parseHardConstraints(l.hardConstraintsJson ?? null),
+        totalMeets: 0,
+        lastMet: null as string | null
+      }));
+      const guard = evaluatePeopleGuard(keepEventId, keepEvent.start ?? null, keptPeopleContext);
+      if (guard.blocked) {
+        return { status: 409 as const, code: "PEOPLE_CONSTRAINT_BLOCKED" as const };
       }
 
       const [updated] = tx

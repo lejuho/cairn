@@ -446,3 +446,272 @@ describe("POST /api/decisions/conflicts/resolve — actionability gating", () =>
     expect(res.json().error.code).toBe("CONFLICT_STALE");
   });
 });
+
+// ── helpers for people guard tests ───────────────────────────────────────────
+
+function insertPerson(conn: SqliteConnection, name: string, hardConstraintsJson?: string): number {
+  conn.sqlite.prepare("INSERT INTO people (name, channel, hard_constraints) VALUES (?, 'none', ?)").run(name, hardConstraintsJson ?? null);
+  const row = conn.sqlite.prepare("SELECT id FROM people WHERE name = ? ORDER BY id DESC LIMIT 1").get(name) as { id: number };
+  return row.id;
+}
+
+function linkPersonToEvent(conn: SqliteConnection, eventId: number, personId: number): void {
+  conn.sqlite.prepare("INSERT OR IGNORE INTO event_people (event_id, person_id) VALUES (?, ?)").run(eventId, personId);
+}
+
+function insertPastEvent(conn: SqliteConnection, personId: number, end: string, status = "done"): void {
+  const result = conn.sqlite.prepare(
+    "INSERT INTO events (title, start, end, source, self_imposed, status) VALUES ('past', '2026-01-01T10:00:00+09:00', ?, 'cairn', 1, ?)"
+  ).run(end, status);
+  const eventId = Number((result as { lastInsertRowid: number }).lastInsertRowid);
+  conn.sqlite.prepare("INSERT OR IGNORE INTO event_people (event_id, person_id) VALUES (?, ?)").run(eventId, personId);
+}
+
+// 2026-06-20 is a Saturday
+const SAT_CONSTRAINT = JSON.stringify([{ type: "weekday_unavailable", weekday: "saturday", text: "saturday 불가", firmness: "hard" }]);
+const FRI_CONSTRAINT = JSON.stringify([{ type: "weekday_unavailable", weekday: "friday", text: "friday 불가", firmness: "hard" }]);
+
+// ── GET /api/decisions/conflicts — social context ─────────────────────────────
+
+describe("GET /api/decisions/conflicts — social context", () => {
+  it("no people: socialContext.confidence is none, effective equals stored social", async () => {
+    const conn = makeTestDb();
+    insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00", "planned", { cancelSocial: 3 });
+    insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const res = await getConflicts(conn);
+    const opts = res.json().data.conflicts[0].options;
+    // Option for the event with cancelSocial=3
+    const withSocial = opts.find((o: { socialContext: { base: number } }) => o.socialContext.base === 3);
+    expect(withSocial.socialContext.confidence).toBe("none");
+    expect(withSocial.socialContext.effective).toBe(3);
+    expect(withSocial.socialContext.adjustment).toBeNull();
+    expect(withSocial.cost.social).toBe(3);
+  });
+
+  it("cold_start person (0 meets): confidence cold_start, no adjustment to effective", async () => {
+    const conn = makeTestDb();
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00", "planned", { cancelSocial: 2 });
+    insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const pid = insertPerson(conn, "TestPerson");
+    linkPersonToEvent(conn, idA, pid);
+    const res = await getConflicts(conn);
+    const opts = res.json().data.conflicts[0].options;
+    const optA = opts.find((o: { event: { id: number } }) => o.event.id === idA);
+    expect(optA.socialContext.confidence).toBe("cold_start");
+    expect(optA.socialContext.contributions[0].frequencyBand).toBe("cold_start");
+    expect(optA.socialContext.contributions[0].adjustment).toBe(0);
+    expect(optA.socialContext.effective).toBe(2); // base + 0 adjustment
+  });
+
+  it("rare person (1-2 meets): +2 adjustment", async () => {
+    const conn = makeTestDb();
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00", "planned", { cancelSocial: 1 });
+    insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const pid = insertPerson(conn, "RarePerson");
+    linkPersonToEvent(conn, idA, pid);
+    insertPastEvent(conn, pid, "2026-05-01T11:00:00+09:00", "done"); // 1 qualifying meet
+    const res = await getConflicts(conn, "2026-06-20T09:00:00+09:00");
+    const opts = res.json().data.conflicts[0].options;
+    const optA = opts.find((o: { event: { id: number } }) => o.event.id === idA);
+    expect(optA.socialContext.contributions[0].frequencyBand).toBe("rare");
+    expect(optA.socialContext.contributions[0].adjustment).toBe(2);
+    expect(optA.socialContext.effective).toBe(3); // 1 + 2
+    expect(optA.cost.social).toBe(3);
+  });
+
+  it("established person (3-7 meets): +1 adjustment; frequent (8+): +0", async () => {
+    const conn = makeTestDb();
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00", "planned", { cancelSocial: 2 });
+    insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const estPid = insertPerson(conn, "EstPerson");
+    const freqPid = insertPerson(conn, "FreqPerson");
+    linkPersonToEvent(conn, idA, estPid);
+    linkPersonToEvent(conn, idA, freqPid);
+    for (let i = 0; i < 3; i++) insertPastEvent(conn, estPid, `2026-0${i + 1}-01T11:00:00+09:00`, "done");
+    for (let i = 0; i < 8; i++) insertPastEvent(conn, freqPid, `2025-0${i + 1}-01T11:00:00+09:00`, "done");
+    const res = await getConflicts(conn, "2026-06-20T09:00:00+09:00");
+    const opts = res.json().data.conflicts[0].options;
+    const optA = opts.find((o: { event: { id: number } }) => o.event.id === idA);
+    const est = optA.socialContext.contributions.find((c: { personName: string }) => c.personName === "EstPerson");
+    const freq = optA.socialContext.contributions.find((c: { personName: string }) => c.personName === "FreqPerson");
+    expect(est.frequencyBand).toBe("established");
+    expect(freq.frequencyBand).toBe("frequent");
+    expect(optA.socialContext.effective).toBe(3); // 2 + 1 + 0
+  });
+
+  it("excludes future, planned, cancelled, moved, late events from meeting stats", async () => {
+    const conn = makeTestDb();
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00", "planned", { cancelSocial: 1 });
+    insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const pid = insertPerson(conn, "ExcludedPerson");
+    linkPersonToEvent(conn, idA, pid);
+    insertPastEvent(conn, pid, "2026-05-01T11:00:00+09:00", "planned");   // planned → excluded
+    insertPastEvent(conn, pid, "2026-05-02T11:00:00+09:00", "cancelled"); // cancelled → excluded
+    insertPastEvent(conn, pid, "2026-05-03T11:00:00+09:00", "moved");     // moved → excluded
+    insertPastEvent(conn, pid, "2026-05-04T11:00:00+09:00", "late");      // late → excluded
+    // future event with done status but end in future → excluded
+    conn.sqlite.prepare("INSERT INTO events (title, start, end, source, self_imposed, status) VALUES ('fut', '2026-12-01T10:00:00+09:00', '2026-12-01T11:00:00+09:00', 'cairn', 1, 'done')").run();
+    const futId = conn.sqlite.prepare("SELECT id FROM events WHERE title = 'fut'").get() as { id: number };
+    conn.sqlite.prepare("INSERT OR IGNORE INTO event_people (event_id, person_id) VALUES (?, ?)").run(futId.id, pid);
+    const res = await getConflicts(conn, "2026-06-20T09:00:00+09:00");
+    const opts = res.json().data.conflicts[0].options;
+    const optA = opts.find((o: { event: { id: number } }) => o.event.id === idA);
+    expect(optA.socialContext.confidence).toBe("cold_start"); // 0 qualifying meets
+  });
+});
+
+// ── GET /api/decisions/conflicts — people guard ───────────────────────────────
+
+describe("GET /api/decisions/conflicts — people guard", () => {
+  it("no people: peopleGuard.blocked is false for both options", async () => {
+    const conn = makeTestDb();
+    insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
+    insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const res = await getConflicts(conn);
+    const opts = res.json().data.conflicts[0].options;
+    expect(opts[0].peopleGuard.blocked).toBe(false);
+    expect(opts[1].peopleGuard.blocked).toBe(false);
+  });
+
+  it("saturday constraint blocks option that keeps the saturday event", async () => {
+    const conn = makeTestDb();
+    // 2026-06-20 = Saturday; event A starts on Saturday
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
+    const idB = insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const pid = insertPerson(conn, "NoPerson", SAT_CONSTRAINT);
+    linkPersonToEvent(conn, idA, pid); // person linked to A
+    const res = await getConflicts(conn);
+    const opts = res.json().data.conflicts[0].options;
+    // Option to cancel B (keep A) → guard checks A's people → A has sat constraint → blocked
+    const optCancelB = opts.find((o: { event: { id: number } }) => o.event.id === idB);
+    expect(optCancelB.peopleGuard.blocked).toBe(true);
+    expect(optCancelB.peopleGuard.keepEventId).toBe(idA);
+    expect(optCancelB.peopleGuard.reasonCodes).toContain("weekday_unavailable");
+    // Option to cancel A → guard checks B's people → B has no people → not blocked
+    const optCancelA = opts.find((o: { event: { id: number } }) => o.event.id === idA);
+    expect(optCancelA.peopleGuard.blocked).toBe(false);
+  });
+
+  it("non-matching weekday constraint does not block", async () => {
+    const conn = makeTestDb();
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
+    const idB = insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const pid = insertPerson(conn, "FridayPerson", FRI_CONSTRAINT); // friday constraint but event is saturday
+    linkPersonToEvent(conn, idA, pid);
+    const res = await getConflicts(conn);
+    const opts = res.json().data.conflicts[0].options;
+    expect(opts.every((o: { peopleGuard: { blocked: boolean } }) => !o.peopleGuard.blocked)).toBe(true);
+  });
+
+  it("malformed hard_constraints JSON fails open — does not block", async () => {
+    const conn = makeTestDb();
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
+    insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const pid = insertPerson(conn, "MalformedPerson");
+    conn.sqlite.prepare("UPDATE people SET hard_constraints = ? WHERE id = ?").run("not valid json{{{", pid);
+    linkPersonToEvent(conn, idA, pid);
+    const res = await getConflicts(conn);
+    const opts = res.json().data.conflicts[0].options;
+    expect(opts.every((o: { peopleGuard: { blocked: boolean } }) => !o.peopleGuard.blocked)).toBe(true);
+  });
+
+  it("blocked option is not suggested even when it has lower cost", async () => {
+    const conn = makeTestDb();
+    // A has very low cost, but person A is linked to A with saturday constraint
+    // Option to cancel B (keep A) → blocked → must NOT be suggested
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00", "planned", { cancelMoney: 0, cancelSocial: 0 });
+    const idB = insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00", "planned", { cancelMoney: 100, cancelSocial: 3 });
+    const pid = insertPerson(conn, "BlockedPerson", SAT_CONSTRAINT);
+    linkPersonToEvent(conn, idA, pid);
+    const res = await getConflicts(conn);
+    const opts = res.json().data.conflicts[0].options;
+    const optCancelB = opts.find((o: { event: { id: number } }) => o.event.id === idB);
+    expect(optCancelB.peopleGuard.blocked).toBe(true);
+    expect(optCancelB.suggested).toBe(false);
+  });
+
+  it("one-side-blocked sets required_by_people_constraint on the allowed side", async () => {
+    const conn = makeTestDb();
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
+    const idB = insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const pid = insertPerson(conn, "PeoplePerson", SAT_CONSTRAINT);
+    linkPersonToEvent(conn, idA, pid);
+    const res = await getConflicts(conn);
+    const opts = res.json().data.conflicts[0].options;
+    const optCancelA = opts.find((o: { event: { id: number } }) => o.event.id === idA); // unblocked side
+    expect(optCancelA.reasonCodes).toContain("required_by_people_constraint");
+  });
+
+  it("same person linked to both events: each guard evaluates independently", async () => {
+    const conn = makeTestDb();
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
+    const idB = insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const pid = insertPerson(conn, "BothPerson", SAT_CONSTRAINT);
+    linkPersonToEvent(conn, idA, pid);
+    linkPersonToEvent(conn, idB, pid);
+    const res = await getConflicts(conn);
+    const opts = res.json().data.conflicts[0].options;
+    // Both events are on Saturday and person is linked to both → both options blocked
+    expect(opts[0].peopleGuard.blocked).toBe(true);
+    expect(opts[1].peopleGuard.blocked).toBe(true);
+  });
+});
+
+// ── POST /api/decisions/conflicts/resolve — people guard ─────────────────────
+
+describe("POST /api/decisions/conflicts/resolve — people guard", () => {
+  it("rejects blocked option with 409 PEOPLE_CONSTRAINT_BLOCKED", async () => {
+    const conn = makeTestDb();
+    const now = "2026-06-20T08:00:00+09:00";
+    // Keep A (saturday), change B — A has person with saturday constraint
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
+    const idB = insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const pid = insertPerson(conn, "GuardPerson", SAT_CONSTRAINT);
+    linkPersonToEvent(conn, idA, pid);
+    const res = await resolve(conn, { keepEventId: idA, changeEventId: idB, outcome: "cancelled", now });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("PEOPLE_CONSTRAINT_BLOCKED");
+  });
+
+  it("blocked resolve performs no event or annotation write", async () => {
+    const conn = makeTestDb();
+    const now = "2026-06-20T08:00:00+09:00";
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
+    const idB = insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const pid = insertPerson(conn, "GuardPerson2", SAT_CONSTRAINT);
+    linkPersonToEvent(conn, idA, pid);
+    await resolve(conn, { keepEventId: idA, changeEventId: idB, outcome: "cancelled", now });
+    const bRow = conn.sqlite.prepare("SELECT status FROM events WHERE id = ?").get(idB) as { status: string };
+    expect(bRow.status).toBe("planned");
+    const anns = conn.sqlite.prepare("SELECT id FROM annotations WHERE event_id = ?").all(idB);
+    expect(anns).toHaveLength(0);
+  });
+
+  it("unblocked option (cancel A, keep B which has no constraint) still resolves", async () => {
+    const conn = makeTestDb();
+    const now = "2026-06-20T08:00:00+09:00";
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
+    const idB = insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const pid = insertPerson(conn, "GuardPerson3", SAT_CONSTRAINT);
+    linkPersonToEvent(conn, idA, pid); // constraint on A's people
+    // Cancel A (keepEventId = B, changeEventId = A) — B has no constraint → allowed
+    const res = await resolve(conn, { keepEventId: idB, changeEventId: idA, outcome: "cancelled", now });
+    expect(res.statusCode).toBe(200);
+    const aRow = conn.sqlite.prepare("SELECT status FROM events WHERE id = ?").get(idA) as { status: string };
+    expect(aRow.status).toBe("cancelled");
+  });
+
+  it("soft/unsupported constraint in JSON does not block resolve", async () => {
+    const conn = makeTestDb();
+    const now = "2026-06-20T08:00:00+09:00";
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
+    const idB = insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const pid = insertPerson(conn, "SoftPerson");
+    // soft firmness — not enforceable
+    conn.sqlite.prepare("UPDATE people SET hard_constraints = ? WHERE id = ?")
+      .run(JSON.stringify([{ type: "weekday_unavailable", weekday: "saturday", text: "soft", firmness: "soft" }]), pid);
+    linkPersonToEvent(conn, idA, pid);
+    const res = await resolve(conn, { keepEventId: idA, changeEventId: idB, outcome: "cancelled", now });
+    expect(res.statusCode).toBe(200);
+  });
+});

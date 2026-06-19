@@ -302,3 +302,126 @@ describe("POST /api/events with personIds", () => {
   });
 });
 
+// ── GET /api/people — hardConstraints ─────────────────────────────────────────
+
+describe("GET /api/people — hardConstraints field", () => {
+  it("returns empty hardConstraints array when column is null", async () => {
+    const conn = makeTestDb();
+    insertPerson(conn, "NoPerson");
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "GET", url: "/api/people" });
+    expect(res.json().data[0].hardConstraints).toEqual([]);
+  });
+
+  it("returns parsed hardConstraints from stored JSON", async () => {
+    const conn = makeTestDb();
+    const pid = insertPerson(conn, "ConstrainedPerson");
+    conn.sqlite.prepare("UPDATE people SET hard_constraints = ? WHERE id = ?")
+      .run(JSON.stringify([{ type: "weekday_unavailable", weekday: "monday", text: "월요일 불가", firmness: "hard" }]), pid);
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "GET", url: "/api/people" });
+    const person = res.json().data[0];
+    expect(person.hardConstraints).toHaveLength(1);
+    expect(person.hardConstraints[0].weekday).toBe("monday");
+    expect(person.hardConstraints[0].firmness).toBe("hard");
+  });
+
+  it("silently drops malformed constraint entries from hardConstraints", async () => {
+    const conn = makeTestDb();
+    const pid = insertPerson(conn, "MalformedPerson");
+    conn.sqlite.prepare("UPDATE people SET hard_constraints = ? WHERE id = ?")
+      .run(JSON.stringify([
+        { type: "weekday_unavailable", weekday: "tuesday", firmness: "hard" }, // missing text
+        { type: "weekday_unavailable", weekday: "wednesday", text: "수요일", firmness: "hard" }  // valid
+      ]), pid);
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "GET", url: "/api/people" });
+    const person = res.json().data[0];
+    expect(person.hardConstraints).toHaveLength(1);
+    expect(person.hardConstraints[0].weekday).toBe("wednesday");
+  });
+});
+
+// ── PUT /api/people/:id/hard-constraints ─────────────────────────────────────
+
+describe("PUT /api/people/:id/hard-constraints", () => {
+  it("saves weekday constraints and returns normalized person", async () => {
+    const conn = makeTestDb();
+    const pid = insertPerson(conn, "SavePerson");
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "PUT", url: `/api/people/${pid}/hard-constraints`,
+      payload: { unavailableWeekdays: ["monday", "wednesday"] }
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.ok).toBe(true);
+    expect(body.data.person.hardConstraints).toHaveLength(2);
+    const weekdays = body.data.person.hardConstraints.map((c: { weekday: string }) => c.weekday).sort();
+    expect(weekdays).toEqual(["monday", "wednesday"]);
+  });
+
+  it("de-duplicates weekdays", async () => {
+    const conn = makeTestDb();
+    const pid = insertPerson(conn, "DupePerson");
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "PUT", url: `/api/people/${pid}/hard-constraints`,
+      payload: { unavailableWeekdays: ["friday", "friday", "saturday"] }
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.person.hardConstraints).toHaveLength(2);
+  });
+
+  it("empty array clears all constraints", async () => {
+    const conn = makeTestDb();
+    const pid = insertPerson(conn, "ClearPerson");
+    conn.sqlite.prepare("UPDATE people SET hard_constraints = ? WHERE id = ?")
+      .run(JSON.stringify([{ type: "weekday_unavailable", weekday: "monday", text: "t", firmness: "hard" }]), pid);
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "PUT", url: `/api/people/${pid}/hard-constraints`,
+      payload: { unavailableWeekdays: [] }
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.person.hardConstraints).toHaveLength(0);
+  });
+
+  it("returns 404 for unknown person id", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "PUT", url: "/api/people/9999/hard-constraints",
+      payload: { unavailableWeekdays: ["monday"] }
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe("NOT_FOUND");
+  });
+
+  it("returns 400 for invalid weekday value", async () => {
+    const conn = makeTestDb();
+    const pid = insertPerson(conn, "ValidatePerson");
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "PUT", url: `/api/people/${pid}/hard-constraints`,
+      payload: { unavailableWeekdays: ["funday"] }
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("persists and reloads via GET /api/people", async () => {
+    const conn = makeTestDb();
+    const pid = insertPerson(conn, "RoundtripPerson");
+    const app = buildServer(conn.db);
+    await app.inject({
+      method: "PUT", url: `/api/people/${pid}/hard-constraints`,
+      payload: { unavailableWeekdays: ["thursday"] }
+    });
+    const getRes = await app.inject({ method: "GET", url: "/api/people" });
+    const person = getRes.json().data.find((p: { id: number }) => p.id === pid);
+    expect(person.hardConstraints[0].weekday).toBe("thursday");
+    expect(person.hardConstraints[0].firmness).toBe("hard");
+  });
+});
+

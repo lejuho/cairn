@@ -1468,3 +1468,131 @@ describe("Today — conflict decision sheet", () => {
     );
   });
 });
+
+// ── Today — conflict sheet people guard ───────────────────────────────────────
+
+describe("Today — conflict sheet people guard", () => {
+  const eventA = { id: 1, title: "미팅 A", start: "2026-06-20T10:00:00+09:00", end: "2026-06-20T11:00:00+09:00", source: "cairn" as const, selfImposed: 1, status: "planned" as const, threadId: null, type: null, location: null, createdAt: null, updatedAt: null };
+  const eventB = { id: 2, title: "미팅 B", start: "2026-06-20T11:00:00+09:00", end: "2026-06-20T12:00:00+09:00", source: "cairn" as const, selfImposed: 1, status: "planned" as const, threadId: null, type: null, location: null, createdAt: null, updatedAt: null };
+
+  const BASE_SURFACE_GUARD: TodaySurface = {
+    date: "2026-06-20", now: "2026-06-20T09:00:00+09:00", state: "live",
+    nextEvent: null, conflicts: [{ a: eventA, b: eventB }],
+    twoMinuteTasks: [], watcherBubbles: [], needsReviewEvents: [], unscheduledEvents: [],
+    dayEvents: [], cards: [{ kind: "conflict", pair: { a: eventA, b: eventB } }],
+    feasibility: {
+      date: "2026-06-20", now: "2026-06-20T09:00:00+09:00",
+      params: { energyBudget: 8, meetBufferMinutes: 15, deepBufferMinutes: 30, travelMargin: 1, maxContinuousMinutes: 600 },
+      energy: { loadUnits: 0, budgetUnits: 8, remainingUnits: 8, deficit: false, confidence: "cold_start" },
+      gaps: [], continuous: null
+    }
+  };
+
+  const GUARD_CONFLICT: ConflictDecision = {
+    id: "1:2", pair: { a: eventA, b: eventB }, overlapMinutes: 60,
+    urgency: "near", actionability: "resolvable", disabledReasonCodes: [],
+    options: [
+      {
+        event: eventA, action: "move_or_cancel",
+        cost: { money: 0, social: 2, effort: "none", window: null },
+        reversible: 1, commitment: 1, suggested: false, reasonCodes: ["required_by_people_constraint"],
+        socialContext: { base: 2, adjustment: 0, effective: 2, confidence: "cold_start", contributions: [{ personId: 10, personName: "홍길동", totalMeets: 0, lastMet: null, frequencyBand: "cold_start", adjustment: 0 }] },
+        peopleGuard: { blocked: false, keepEventId: 2, reasonCodes: [], constraints: [] }
+      },
+      {
+        event: eventB, action: "move_or_cancel",
+        cost: { money: 0, social: 1, effort: "none", window: null },
+        reversible: 1, commitment: 1, suggested: false, reasonCodes: [],
+        socialContext: { base: 1, adjustment: 0, effective: 1, confidence: "none", contributions: [] },
+        peopleGuard: { blocked: true, keepEventId: 1, reasonCodes: ["weekday_unavailable"], constraints: [{ personId: 10, personName: "홍길동", keptEventId: 1, constraintText: "saturday 불가" }] }
+      }
+    ]
+  };
+
+  function setupMock(conflict: ConflictDecision) {
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      if (typeof url === "string" && url.includes("/api/decisions/conflicts?")) {
+        return Promise.resolve({ ok: true, redirected: false, url: "", headers: { get: () => "application/json" }, json: () => Promise.resolve({ ok: true, data: { conflicts: [conflict] } }) });
+      }
+      if (typeof url === "string" && url.includes("/api/decisions/conflicts/resolve")) {
+        return Promise.resolve({ ok: true, redirected: false, url: "", headers: { get: () => "application/json" }, json: () => Promise.resolve({ ok: true, data: { changedEvent: eventA, annotation: { id: 1, eventId: 1, outcome: "moved", reasonText: "test", reasonTags: "[]", energyAtTime: null, createdAt: null } } }) });
+      }
+      return Promise.resolve({ ok: true, redirected: false, url: "", headers: { get: () => "application/json" }, json: () => Promise.resolve({ ok: true, data: BASE_SURFACE_GUARD }) });
+    }));
+  }
+
+  async function openSheet() {
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/충돌 해결/));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
+  }
+
+  it("shows social contributions in conflict sheet", async () => {
+    setupMock(GUARD_CONFLICT);
+    await openSheet();
+    // Contribution renders as "홍길동 — 0회 (cold_start)" — unique to contribution li
+    const contribEls = document.querySelectorAll(".conflict-contribution");
+    expect(contribEls.length).toBeGreaterThan(0);
+    expect(contribEls[0]!.textContent).toMatch(/홍길동/);
+    expect(contribEls[0]!.textContent).toMatch(/cold_start/);
+  });
+
+  it("blocked option shows 제약 badge", async () => {
+    setupMock(GUARD_CONFLICT);
+    await openSheet();
+    const badge = document.querySelector(".conflict-blocked-badge");
+    expect(badge).toBeInTheDocument();
+    expect(badge?.textContent).toBe("제약");
+  });
+
+  it("blocked option shows constraint reason text", async () => {
+    setupMock(GUARD_CONFLICT);
+    await openSheet();
+    expect(screen.getByText(/saturday 불가/)).toBeInTheDocument();
+  });
+
+  it("blocked option buttons are disabled and make no resolve request", async () => {
+    setupMock(GUARD_CONFLICT);
+    await openSheet();
+    const moveBtn = screen.getByLabelText("미팅 B 이동 처리");
+    const cancelBtn = screen.getByLabelText("미팅 B 취소 처리");
+    expect(moveBtn).toBeDisabled();
+    expect(cancelBtn).toBeDisabled();
+    fireEvent.click(moveBtn);
+    await new Promise((r) => setTimeout(r, 50));
+    const calls = (vi.mocked(fetch) as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.some((c) => typeof c[0] === "string" && c[0].includes("/resolve"))).toBe(false);
+  });
+
+  it("unblocked option buttons remain actionable", async () => {
+    setupMock(GUARD_CONFLICT);
+    await openSheet();
+    const moveBtn = screen.getByLabelText("미팅 A 이동 처리");
+    expect(moveBtn).not.toBeDisabled();
+  });
+
+  it("both-blocked shows escalation copy", async () => {
+    const BOTH_BLOCKED: ConflictDecision = {
+      ...GUARD_CONFLICT,
+      options: [
+        { ...GUARD_CONFLICT.options[0], peopleGuard: { blocked: true, keepEventId: 2, reasonCodes: ["weekday_unavailable"], constraints: [] } },
+        { ...GUARD_CONFLICT.options[1] }
+      ]
+    };
+    setupMock(BOTH_BLOCKED);
+    await openSheet();
+    expect(screen.getByText(/두 선택지 모두 사람 제약에 걸려있어/)).toBeInTheDocument();
+  });
+
+  it("existing read_only disables all (not just guard-blocked) — no regression", async () => {
+    const READ_ONLY_GUARD: ConflictDecision = { ...GUARD_CONFLICT, actionability: "read_only", disabledReasonCodes: ["far_future"] };
+    setupMock(READ_ONLY_GUARD);
+    await openSheet();
+    expect(screen.getByLabelText("미팅 A 이동 처리")).toBeDisabled();
+    expect(screen.getByLabelText("미팅 A 취소 처리")).toBeDisabled();
+    expect(screen.getByLabelText("미팅 B 이동 처리")).toBeDisabled();
+    expect(screen.getByLabelText("미팅 B 취소 처리")).toBeDisabled();
+    expect(screen.getByText("아직 계획 구간이라 해소 버튼은 잠가둠")).toBeInTheDocument();
+  });
+});
