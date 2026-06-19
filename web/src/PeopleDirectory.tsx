@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { PersonDirectoryRow } from "@cairn/shared";
 import { apiJson } from "./api.js";
 import type { AccessSessionError } from "./api.js";
+import { formatLastMet } from "./lastMet.js";
 
 type ViewState =
   | { tag: "loading" }
@@ -15,13 +16,6 @@ function frequencyLabel(band: PersonDirectoryRow["frequencyBand"]): string {
   if (band === "established") return "정기적";
   if (band === "rare") return "가끔 만남";
   return "처음 만남";
-}
-
-function formatLastMet(lastMet: string | null): string {
-  if (!lastMet) return "만남 기록 없음";
-  const ms = Date.parse(lastMet);
-  if (!Number.isFinite(ms)) return "만남 기록 없음";
-  return new Date(ms).toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" });
 }
 
 export function PeopleDirectory() {

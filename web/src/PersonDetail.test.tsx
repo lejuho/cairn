@@ -1,10 +1,11 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PersonDetail } from "./PersonDetail.js";
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 function stubDetail(response: unknown) {
@@ -44,6 +45,8 @@ describe("PersonDetail", () => {
     expect(screen.getByText("동료")).toBeInTheDocument();
     expect(screen.getByText("3회")).toBeInTheDocument(); // totalMeets
     expect(screen.getByText("정기적")).toBeInTheDocument(); // established
+    // Known lastMet renders a localized date-time string.
+    expect(screen.getByText(/2026/)).toBeInTheDocument();
     // hard constraint
     expect(screen.getByText("월요일 불가")).toBeInTheDocument();
     // meeting title
@@ -57,6 +60,8 @@ describe("PersonDetail", () => {
     render(<PersonDetail id={1} />);
     await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
     expect(screen.getByText("아직 기록된 만남이 없어.")).toBeInTheDocument();
+    // Null lastMet keeps the explicit fallback copy.
+    expect(screen.getByText("만남 기록 없음")).toBeInTheDocument();
   });
 
   it("not_found state when API returns NOT_FOUND", async () => {
@@ -86,5 +91,28 @@ describe("PersonDetail", () => {
     render(<PersonDetail id={1} />);
     await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
     expect(screen.queryByLabelText("연락 채널")).not.toBeInTheDocument();
+  });
+
+  it("retry button re-fetches and recovers to live state", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ json: () => Promise.resolve({ ok: false, error: { code: "SERVER_ERROR", message: "db failed" } }) })
+      .mockResolvedValueOnce({ json: () => Promise.resolve({ ok: true, data: { person: ALICE_DIR, recentMeetings: [MEETING_A] } }) });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+    await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("Access 로그인 다시 열기 triggers full-page navigation", async () => {
+    stubAccessError();
+    const assignMock = vi.fn();
+    vi.stubGlobal("location", { href: "http://localhost/people/1", assign: assignMock });
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Access 로그인 다시 열기" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Access 로그인 다시 열기" }));
+    expect(assignMock).toHaveBeenCalledWith("http://localhost/people/1");
   });
 });

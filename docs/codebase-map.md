@@ -250,6 +250,8 @@ Entry and routing:
   - `/people` screen. States: loading, quiet (no people), live (person cards), error, access_error.
   - Quiet: "아직 사람이 없어" + link to /input. Live: card list showing name, relation, frequencyLabel, totalMeets, lastMet. Each card links to `/people/:id`.
   - Fetches `GET /api/people/directory?now=` via `apiJson`.
+- [web/src/lastMet.ts](/home/pi/cairn/web/src/lastMet.ts)
+  - `formatLastMet(lastMet)` shared by both People screens. Localized date+time (`toLocaleString` year/month/day/hour/minute); null/malformed → explicit `만남 기록 없음` fallback (never inferred).
 - [web/src/PersonDetail.tsx](/home/pi/cairn/web/src/PersonDetail.tsx)
   - `/people/:id` screen. States: loading, live, not_found, error, access_error.
   - Live: person header (name, relation, channel if not "none"), stats (totalMeets, lastMet, frequencyBand), hard constraints list, recentMeetings list.
@@ -264,7 +266,7 @@ Entry and routing:
 - [web/vite.config.ts](/home/pi/cairn/web/vite.config.ts)
   - Local dev proxy forwards `/api` and `/health` to `http://localhost:3100`.
 - [web/src/styles.css](/home/pi/cairn/web/src/styles.css)
-  - Semantic tokens and Today surface styling.
+  - Semantic tokens and surface styling. People directory/detail selectors (`.person-card`, `.person-detail-*`, `.person-stats`, `.meeting-list/item`, `.back-link`, `.action-btn`, `.section-heading`, `.loading-indicator`) use tokens only, 44px targets, `:focus-visible`, single-column mobile + `min-width: 720px` enhancement, and reduced-motion safety.
 - `web/public/`
   - Static PWA assets.
 - `web/scripts/assert-pwa-build.mjs`

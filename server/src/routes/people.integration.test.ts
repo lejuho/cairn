@@ -484,6 +484,47 @@ describe("GET /api/people/directory", () => {
     expect(p.totalMeets).toBe(2);
   });
 
+  it("moved/late events are excluded from qualifying meets", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const pid = insertPerson(conn, "MovedLatePerson");
+    insertPastMeeting(conn, pid, "2026-05-01T11:00:00+09:00", "done");   // counted
+    insertPastMeeting(conn, pid, "2026-05-02T11:00:00+09:00", "moved");  // excluded
+    insertPastMeeting(conn, pid, "2026-05-03T11:00:00+09:00", "late");   // excluded
+    const res = await app.inject({ method: "GET", url: `/api/people/directory?now=${encodeURIComponent(NOW_DIR)}` });
+    const p = res.json().data.people[0];
+    expect(p.totalMeets).toBe(1);
+    expect(p.lastMet).toBe("2026-05-01T11:00:00+09:00");
+  });
+
+  it("future done events (end after now) are excluded", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const pid = insertPerson(conn, "FuturePerson");
+    insertPastMeeting(conn, pid, "2026-05-01T11:00:00+09:00", "done");   // past — counted
+    insertPastMeeting(conn, pid, "2026-12-31T11:00:00+09:00", "done");   // future relative to NOW_DIR — excluded
+    const res = await app.inject({ method: "GET", url: `/api/people/directory?now=${encodeURIComponent(NOW_DIR)}` });
+    const p = res.json().data.people[0];
+    expect(p.totalMeets).toBe(1);
+    expect(p.lastMet).toBe("2026-05-01T11:00:00+09:00");
+  });
+
+  it("malformed/null event end timestamps never become relationship evidence", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const pid = insertPerson(conn, "MalformedMeetPerson");
+    insertPastMeeting(conn, pid, "2026-05-01T11:00:00+09:00", "done");   // valid — counted
+    insertPastMeeting(conn, pid, "not-a-date", "done");                  // malformed — excluded
+    // null end
+    conn.sqlite.prepare("INSERT INTO events (title, start, end, source, self_imposed, status) VALUES ('nullend', '2026-01-01T10:00:00+09:00', NULL, 'cairn', 1, 'done')").run();
+    const evNull = conn.sqlite.prepare("SELECT id FROM events ORDER BY id DESC LIMIT 1").get() as { id: number };
+    conn.sqlite.prepare("INSERT OR IGNORE INTO event_people (event_id, person_id) VALUES (?, ?)").run(evNull.id, pid);
+    const res = await app.inject({ method: "GET", url: `/api/people/directory?now=${encodeURIComponent(NOW_DIR)}` });
+    const p = res.json().data.people[0];
+    expect(p.totalMeets).toBe(1);
+    expect(p.lastMet).toBe("2026-05-01T11:00:00+09:00");
+  });
+
   it("mixed RFC3339 offsets compared by epoch — +09:00 event past Z now is counted", async () => {
     const conn = makeTestDb();
     const app = buildServer(conn.db);
@@ -630,6 +671,20 @@ describe("GET /api/people/:id/detail", () => {
     const ends = res.json().data.recentMeetings.map((e: { end: string }) => e.end);
     // "2026-05-09T20:00:00Z" is epoch-later → should be first
     expect(ends[0]).toBe("2026-05-09T20:00:00Z");
+  });
+
+  it("recentMeetings equal-end tie-break is event id ascending", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const pid = insertPerson(conn, "TiePerson");
+    const SAME_END = "2026-05-01T11:00:00+09:00";
+    // Insert three qualifying events that share the exact same end instant.
+    insertPastMeeting(conn, pid, SAME_END, "done");
+    insertPastMeeting(conn, pid, SAME_END, "done");
+    insertPastMeeting(conn, pid, SAME_END, "done");
+    const res = await app.inject({ method: "GET", url: `/api/people/${pid}/detail?now=${encodeURIComponent(NOW_DIR)}` });
+    const ids = res.json().data.recentMeetings.map((e: { id: number }) => e.id);
+    expect(ids).toEqual([...ids].sort((a, b) => a - b));
   });
 
   it("existing GET /api/people does not regress", async () => {
