@@ -539,6 +539,68 @@ describe("GET /api/decisions/conflicts — social context", () => {
     expect(optA.socialContext.effective).toBe(3); // 2 + 1 + 0
   });
 
+  it("boundary 2 meets: still rare (+2)", async () => {
+    const conn = makeTestDb();
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00", "planned", { cancelSocial: 1 });
+    insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const pid = insertPerson(conn, "Rare2Person");
+    linkPersonToEvent(conn, idA, pid);
+    insertPastEvent(conn, pid, "2026-04-01T11:00:00+09:00", "done");
+    insertPastEvent(conn, pid, "2026-05-01T11:00:00+09:00", "done"); // exactly 2 meets → rare
+    const res = await getConflicts(conn, "2026-06-20T09:00:00+09:00");
+    const opts = res.json().data.conflicts[0].options;
+    const optA = opts.find((o: { event: { id: number } }) => o.event.id === idA);
+    const contrib = optA.socialContext.contributions[0];
+    expect(contrib.totalMeets).toBe(2);
+    expect(contrib.frequencyBand).toBe("rare");
+    expect(contrib.adjustment).toBe(2);
+  });
+
+  it("boundary 7 meets: still established (+1)", async () => {
+    const conn = makeTestDb();
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00", "planned", { cancelSocial: 2 });
+    insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const pid = insertPerson(conn, "Est7Person");
+    linkPersonToEvent(conn, idA, pid);
+    for (let i = 0; i < 7; i++) insertPastEvent(conn, pid, `2025-0${i + 1}-01T11:00:00+09:00`, "done"); // exactly 7 → established
+    const res = await getConflicts(conn, "2026-06-20T09:00:00+09:00");
+    const opts = res.json().data.conflicts[0].options;
+    const optA = opts.find((o: { event: { id: number } }) => o.event.id === idA);
+    const contrib = optA.socialContext.contributions[0];
+    expect(contrib.totalMeets).toBe(7);
+    expect(contrib.frequencyBand).toBe("established");
+    expect(contrib.adjustment).toBe(1);
+  });
+
+  it("mixed-offset: +09:00 event past by epoch but lexically > Z nowIso is counted; lastMet is epoch-latest", async () => {
+    // Bug scenario: lexical `r.end < nowIso` misclassifies cross-offset timestamps.
+    // now = "2026-06-20T00:30:00Z" (UTC midnight+30min)
+    // Past event A: "2026-06-20T09:00:00+09:00" = "2026-06-20T00:00:00Z" — IS past (30min before now)
+    //   but lexically "2026-06-20T09:00:00+09:00" > "2026-06-20T00:30:00Z" → old code WRONGLY excludes
+    // Past event B: "2026-05-10T01:00:00+09:00" = "2026-05-09T16:00:00Z" — past both ways
+    //   but lexically "2026-05-10..." > "2026-05-09T20:00:00Z" → old lastMet picks this WRONGLY
+    // Past event C: "2026-05-09T20:00:00Z" = epoch-latest of B and C
+    const conn = makeTestDb();
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00", "planned", { cancelSocial: 1 });
+    insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    const pid = insertPerson(conn, "MixedPerson");
+    linkPersonToEvent(conn, idA, pid);
+    // A: past by epoch, lexically > Z nowIso — old filter bug excludes this
+    insertPastEvent(conn, pid, "2026-06-20T09:00:00+09:00", "done");
+    // B: epoch = May 9 16:00Z; lexically "2026-05-10..." beats C but epoch-wise is earlier
+    insertPastEvent(conn, pid, "2026-05-10T01:00:00+09:00", "done");
+    // C: epoch = May 9 20:00Z — epoch-later than B; lexically "2026-05-09..." loses to B
+    insertPastEvent(conn, pid, "2026-05-09T20:00:00Z", "done");
+    const res = await getConflicts(conn, "2026-06-20T00:30:00Z");
+    const opts = res.json().data.conflicts[0].options;
+    const optA = opts.find((o: { event: { id: number } }) => o.event.id === idA);
+    const contrib = optA.socialContext.contributions[0];
+    // Old lexical code: totalMeets=2 (A excluded), lastMet="2026-05-10T01:00:00+09:00" (lexically max of B,C)
+    // New epoch code: totalMeets=3 (A included), lastMet="2026-06-20T09:00:00+09:00" (epoch-latest)
+    expect(contrib.totalMeets).toBe(3);
+    expect(contrib.lastMet).toBe("2026-06-20T09:00:00+09:00");
+  });
+
   it("excludes future, planned, cancelled, moved, late events from meeting stats", async () => {
     const conn = makeTestDb();
     const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00", "planned", { cancelSocial: 1 });
@@ -595,7 +657,7 @@ describe("GET /api/decisions/conflicts — people guard", () => {
   it("non-matching weekday constraint does not block", async () => {
     const conn = makeTestDb();
     const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
-    const idB = insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
     const pid = insertPerson(conn, "FridayPerson", FRI_CONSTRAINT); // friday constraint but event is saturday
     linkPersonToEvent(conn, idA, pid);
     const res = await getConflicts(conn);
@@ -633,7 +695,7 @@ describe("GET /api/decisions/conflicts — people guard", () => {
   it("one-side-blocked sets required_by_people_constraint on the allowed side", async () => {
     const conn = makeTestDb();
     const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
-    const idB = insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
     const pid = insertPerson(conn, "PeoplePerson", SAT_CONSTRAINT);
     linkPersonToEvent(conn, idA, pid);
     const res = await getConflicts(conn);

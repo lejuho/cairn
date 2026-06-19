@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EventRow, PersonRow, TodaySurface } from "@cairn/shared";
 import { InputHub } from "./InputHub.js";
@@ -674,11 +674,11 @@ describe("InputHub — constraint sheet", () => {
     fireEvent.click(screen.getByRole("button", { name: "수" })); // add wednesday
     fireEvent.click(screen.getByRole("button", { name: "제약 저장" }));
     await waitFor(() => {
-      const putCall = fetchMock.mock.calls.find(
-        (c) => typeof c[0] === "string" && c[0].includes("/hard-constraints") && c[1]?.method === "PUT"
+      const putCall = getCalls(fetchMock).find(
+        ([url, init]) => url.includes("/hard-constraints") && init?.method === "PUT"
       );
       expect(putCall).toBeDefined();
-      const body = JSON.parse(putCall![1].body as string);
+      const body = JSON.parse(putCall![1]!.body as string);
       expect(body.unavailableWeekdays).toContain("monday");
       expect(body.unavailableWeekdays).toContain("wednesday");
     });

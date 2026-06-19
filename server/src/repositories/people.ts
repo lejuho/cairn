@@ -1,4 +1,4 @@
-import { asc, eq, inArray, lt, or } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import type { CreatePersonRequest, EventPeopleResponse, HardConstraint, PersonRow, Weekday } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import { eventPeople, events, people } from "../db/schema.js";
@@ -44,7 +44,10 @@ export function queryMeetingStats(
 ): Map<number, MeetingStats> {
   const result = new Map<number, MeetingStats>();
   if (personIds.length === 0) return result;
-  // Count qualifying past events: done or confirmed, ended before now
+  // Count qualifying past events: done or confirmed, ended before now.
+  // Use epoch ms comparison — RFC3339 strings with mixed offsets (+09:00 vs Z)
+  // are not lexically sortable, so string < would misclassify cross-offset rows.
+  const nowMs = Date.parse(nowIso);
   const rows = db
     .select({
       personId: eventPeople.personId,
@@ -58,17 +61,19 @@ export function queryMeetingStats(
     )
     .all()
     .filter(
-      (r) =>
-        r.end != null &&
-        r.end < nowIso &&
-        (r.status === "done" || r.status === "confirmed")
+      (r) => {
+        if (r.end == null) return false;
+        const endMs = Date.parse(r.end);
+        return Number.isFinite(endMs) && endMs < nowMs &&
+          (r.status === "done" || r.status === "confirmed");
+      }
     );
 
   for (const personId of personIds) {
     const mine = rows.filter((r) => r.personId === personId);
     const totalMeets = mine.length;
     const lastMet = mine.length > 0
-      ? mine.reduce((best, r) => (r.end! > best ? r.end! : best), mine[0]!.end!)
+      ? mine.reduce((best, r) => (Date.parse(r.end!) > Date.parse(best) ? r.end! : best), mine[0]!.end!)
       : null;
     result.set(personId, { totalMeets, lastMet });
   }

@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { ConflictDecisionQuerySchema, ResolveConflictRequestSchema } from "@cairn/shared";
 import { findEventsWithCostsForDate } from "../repositories/events.js";
