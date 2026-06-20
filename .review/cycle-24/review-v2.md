@@ -123,4 +123,3 @@ RESOLVED: ISSUE-7 — codebase-map corrections
 - `docs/codebase-map.md`: `UpdatePersonProfileRequestSchema` entry now states the shared schema itself carries both cross-field `.refine` checks (half-empty window: preferredWeekdays/preferredPeriods both-or-neither; preferred/unavailable weekday overlap), rejecting at the shared boundary — removing the stale "validates shape only; server enforces cross-field rules" claim (verified against `shared/src/people.ts:59-73`).
 - Today resolved-draft entry now describes opener restoration precisely (`data-conflict-opener` capture + rAF live re-query after `refresh()`), accurate only now that ISSUE-1 is wired and tested.
 자동 체크: verify ✅
-

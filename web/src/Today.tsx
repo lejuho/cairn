@@ -426,6 +426,7 @@ export function Today() {
   const firstInputRef = useRef<HTMLInputElement>(null);
   const conflictOpenerRef = useRef<HTMLElement | null>(null);
   const conflictOpenerPairRef = useRef<string | null>(null);
+  const liveMainRef = useRef<HTMLElement | null>(null);
 
   const refresh = useCallback(async () => {
     setView({ tag: "loading" });
@@ -674,18 +675,20 @@ export function Today() {
     setConflictSheet({ open: false });
     await refresh();
     // refresh() remounts the card list, so the sheet's unmount-cleanup restore
-    // targets a now-detached node. Re-query the live opener (if the conflict
-    // still exists) and restore focus to it; otherwise leave focus to the
-    // re-rendered Today region rather than stranding it on a detached node.
+    // targets a now-detached node. The normal resolve path removes the conflict,
+    // so the live opener no longer exists; in that case focus the stable Today
+    // region (liveMainRef, tabIndex=-1) instead of stranding focus on the
+    // document body. If an opener survives the remount (conflict still present),
+    // restore focus to it.
     const pairId = conflictOpenerPairRef.current;
-    if (pairId) {
-      // Defer past React's commit of the refreshed surface so the live opener
-      // exists before we focus it.
-      requestAnimationFrame(() => {
-        const live = document.querySelector<HTMLElement>(`[data-conflict-opener="${CSS.escape(pairId)}"]`);
-        live?.focus();
-      });
-    }
+    // Defer past React's commit of the refreshed surface so the live opener
+    // (or the live main region) exists before we focus it.
+    requestAnimationFrame(() => {
+      const live = pairId
+        ? document.querySelector<HTMLElement>(`[data-conflict-opener="${CSS.escape(pairId)}"]`)
+        : null;
+      (live ?? liveMainRef.current)?.focus();
+    });
   }, [refresh]);
 
   const handleResolveConflict = useCallback(async (
@@ -1071,8 +1074,10 @@ export function Today() {
   return (
     <>
       <main
+        ref={liveMainRef}
         className="app-shell today-live"
         aria-labelledby="today-sr-title"
+        tabIndex={-1}
         inert={conflictSheet.open && conflictSheet.resolved ? true : undefined}
       >
         <h2 id="today-sr-title" className="sr-only">

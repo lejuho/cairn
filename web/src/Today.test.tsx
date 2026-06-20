@@ -1510,6 +1510,75 @@ describe("Today — conflict decision sheet", () => {
     await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toHaveFocus());
   });
 
+  it("완료 on the normal resolve path (conflict removed) focuses the stable Today region", async () => {
+    // Production conflict detection only keeps planned/confirmed events, so the
+    // resolved (moved) conflict disappears on refetch and the opener is gone.
+    // Mirror that here: the refetch returns a conflict-free live surface (other
+    // Today cards remain), so the live Today region renders without the opener.
+    const CONFLICT_FREE: TodaySurface = {
+      ...BASE_SURFACE, state: "live",
+      nextEvent: eventA,
+      cards: [{ kind: "next_event", event: eventA }]
+    };
+    let resolved = false;
+    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
+      if ((opts?.method ?? "GET") === "POST" && String(url).includes("/resolve")) {
+        resolved = true;
+        return Promise.resolve({
+          json: () => Promise.resolve({ ok: true, data: { changedEvent: { ...eventB, status: "moved" }, annotation: VALID_ANNOTATION, notificationDrafts: [] } })
+        });
+      }
+      if (String(url).includes("/api/decisions/conflicts")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { conflicts: resolved ? [] : [CONFLICT] } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: resolved ? CONFLICT_FREE : SURFACE_WITH_CONFLICT }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/충돌 해결/));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("미팅 B 이동 처리"));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결 완료" })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "완료" }));
+    // Sheet closes; the resolved conflict no longer exists so the opener is gone.
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByLabelText(/충돌 해결/)).not.toBeInTheDocument());
+    // Focus lands on the stable Today region rather than the document body.
+    const main = document.querySelector("main.today-live");
+    await waitFor(() => expect(main).toHaveFocus());
+    expect(document.body).not.toHaveFocus();
+  });
+
+  it("완료 restores focus to the opener when the conflict survives the remount", async () => {
+    // Edge path: the conflict still exists after refetch (e.g. a second pair),
+    // so the live opener is re-rendered and focus returns to it.
+    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
+      if ((opts?.method ?? "GET") === "POST" && String(url).includes("/resolve")) {
+        return Promise.resolve({
+          json: () => Promise.resolve({ ok: true, data: { changedEvent: { ...eventB, status: "moved" }, annotation: VALID_ANNOTATION, notificationDrafts: [] } })
+        });
+      }
+      if (String(url).includes("/api/decisions/conflicts")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { conflicts: [CONFLICT] } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: SURFACE_WITH_CONFLICT }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/충돌 해결/));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("미팅 B 이동 처리"));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결 완료" })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "완료" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    // The opener survives the remount and regains focus.
+    await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toHaveFocus());
+  });
+
   it("failed resolve keeps sheet open and shows error", async () => {
     mockDecisionFetch(false);
     render(<Today />);
