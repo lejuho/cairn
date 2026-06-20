@@ -80,18 +80,9 @@ export const CreatePersonRequestSchema = z.object({
 });
 export type CreatePersonRequest = z.infer<typeof CreatePersonRequestSchema>;
 
-// Narrow person shape used in event-people join responses (no authored profile fields).
-export const EventPersonRowSchema = z.object({
-  id: z.number(),
-  name: z.string(),
-  relation: z.string().nullable(),
-  channel: PersonChannelSchema.nullable()
-});
-export type EventPersonRow = z.infer<typeof EventPersonRowSchema>;
-
 export const EventPeopleResponseSchema = z.object({
   event: EventRowSchema,
-  people: z.array(EventPersonRowSchema)
+  people: z.array(PersonRowSchema)
 });
 export type EventPeopleResponse = z.infer<typeof EventPeopleResponseSchema>;
 

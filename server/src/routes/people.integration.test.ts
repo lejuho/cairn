@@ -250,6 +250,45 @@ describe("PUT /api/events/:id/people", () => {
     expect(res.statusCode).toBe(404);
     expect(JSON.parse(res.body).error.code).toBe("NOT_FOUND");
   });
+
+  it("event-people GET includes normalized profile fields (ISSUE-3)", async () => {
+    const conn = makeTestDb();
+    const eventId = insertEvent(conn, "프로필체크-GET");
+    const id = insertPerson(conn, "프로필체크A");
+    conn.sqlite.prepare("INSERT INTO event_people (event_id, person_id) VALUES (?, ?)").run(eventId, id);
+    const app = buildServer(conn.db);
+    // Set a profile on the person first.
+    await app.inject({
+      method: "PUT", url: `/api/people/${id}/profile`,
+      payload: { preferredWeekdays: ["monday"], preferredPeriods: ["morning"], leadTimeDays: 7, channel: "kakao", unavailableWeekdays: ["friday"] }
+    });
+    const res = await app.inject({ method: "GET", url: `/api/events/${eventId}/people` });
+    expect(res.statusCode).toBe(200);
+    const person = res.json().data.people[0];
+    expect(person.preferredWindows?.weekdays).toEqual(["monday"]);
+    expect(person.leadTime?.days).toBe(7);
+    expect(person.hardConstraints?.[0]?.weekday).toBe("friday");
+  });
+
+  it("event-people PUT includes normalized profile fields (ISSUE-3)", async () => {
+    const conn = makeTestDb();
+    const eventId = insertEvent(conn, "프로필체크-PUT");
+    const id = insertPerson(conn, "프로필체크B");
+    const app = buildServer(conn.db);
+    await app.inject({
+      method: "PUT", url: `/api/people/${id}/profile`,
+      payload: { preferredWeekdays: ["wednesday"], preferredPeriods: ["evening"], leadTimeDays: 3, channel: "sms", unavailableWeekdays: [] }
+    });
+    const res = await app.inject({
+      method: "PUT", url: `/api/events/${eventId}/people`,
+      payload: { personIds: [id] }
+    });
+    expect(res.statusCode).toBe(200);
+    const person = res.json().data.people[0];
+    expect(person.preferredWindows?.weekdays).toEqual(["wednesday"]);
+    expect(person.leadTime?.days).toBe(3);
+    expect(person.channel).toBe("sms");
+  });
 });
 
 // ── POST /api/events with personIds ──────────────────────────────────────────

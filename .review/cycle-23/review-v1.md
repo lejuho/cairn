@@ -155,7 +155,7 @@ RESOLVED: ISSUE-3 — Narrow EventPersonRow type for join-path projections
 
 RESOLVED: ISSUE-4 — Block all dismissal paths while saving
 - `closeSheet` Escape listener gated on `!sheet.saving`
-- Backdrop click gated on `!sheet.saving`  
+- Backdrop click gated on `!sheet.saving`
 - 닫기 button gets `disabled={sheet.saving}` and explicit guard
 - 취소 button already had `disabled={sheet.saving}`
 - New test: 닫기 is disabled and Escape blocked during pending save

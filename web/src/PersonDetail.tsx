@@ -285,6 +285,8 @@ export function PersonDetail({ id }: { id: number }) {
 
   return (
     <main className="app-shell" aria-label="사람 상세" data-testid="person-live">
+      {/* Page content made inert while the sheet is open (ISSUE-5). */}
+      <div inert={sheet.open || undefined} data-testid="page-content">
       <a className="back-link" href="/people">← 사람 목록</a>
       <header className="person-detail-header">
         <h1 className="person-detail-name">{person.name}</h1>
@@ -362,6 +364,7 @@ export function PersonDetail({ id }: { id: number }) {
           <p className="person-quiet">아직 기록된 만남이 없어.</p>
         )}
       </section>
+      </div>{/* end inert page-content wrapper */}
 
       {sheet.open && (
         <div

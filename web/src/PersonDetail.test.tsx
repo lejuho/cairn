@@ -125,6 +125,14 @@ const ALICE_WITH_PROFILE = {
   leadTime: { days: 3, firmness: "hard" }
 };
 
+// Fixture without constraint/preferred conflict — for body-value assertions.
+const ALICE_FULL_PROFILE = {
+  ...ALICE_DIR,
+  hardConstraints: [{ type: "weekday_unavailable", weekday: "friday", text: "금 불가", firmness: "hard" }],
+  preferredWindows: { weekdays: ["monday", "wednesday"], periods: ["evening"], firmness: "hard" },
+  leadTime: { days: 3, firmness: "hard" }
+};
+
 describe("PersonDetail — profile display", () => {
   it("shows configured preferred days, periods, channel, lead time", async () => {
     stubDetail({ ok: true, data: { person: ALICE_WITH_PROFILE, recentMeetings: [] } });
@@ -233,14 +241,12 @@ describe("PersonDetail — profile editor", () => {
     expect(wedUnavail).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("save calls PUT with exact body and refreshes detail on success", async () => {
+  it("save calls PUT with exact body values and refreshes detail on success", async () => {
+    // Uses ALICE_FULL_PROFILE: preferred=[monday,wednesday], unavailable=[friday], no conflict.
     const fetchMock = stubFetch(
-      // initial load
-      { ok: true, data: { person: { ...ALICE_DIR, channel: "none", preferredWindows: null, leadTime: null }, recentMeetings: [] } },
-      // PUT response
-      { ok: true, data: { person: { ...ALICE_DIR, channel: "none", preferredWindows: null, leadTime: null } } },
-      // refetch after save
-      { ok: true, data: { person: { ...ALICE_DIR, channel: "none", preferredWindows: null, leadTime: null }, recentMeetings: [] } }
+      { ok: true, data: { person: ALICE_FULL_PROFILE, recentMeetings: [] } },
+      { ok: true, data: { person: ALICE_FULL_PROFILE } },
+      { ok: true, data: { person: ALICE_FULL_PROFILE, recentMeetings: [] } }
     );
     render(<PersonDetail id={1} />);
     await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
@@ -248,17 +254,58 @@ describe("PersonDetail — profile editor", () => {
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
     await waitFor(() => expect(screen.queryByTestId("profile-sheet")).not.toBeInTheDocument());
     expect(fetchMock).toHaveBeenCalledTimes(3);
-    // Verify second call was a PUT to the profile endpoint
     const putCall = fetchMock.mock.calls[1]!;
     expect(putCall[0]).toContain("/profile");
     const putOpts = putCall[1] as RequestInit;
     expect(putOpts.method).toBe("PUT");
     const body = JSON.parse(putOpts.body as string);
-    expect(body).toHaveProperty("preferredWeekdays");
-    expect(body).toHaveProperty("preferredPeriods");
-    expect(body).toHaveProperty("leadTimeDays");
-    expect(body).toHaveProperty("channel");
-    expect(body).toHaveProperty("unavailableWeekdays");
+    // Exact values prefilled from ALICE_FULL_PROFILE.
+    expect(body.preferredWeekdays).toEqual(["monday", "wednesday"]);
+    expect(body.preferredPeriods).toEqual(["evening"]);
+    expect(body.leadTimeDays).toBe(3);
+    expect(body.channel).toBe("kakao");
+    expect(body.unavailableWeekdays).toEqual(["friday"]);
+  });
+
+  it("backdrop click closes sheet without mutation", async () => {
+    const fetchMock = stubFetch({ ok: true, data: { person: ALICE_WITH_PROFILE, recentMeetings: [] } });
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "프로필 편집" }));
+    expect(screen.getByTestId("profile-sheet")).toBeInTheDocument();
+    // Click directly on the backdrop element (not the sheet content).
+    const backdrop = screen.getByTestId("profile-sheet");
+    fireEvent.click(backdrop);
+    expect(screen.queryByTestId("profile-sheet")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("unavailable→preferred mutual exclusion (toggle unavail then same day preferred clears unavail)", async () => {
+    stubDetail({ ok: true, data: { person: { ...ALICE_DIR, channel: "none", preferredWindows: null, leadTime: null }, recentMeetings: [] } });
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "프로필 편집" }));
+    const allThu = screen.getAllByRole("button", { name: "목" });
+    const thuPref = allThu[0]!;
+    const thuUnavail = allThu[1]!;
+    // Mark thursday unavailable first
+    fireEvent.click(thuUnavail);
+    expect(thuUnavail).toHaveAttribute("aria-pressed", "true");
+    // Mark thursday preferred — unavailable must clear
+    fireEvent.click(thuPref);
+    expect(thuPref).toHaveAttribute("aria-pressed", "true");
+    expect(thuUnavail).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("page content is inert while sheet is open (ISSUE-5)", async () => {
+    stubDetail({ ok: true, data: { person: ALICE_WITH_PROFILE, recentMeetings: [] } });
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
+    expect(screen.getByTestId("page-content")).not.toHaveAttribute("inert");
+    fireEvent.click(screen.getByRole("button", { name: "프로필 편집" }));
+    expect(screen.getByTestId("page-content")).toHaveAttribute("inert");
+    fireEvent.click(screen.getByRole("button", { name: "닫기" }));
+    expect(screen.getByTestId("page-content")).not.toHaveAttribute("inert");
   });
 
   it("save failure keeps sheet and shows error", async () => {

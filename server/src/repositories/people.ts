@@ -1,5 +1,5 @@
 import { asc, eq, inArray } from "drizzle-orm";
-import type { AuthoredLeadTime, AuthoredPreferredWindows, CreatePersonRequest, EventPersonRow, EventPeopleResponse, EventRow, FrequencyBand, HardConstraint, PersonDirectoryRow, PersonRow, UpdatePersonProfileRequest, Weekday } from "@cairn/shared";
+import type { AuthoredLeadTime, AuthoredPreferredWindows, CreatePersonRequest, EventPeopleResponse, EventRow, FrequencyBand, HardConstraint, PersonDirectoryRow, PersonRow, UpdatePersonProfileRequest, Weekday } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import { eventPeople, events, people } from "../db/schema.js";
 import { parseHardConstraints, parseLeadTime, parsePreferredWindows, toFrequencyBand } from "../services/people-impact.js";
@@ -236,29 +236,18 @@ export function updatePersonProfile(
   return mapPersonRow(rows[0]!);
 }
 
-const EVENT_PERSON_COLS = {
-  id: people.id,
-  name: people.name,
-  relation: people.relation,
-  channel: people.channel
-} as const;
-
-function mapEventPersonRow(r: { id: number; name: string; relation: string | null; channel: string | null }): EventPersonRow {
-  return { id: r.id, name: r.name, relation: r.relation ?? null, channel: r.channel as EventPersonRow["channel"] ?? null };
-}
-
 export function findEventWithPeople(db: CairnDatabase, eventId: number): EventPeopleResponse | null {
   const eventRows = db.select().from(events).where(eq(events.id, eventId)).all();
   if (eventRows.length === 0) return null;
   const event = eventRows[0];
   const personRows = db
-    .select(EVENT_PERSON_COLS)
+    .select(PERSON_COLS)
     .from(eventPeople)
     .innerJoin(people, eq(eventPeople.personId, people.id))
     .where(eq(eventPeople.eventId, eventId))
     .orderBy(asc(people.name), asc(people.id))
     .all()
-    .map(mapEventPersonRow);
+    .map(mapPersonRow);
   return { event: event as EventPeopleResponse["event"], people: personRows };
 }
 
@@ -266,7 +255,7 @@ export function replaceEventPeople(
   db: CairnDatabase,
   eventId: number,
   personIds: number[]
-): EventPersonRow[] {
+): PersonRow[] {
   const deduped = [...new Set(personIds)];
   db.transaction((tx) => {
     tx.delete(eventPeople).where(eq(eventPeople.eventId, eventId)).run();
@@ -278,22 +267,22 @@ export function replaceEventPeople(
   });
   if (deduped.length === 0) return [];
   return db
-    .select(EVENT_PERSON_COLS)
+    .select(PERSON_COLS)
     .from(eventPeople)
     .innerJoin(people, eq(eventPeople.personId, people.id))
     .where(eq(eventPeople.eventId, eventId))
     .all()
-    .map(mapEventPersonRow);
+    .map(mapPersonRow);
 }
 
-export function findPeopleByIds(db: CairnDatabase, ids: number[]): EventPersonRow[] {
+export function findPeopleByIds(db: CairnDatabase, ids: number[]): PersonRow[] {
   if (ids.length === 0) return [];
   return db
-    .select(EVENT_PERSON_COLS)
+    .select(PERSON_COLS)
     .from(people)
     .all()
     .filter((p) => ids.includes(p.id))
-    .map(mapEventPersonRow);
+    .map(mapPersonRow);
 }
 
 export function findPeopleDirectoryRows(db: CairnDatabase, nowIso: string): PersonDirectoryRow[] {
