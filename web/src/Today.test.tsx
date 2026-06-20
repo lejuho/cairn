@@ -1416,6 +1416,100 @@ describe("Today — conflict decision sheet", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it("resolved sheet heading shows changed event title and 이동 outcome", async () => {
+    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
+      if ((opts?.method ?? "GET") === "POST" && String(url).includes("/resolve")) {
+        return Promise.resolve({
+          json: () => Promise.resolve({ ok: true, data: { changedEvent: { ...eventB, status: "moved" }, annotation: VALID_ANNOTATION, notificationDrafts: [] } })
+        });
+      }
+      if (String(url).includes("/api/decisions/conflicts")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { conflicts: [CONFLICT] } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: SURFACE_WITH_CONFLICT }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/충돌 해결/));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("미팅 B 이동 처리"));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결 완료" })).toBeInTheDocument());
+    // Title comes from the parsed response's changedEvent (eventB = "미팅 B")
+    expect(screen.getByRole("heading", { name: "미팅 B — 이동" })).toBeInTheDocument();
+  });
+
+  it("resolved sheet heading shows changed event title and 취소 outcome", async () => {
+    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
+      if ((opts?.method ?? "GET") === "POST" && String(url).includes("/resolve")) {
+        return Promise.resolve({
+          json: () => Promise.resolve({ ok: true, data: { changedEvent: { ...eventB, status: "cancelled" }, annotation: { ...VALID_ANNOTATION, outcome: "cancelled" as const }, notificationDrafts: [] } })
+        });
+      }
+      if (String(url).includes("/api/decisions/conflicts")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { conflicts: [CONFLICT] } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: SURFACE_WITH_CONFLICT }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/충돌 해결/));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("미팅 B 취소 처리"));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결 완료" })).toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: "미팅 B — 취소" })).toBeInTheDocument();
+  });
+
+  it("resolved sheet: initial focus, sentinel wrap, Escape close, inert background, and opener restore", async () => {
+    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
+      if ((opts?.method ?? "GET") === "POST" && String(url).includes("/resolve")) {
+        return Promise.resolve({
+          json: () => Promise.resolve({ ok: true, data: { changedEvent: { ...eventB, status: "moved" }, annotation: VALID_ANNOTATION, notificationDrafts: [] } })
+        });
+      }
+      if (String(url).includes("/api/decisions/conflicts")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { conflicts: [CONFLICT] } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: SURFACE_WITH_CONFLICT }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toBeInTheDocument());
+    const opener = screen.getByLabelText(/충돌 해결/);
+    fireEvent.click(opener);
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("미팅 B 이동 처리"));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결 완료" })).toBeInTheDocument());
+
+    const dialog = screen.getByRole("dialog", { name: "충돌 해결 완료" });
+    const closeBtn = screen.getByRole("button", { name: "닫기" });
+    const doneBtn = screen.getByRole("button", { name: "완료" });
+
+    // Initial focus lands on the close control.
+    await waitFor(() => expect(closeBtn).toHaveFocus());
+
+    // Background main is inert while the resolved sheet is open.
+    const main = document.querySelector("main.today-live");
+    expect(main).toHaveAttribute("inert");
+
+    // Start sentinel wraps focus to the last focusable element (완료).
+    const sentinels = Array.from(
+      dialog.parentElement!.querySelectorAll('[aria-hidden="true"][tabindex="0"]')
+    );
+    expect(sentinels.length).toBe(2);
+    fireEvent.focus(sentinels[0]!);
+    expect(doneBtn).toHaveFocus();
+    // End sentinel wraps focus back to the first focusable element (닫기).
+    fireEvent.focus(sentinels[1]!);
+    expect(closeBtn).toHaveFocus();
+
+    // Escape closes the resolved sheet and restores focus to the opener.
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "충돌 해결 완료" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toHaveFocus());
+  });
+
   it("failed resolve keeps sheet open and shows error", async () => {
     mockDecisionFetch(false);
     render(<Today />);

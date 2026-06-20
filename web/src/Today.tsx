@@ -425,6 +425,7 @@ export function Today() {
   const savedMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firstInputRef = useRef<HTMLInputElement>(null);
   const conflictOpenerRef = useRef<HTMLElement | null>(null);
+  const conflictOpenerPairRef = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     setView({ tag: "loading" });
@@ -644,7 +645,9 @@ export function Today() {
     }
   }, [selectedEventId, detailNote, refresh]);
 
-  const handleOpenConflictSheet = useCallback(async (pairId: string) => {
+  const handleOpenConflictSheet = useCallback(async (pairId: string, opener: HTMLElement | null) => {
+    conflictOpenerRef.current = opener;
+    conflictOpenerPairRef.current = pairId;
     const date = localDateString();
     const now = new Date().toISOString();
     try {
@@ -670,6 +673,19 @@ export function Today() {
   const handleCompleteResolved = useCallback(async () => {
     setConflictSheet({ open: false });
     await refresh();
+    // refresh() remounts the card list, so the sheet's unmount-cleanup restore
+    // targets a now-detached node. Re-query the live opener (if the conflict
+    // still exists) and restore focus to it; otherwise leave focus to the
+    // re-rendered Today region rather than stranding it on a detached node.
+    const pairId = conflictOpenerPairRef.current;
+    if (pairId) {
+      // Defer past React's commit of the refreshed surface so the live opener
+      // exists before we focus it.
+      requestAnimationFrame(() => {
+        const live = document.querySelector<HTMLElement>(`[data-conflict-opener="${CSS.escape(pairId)}"]`);
+        live?.focus();
+      });
+    }
   }, [refresh]);
 
   const handleResolveConflict = useCallback(async (
@@ -1103,8 +1119,9 @@ export function Today() {
                 <span className="card-chip">충돌</span>
                 <button
                   className="today-card-event-btn"
+                  data-conflict-opener={pairId}
                   aria-label={`충돌 해결: ${card.pair.a.title} ↔ ${card.pair.b.title}`}
-                  onClick={() => void handleOpenConflictSheet(pairId)}
+                  onClick={(e) => void handleOpenConflictSheet(pairId, e.currentTarget)}
                 >
                   <p className="card-title">
                     {card.pair.a.title} ↔ {card.pair.b.title}
