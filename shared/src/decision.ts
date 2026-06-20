@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AnnotationRowSchema } from "./annotations.js";
 import { EventRowSchema } from "./events.js";
 import { FrequencyBandSchema } from "./people.js";
+import { NotificationDraftSchema } from "./notification-drafts.js";
 
 export const ConflictDecisionQuerySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD"),
@@ -89,10 +90,12 @@ export const ResolveConflictRequestSchema = z.object({
 
 export const ResolveConflictResponseDataSchema = z.object({
   changedEvent: EventRowSchema,
-  annotation: AnnotationRowSchema
+  annotation: AnnotationRowSchema,
+  notificationDrafts: z.array(NotificationDraftSchema)
 });
 
 export type ConflictCost = z.infer<typeof ConflictCostSchema>;
 export type ConflictDecisionOption = z.infer<typeof ConflictDecisionOptionSchema>;
 export type ConflictDecision = z.infer<typeof ConflictDecisionSchema>;
 export type ResolveConflictRequest = z.infer<typeof ResolveConflictRequestSchema>;
+export type ResolveConflictResponseData = z.infer<typeof ResolveConflictResponseDataSchema>;

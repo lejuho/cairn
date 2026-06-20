@@ -15,3 +15,4 @@ export * from "./people-directory.js";
 export * from "./eventDetail.js";
 export * from "./feasibility.js";
 export * from "./decision.js";
+export * from "./notification-drafts.js";

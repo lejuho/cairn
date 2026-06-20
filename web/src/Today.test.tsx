@@ -1380,11 +1380,11 @@ describe("Today — conflict decision sheet", () => {
     expect(screen.getByText("추천")).toBeInTheDocument();
   });
 
-  it("resolve action posts payload and refetches Today", async () => {
+  it("resolve action posts payload, shows resolved sheet, and refetches Today on complete", async () => {
     const fetchSpy = vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
       if ((opts?.method ?? "GET") === "POST" && String(url).includes("/resolve")) {
         return Promise.resolve({
-          json: () => Promise.resolve({ ok: true, data: { changedEvent: { ...eventB, status: "moved" }, annotation: {} } })
+          json: () => Promise.resolve({ ok: true, data: { changedEvent: { ...eventB, status: "moved" }, annotation: {}, notificationDrafts: [] } })
         });
       }
       if (String(url).includes("/api/decisions/conflicts")) {
@@ -1399,17 +1399,19 @@ describe("Today — conflict decision sheet", () => {
     fireEvent.click(screen.getByLabelText(/충돌 해결/));
     await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
     fireEvent.click(screen.getByLabelText("미팅 B 이동 처리"));
+    // Resolve API called → resolved sheet opens
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결 완료" })).toBeInTheDocument());
+    // Today is NOT yet refetched — only when 완료 is clicked
+    const todayCallsBefore = fetchSpy.mock.calls.filter(
+      (c) => typeof c[0] === "string" && c[0].includes("/api/today") && (c[1] as RequestInit | undefined)?.method !== "POST"
+    ).length;
+    fireEvent.click(screen.getByRole("button", { name: "완료" }));
     await waitFor(() =>
-      expect(fetchSpy).toHaveBeenCalledWith(
-        expect.stringContaining("/api/decisions/conflicts/resolve"),
-        expect.objectContaining({ method: "POST" })
-      )
-    );
-    await waitFor(() =>
-      expect(fetchSpy.mock.calls.some(
+      expect(fetchSpy.mock.calls.filter(
         (c) => typeof c[0] === "string" && c[0].includes("/api/today")
-      )).toBe(true)
+      ).length).toBeGreaterThan(todayCallsBefore)
     );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("failed resolve keeps sheet open and shows error", async () => {
@@ -1466,6 +1468,108 @@ describe("Today — conflict decision sheet", () => {
         (c) => typeof c[0] === "string" && c[0].includes("/api/decisions/conflicts/resolve")
       )).toBe(true)
     );
+  });
+
+  it("resolve success shows resolved sheet with no-person quiet state", async () => {
+    mockDecisionFetch(true);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/충돌 해결/));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("미팅 B 이동 처리"));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결 완료" })).toBeInTheDocument());
+    expect(screen.getByText("연결된 사람이 없어 통보 초안이 없어.")).toBeInTheDocument();
+    expect(screen.queryByText("보내기")).not.toBeInTheDocument();
+    expect(screen.queryByText("전송")).not.toBeInTheDocument();
+  });
+
+  it("resolve success shows draft cards with moved message and copy button", async () => {
+    const PERSON_DRAFT = {
+      personId: 7, personName: "민지", channel: "kakao" as const,
+      leadTimeDays: 3, leadTimeStatus: "enough" as const, tone: "neutral" as const,
+      message: "민지님, \"미팅 B\" 일정 변경이 필요해. 새 시간은 정해지는 대로 알려줄게.",
+      reasonCodes: ["tone_profile_unavailable" as const]
+    };
+    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
+      if ((opts?.method ?? "GET") === "POST" && String(url).includes("/resolve")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { changedEvent: { ...eventB, status: "moved" }, annotation: {}, notificationDrafts: [PERSON_DRAFT] } }) });
+      }
+      if (String(url).includes("/api/decisions/conflicts")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { conflicts: [CONFLICT] } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: SURFACE_WITH_CONFLICT }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/충돌 해결/));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("미팅 B 이동 처리"));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결 완료" })).toBeInTheDocument());
+    expect(screen.getByText("민지")).toBeInTheDocument();
+    expect(screen.getByText("kakao")).toBeInTheDocument();
+    expect(screen.getByTestId("draft-message-7")).toHaveTextContent("민지님");
+    expect(screen.getByTestId("draft-message-7")).toHaveTextContent("새 시간은 정해지는 대로");
+    expect(screen.getByRole("button", { name: "민지 초안 복사" })).toBeInTheDocument();
+    expect(screen.queryByText("보내기")).not.toBeInTheDocument();
+  });
+
+  it("per-draft clipboard copy success shows 복사됨", async () => {
+    const DRAFT = {
+      personId: 3, personName: "주호", channel: null as null,
+      leadTimeDays: null, leadTimeStatus: "unknown" as const, tone: "neutral" as const,
+      message: "주호님, \"미팅 B\" 일정을 취소해야 해. 미안해.",
+      reasonCodes: ["channel_unset" as const, "lead_time_unset" as const, "tone_profile_unavailable" as const]
+    };
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
+    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
+      if ((opts?.method ?? "GET") === "POST" && String(url).includes("/resolve")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { changedEvent: { ...eventB, status: "cancelled" }, annotation: {}, notificationDrafts: [DRAFT] } }) });
+      }
+      if (String(url).includes("/api/decisions/conflicts")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { conflicts: [CONFLICT] } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: SURFACE_WITH_CONFLICT }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/충돌 해결/));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("미팅 B 취소 처리"));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결 완료" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "주호 초안 복사" }));
+    await waitFor(() => expect(screen.getByRole("status")).toBeInTheDocument());
+    expect(screen.getByRole("status")).toHaveTextContent("복사됨");
+  });
+
+  it("per-draft clipboard copy failure shows 복사 실패", async () => {
+    const DRAFT = {
+      personId: 5, personName: "수지", channel: "sms" as const,
+      leadTimeDays: 1, leadTimeStatus: "late" as const, tone: "neutral" as const,
+      message: "수지님, \"미팅 B\" 일정 변경이 필요해. 새 시간은 정해지는 대로 알려줄게.",
+      reasonCodes: ["lead_time_late" as const, "tone_profile_unavailable" as const]
+    };
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: vi.fn().mockRejectedValue(new Error("denied")) }, configurable: true });
+    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
+      if ((opts?.method ?? "GET") === "POST" && String(url).includes("/resolve")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { changedEvent: { ...eventB, status: "moved" }, annotation: {}, notificationDrafts: [DRAFT] } }) });
+      }
+      if (String(url).includes("/api/decisions/conflicts")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { conflicts: [CONFLICT] } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: SURFACE_WITH_CONFLICT }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/충돌 해결/));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("미팅 B 이동 처리"));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결 완료" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "수지 초안 복사" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent("복사 실패");
   });
 });
 

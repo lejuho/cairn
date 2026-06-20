@@ -236,6 +236,17 @@ export function updatePersonProfile(
   return mapPersonRow(rows[0]!);
 }
 
+export function findEventPeopleFullProfiles(db: CairnDatabase, eventId: number): PersonRow[] {
+  return db
+    .select(PERSON_COLS)
+    .from(eventPeople)
+    .innerJoin(people, eq(eventPeople.personId, people.id))
+    .where(eq(eventPeople.eventId, eventId))
+    .orderBy(asc(people.name), asc(people.id))
+    .all()
+    .map(mapPersonRow);
+}
+
 export function findEventWithPeople(db: CairnDatabase, eventId: number): EventPeopleResponse | null {
   const eventRows = db.select().from(events).where(eq(events.id, eventId)).all();
   if (eventRows.length === 0) return null;

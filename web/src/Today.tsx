@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ConflictDecision, DayFeasibility, EventDetailData, SlotCandidate, ThreadSummary, TodaySurface } from "@cairn/shared";
+import type { ConflictDecision, DayFeasibility, EventDetailData, NotificationDraft, SlotCandidate, ThreadSummary, TodaySurface } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString } from "./dateUtils.js";
 import { apiJson, type AccessSessionError } from "./api.js";
 
@@ -19,7 +19,8 @@ type SlotStateMap = Record<number, SlotState>;
 
 type ConflictSheetState =
   | { open: false }
-  | { open: true; conflict: ConflictDecision; submitting: boolean; error: string | null };
+  | { open: true; resolved: false; conflict: ConflictDecision; submitting: boolean; error: string | null }
+  | { open: true; resolved: true; outcome: "moved" | "cancelled"; notificationDrafts: NotificationDraft[] };
 
 type SheetMode = "task" | "event";
 type TaskForm = { title: string; estMinutes: string; threadId: string };
@@ -260,6 +261,96 @@ function ConflictDecisionSheet({
           <p className="conflict-both-blocked" role="note">두 선택지 모두 사람 제약에 걸려있어. 직접 일정을 조율해줘.</p>
         )}
         {error && <p className="conflict-error" role="alert">{error}</p>}
+      </div>
+    </div>
+  );
+}
+
+type DraftCopyState = Record<number, "idle" | "copied" | "error">;
+
+function NotificationDraftCard({
+  draft,
+  copyState,
+  onCopy
+}: {
+  draft: NotificationDraft;
+  copyState: "idle" | "copied" | "error";
+  onCopy: (personId: number, message: string) => void;
+}) {
+  const channelLabel = draft.channel && draft.channel !== "none" ? draft.channel : null;
+  const leadLabel =
+    draft.leadTimeStatus === "enough" ? `${draft.leadTimeDays}일 전 (충분)` :
+    draft.leadTimeStatus === "late" ? `${draft.leadTimeDays != null ? draft.leadTimeDays + "일" : "?"}  (늦음)` :
+    "리드타임 미설정";
+
+  return (
+    <div className="draft-card" data-testid={`draft-card-${draft.personId}`}>
+      <div className="draft-card-header">
+        <span className="draft-person-name">{draft.personName}</span>
+        <span className="draft-channel">{channelLabel ?? "채널 미설정"}</span>
+        <span className="draft-lead-time">{leadLabel}</span>
+        <span className="draft-tone-label" aria-label="초안 톤">중립 초안</span>
+      </div>
+      <p className="draft-message" data-testid={`draft-message-${draft.personId}`}>{draft.message}</p>
+      <div className="draft-actions">
+        <button
+          className="action-btn action-btn--sm"
+          onClick={() => onCopy(draft.personId, draft.message)}
+          aria-label={`${draft.personName} 초안 복사`}
+        >
+          복사
+        </button>
+        {copyState === "copied" && <span className="draft-copy-feedback draft-copy-feedback--ok" role="status">복사됨</span>}
+        {copyState === "error" && <span className="draft-copy-feedback draft-copy-feedback--err" role="alert">복사 실패</span>}
+      </div>
+    </div>
+  );
+}
+
+function ConflictResolvedSheet({
+  outcome,
+  notificationDrafts,
+  onComplete
+}: {
+  outcome: "moved" | "cancelled";
+  notificationDrafts: NotificationDraft[];
+  onComplete: () => void;
+}) {
+  const [copyStates, setCopyStates] = useState<DraftCopyState>({});
+
+  const handleCopy = useCallback((personId: number, message: string) => {
+    navigator.clipboard.writeText(message).then(() => {
+      setCopyStates((s) => ({ ...s, [personId]: "copied" }));
+    }).catch(() => {
+      setCopyStates((s) => ({ ...s, [personId]: "error" }));
+    });
+  }, []);
+
+  const outcomeLabel = outcome === "moved" ? "이동" : "취소";
+
+  return (
+    <div className="sheet-overlay" role="dialog" aria-modal="true" aria-label="충돌 해결 완료">
+      <div className="sheet-panel">
+        <button className="sheet-close-btn" onClick={onComplete} aria-label="닫기">✕</button>
+        <h2 className="sheet-title">충돌 해결됨 — {outcomeLabel}</h2>
+        <section className="draft-section" aria-label="통보 초안">
+          <h3 className="draft-section-title">통보 초안</h3>
+          {notificationDrafts.length === 0 ? (
+            <p className="draft-empty">연결된 사람이 없어 통보 초안이 없어.</p>
+          ) : (
+            notificationDrafts.map((draft) => (
+              <NotificationDraftCard
+                key={draft.personId}
+                draft={draft}
+                copyState={copyStates[draft.personId] ?? "idle"}
+                onCopy={handleCopy}
+              />
+            ))
+          )}
+        </section>
+        <div className="draft-complete-row">
+          <button className="action-btn" onClick={onComplete}>완료</button>
+        </div>
       </div>
     </div>
   );
@@ -509,7 +600,7 @@ export function Today() {
       if (!body.ok) return;
       const conflict = body.data?.conflicts.find((c) => c.id === pairId);
       if (!conflict) return;
-      setConflictSheet({ open: true, conflict, submitting: false, error: null });
+      setConflictSheet({ open: true, resolved: false, conflict, submitting: false, error: null });
     } catch (e) {
       if ((e as AccessSessionError).kind === "access_session_required") {
         await refresh(); // triggers access_error view
@@ -522,15 +613,20 @@ export function Today() {
     setConflictSheet({ open: false });
   }, []);
 
+  const handleCompleteResolved = useCallback(async () => {
+    setConflictSheet({ open: false });
+    await refresh();
+  }, [refresh]);
+
   const handleResolveConflict = useCallback(async (
     keepEventId: number,
     changeEventId: number,
     outcome: "moved" | "cancelled"
   ) => {
-    if (!conflictSheet.open) return;
-    setConflictSheet((s) => s.open ? { ...s, submitting: true, error: null } : s);
+    if (!conflictSheet.open || conflictSheet.resolved) return;
+    setConflictSheet((s) => s.open && !s.resolved ? { ...s, submitting: true, error: null } : s);
     try {
-      const body = await apiJson<{ ok: boolean; error?: { code: string } }>("/api/decisions/conflicts/resolve", {
+      const body = await apiJson<{ ok: boolean; data?: { notificationDrafts: NotificationDraft[] }; error?: { code: string } }>("/api/decisions/conflicts/resolve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ keepEventId, changeEventId, outcome })
@@ -540,16 +636,15 @@ export function Today() {
           body.error?.code === "CONFLICT_STALE" ? "충돌이 이미 해소됐어" :
           body.error?.code === "CONFLICT_NOT_ACTIONABLE" ? "아직 해소할 수 있는 시간대가 아니야" :
           "처리 실패";
-        setConflictSheet((s) => s.open ? { ...s, submitting: false, error: msg } : s);
+        setConflictSheet((s) => s.open && !s.resolved ? { ...s, submitting: false, error: msg } : s);
         return;
       }
-      setConflictSheet({ open: false });
-      await refresh();
+      setConflictSheet({ open: true, resolved: true, outcome, notificationDrafts: body.data?.notificationDrafts ?? [] });
     } catch (e) {
       const msg = (e as AccessSessionError).kind === "access_session_required"
         ? "로그인 세션이 만료됐거나 네트워크가 끊겼어"
         : e instanceof Error ? e.message : "오류";
-      setConflictSheet((s) => s.open ? { ...s, submitting: false, error: msg } : s);
+      setConflictSheet((s) => s.open && !s.resolved ? { ...s, submitting: false, error: msg } : s);
     }
   }, [conflictSheet, refresh]);
 
@@ -1158,13 +1253,20 @@ export function Today() {
       </main>
       {sheetEl}
       {eventDetailSheetEl}
-      {conflictSheet.open && (
+      {conflictSheet.open && !conflictSheet.resolved && (
         <ConflictDecisionSheet
           conflict={conflictSheet.conflict}
           submitting={conflictSheet.submitting}
           error={conflictSheet.error}
           onResolve={handleResolveConflict}
           onClose={handleCloseConflictSheet}
+        />
+      )}
+      {conflictSheet.open && conflictSheet.resolved && (
+        <ConflictResolvedSheet
+          outcome={conflictSheet.outcome}
+          notificationDrafts={conflictSheet.notificationDrafts}
+          onComplete={() => void handleCompleteResolved()}
         />
       )}
     </>

@@ -777,3 +777,118 @@ describe("POST /api/decisions/conflicts/resolve — people guard", () => {
     expect(res.statusCode).toBe(200);
   });
 });
+
+// ── POST resolve — notification drafts ───────────────────────────────────────
+
+describe("POST /api/decisions/conflicts/resolve — notification drafts", () => {
+  const now = "2026-06-20T08:00:00+09:00";
+
+  function makeOverlap(conn: SqliteConnection) {
+    const idA = insertEvent(conn, "2026-06-20T10:00:00+09:00", "2026-06-20T12:00:00+09:00");
+    const idB = insertEvent(conn, "2026-06-20T11:00:00+09:00", "2026-06-20T13:00:00+09:00");
+    return { idA, idB };
+  }
+
+  it("no people attached returns empty notificationDrafts", async () => {
+    const conn = makeTestDb();
+    const { idA, idB } = makeOverlap(conn);
+    const res = await resolve(conn, { keepEventId: idA, changeEventId: idB, outcome: "moved", now });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.notificationDrafts).toEqual([]);
+  });
+
+  it("person attached to changeEventId only produces one draft", async () => {
+    const conn = makeTestDb();
+    const { idA, idB } = makeOverlap(conn);
+    const pid = insertPerson(conn, "민지");
+    conn.sqlite.prepare("UPDATE people SET channel = ? WHERE id = ?").run("kakao", pid);
+    // leadTime=0 → always enough regardless of event start
+    conn.sqlite.prepare("UPDATE people SET lead_time = ? WHERE id = ?")
+      .run(JSON.stringify({ days: 0, firmness: "hard" }), pid);
+    linkPersonToEvent(conn, idB, pid); // only changeEvent
+    const res = await resolve(conn, { keepEventId: idA, changeEventId: idB, outcome: "moved", now });
+    expect(res.statusCode).toBe(200);
+    const { notificationDrafts } = res.json().data;
+    expect(notificationDrafts).toHaveLength(1);
+    expect(notificationDrafts[0].personName).toBe("민지");
+    expect(notificationDrafts[0].channel).toBe("kakao");
+    expect(notificationDrafts[0].leadTimeDays).toBe(0);
+    expect(notificationDrafts[0].leadTimeStatus).toBe("enough");
+    expect(notificationDrafts[0].tone).toBe("neutral");
+    expect(notificationDrafts[0].message).toContain("민지님");
+  });
+
+  it("person attached to keepEventId only produces no draft", async () => {
+    const conn = makeTestDb();
+    const { idA, idB } = makeOverlap(conn);
+    const pid = insertPerson(conn, "지수");
+    linkPersonToEvent(conn, idA, pid); // only keepEvent
+    const res = await resolve(conn, { keepEventId: idA, changeEventId: idB, outcome: "cancelled", now });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.notificationDrafts).toEqual([]);
+  });
+
+  it("multiple people produce drafts in name-asc, id-asc order", async () => {
+    const conn = makeTestDb();
+    const { idA, idB } = makeOverlap(conn);
+    const p1 = insertPerson(conn, "지수");
+    const p2 = insertPerson(conn, "민지");
+    linkPersonToEvent(conn, idB, p1);
+    linkPersonToEvent(conn, idB, p2);
+    const res = await resolve(conn, { keepEventId: idA, changeEventId: idB, outcome: "moved", now });
+    expect(res.statusCode).toBe(200);
+    const names = res.json().data.notificationDrafts.map((d: { personName: string }) => d.personName);
+    expect(names).toEqual(["민지", "지수"]); // alphabetical
+  });
+
+  it("person on both events produces one draft (changeEventId is the source)", async () => {
+    const conn = makeTestDb();
+    const { idA, idB } = makeOverlap(conn);
+    const pid = insertPerson(conn, "공통");
+    linkPersonToEvent(conn, idA, pid);
+    linkPersonToEvent(conn, idB, pid);
+    const res = await resolve(conn, { keepEventId: idA, changeEventId: idB, outcome: "cancelled", now });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.notificationDrafts).toHaveLength(1);
+  });
+
+  it("malformed lead_time JSON stays unknown (fail-open)", async () => {
+    const conn = makeTestDb();
+    const { idA, idB } = makeOverlap(conn);
+    const pid = insertPerson(conn, "망가진프로필");
+    conn.sqlite.prepare("UPDATE people SET lead_time = ? WHERE id = ?").run("NOT-JSON{{", pid);
+    linkPersonToEvent(conn, idB, pid);
+    const res = await resolve(conn, { keepEventId: idA, changeEventId: idB, outcome: "moved", now });
+    expect(res.statusCode).toBe(200);
+    const draft = res.json().data.notificationDrafts[0];
+    expect(draft.leadTimeStatus).toBe("unknown");
+    expect(draft.leadTimeDays).toBeNull();
+  });
+
+  it("resolution still writes exactly one event update and annotation", async () => {
+    const conn = makeTestDb();
+    const { idA, idB } = makeOverlap(conn);
+    const pid = insertPerson(conn, "수지");
+    linkPersonToEvent(conn, idB, pid);
+    const res = await resolve(conn, { keepEventId: idA, changeEventId: idB, outcome: "cancelled", now });
+    expect(res.statusCode).toBe(200);
+    const evRow = conn.sqlite.prepare("SELECT status FROM events WHERE id = ?").get(idB) as { status: string };
+    expect(evRow.status).toBe("cancelled");
+    const annRow = conn.sqlite.prepare("SELECT count(*) as cnt FROM annotations WHERE event_id = ?").get(idB) as { cnt: number };
+    expect(annRow.cnt).toBe(1);
+  });
+
+  it("failed resolve (stale) produces no drafts and no event/annotation write", async () => {
+    const conn = makeTestDb();
+    const { idA, idB } = makeOverlap(conn);
+    // Make stale: set idB to cancelled
+    conn.sqlite.prepare("UPDATE events SET status = 'cancelled' WHERE id = ?").run(idB);
+    const pid = insertPerson(conn, "누군가");
+    linkPersonToEvent(conn, idB, pid);
+    const res = await resolve(conn, { keepEventId: idA, changeEventId: idB, outcome: "moved", now });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().ok).toBe(false);
+    const annRow = conn.sqlite.prepare("SELECT count(*) as cnt FROM annotations WHERE event_id = ?").get(idB) as { cnt: number };
+    expect(annRow.cnt).toBe(0);
+  });
+});

@@ -2,9 +2,10 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { ConflictDecisionQuerySchema, ResolveConflictRequestSchema } from "@cairn/shared";
 import { findEventsWithCostsForDate } from "../repositories/events.js";
-import { findEventPeopleContext } from "../repositories/people.js";
+import { findEventPeopleContext, findEventPeopleFullProfiles } from "../repositories/people.js";
 import { buildConflictDecisions, eventsOverlap, isResolvable } from "../services/decision.js";
 import { evaluatePeopleGuard, parseHardConstraints } from "../services/people-impact.js";
+import { buildNotificationDrafts } from "../services/notification-drafts.js";
 import type { CairnDatabase } from "../db/index.js";
 import { annotations, eventPeople, events, people } from "../db/schema.js";
 
@@ -99,7 +100,18 @@ export function registerDecisionRoutes(app: FastifyInstance, db: CairnDatabase):
         .returning()
         .all();
 
-      return { status: 200 as const, changedEvent: updated!, annotation: annotation! };
+      // Read affected people and build drafts inside the transaction so any
+      // unexpected failure here rolls back the event/annotation writes.
+      const affectedPeople = findEventPeopleFullProfiles(tx as CairnDatabase, changeEventId);
+      const notificationDrafts = buildNotificationDrafts(
+        affectedPeople,
+        changeEvent.title ?? "",
+        outcome as "moved" | "cancelled",
+        changeEvent.start ?? null,
+        nowMs
+      );
+
+      return { status: 200 as const, changedEvent: updated!, annotation: annotation!, notificationDrafts };
     });
 
     if (result.status === 404) {
@@ -111,7 +123,7 @@ export function registerDecisionRoutes(app: FastifyInstance, db: CairnDatabase):
 
     return reply.send({
       ok: true,
-      data: { changedEvent: result.changedEvent, annotation: result.annotation }
+      data: { changedEvent: result.changedEvent, annotation: result.annotation, notificationDrafts: result.notificationDrafts }
     });
   });
 }

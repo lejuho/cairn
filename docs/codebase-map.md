@@ -130,13 +130,15 @@ Repository/service split:
 
 - `server/src/repositories/*.ts`
   - Direct DB queries for events, tasks, watchers, annotations, people.
-  - [server/src/repositories/people.ts](/home/pi/cairn/server/src/repositories/people.ts) — `PERSON_COLS` constant + `mapPersonRow` helper (unified full-column projection for all single-table reads). `findAllPeople`, `findPersonById`, `createPerson`, `findPeopleDirectoryRows` — all use `PERSON_COLS`+`mapPersonRow` and return `preferredWindows`/`leadTime`. `findEventWithPeople`, `replaceEventPeople`, `findPeopleByIds`, `findEventPeopleContext` — join paths, minimal projection, no profile fields. `isQualifyingMeet`, `queryMeetingStats`, `findRecentMeetings`, `replaceHardConstraints`. New: `updatePersonProfile` — normalize → check contradiction → atomic UPDATE; returns null on contradiction or not-found.
+  - [server/src/repositories/people.ts](/home/pi/cairn/server/src/repositories/people.ts) — `PERSON_COLS` constant + `mapPersonRow` helper (unified full-column projection for all single-table reads). `findAllPeople`, `findPersonById`, `createPerson`, `findPeopleDirectoryRows` — all use `PERSON_COLS`+`mapPersonRow` and return normalized `PersonRow` including `preferredWindows`/`leadTime`. `findEventWithPeople`, `replaceEventPeople`, `findPeopleByIds` — join paths now also use `PERSON_COLS`+`mapPersonRow`, returning full `PersonRow[]`. `findEventPeopleContext` — minimal projection for social/guard context only. `findEventPeopleFullProfiles(db, eventId)` — returns full `PersonRow[]` ordered name/id; used by conflict resolve to build notification drafts. `isQualifyingMeet`, `queryMeetingStats`, `findRecentMeetings`, `replaceHardConstraints`, `updatePersonProfile`.
 - [server/src/services/people-impact.ts](/home/pi/cairn/server/src/services/people-impact.ts)
   - Pure service (no DB). `parseHardConstraints` (fail-open JSON → HardConstraint[]), `parsePreferredWindows` (fail-open JSON → AuthoredPreferredWindows|null), `parseLeadTime` (fail-open JSON → AuthoredLeadTime|null), `toFrequencyBand` (0→cold_start/+0, 1-2→rare/+2, 3-7→established/+1, 8+→frequent/+0), `computeSocialContext` (base + adjustments from people history), `extractWeekday` (literal-date UTC — `isoStart.slice(0,10)+"T00:00:00Z"`), `evaluatePeopleGuard` (kept event weekday vs people's weekday_unavailable constraints; fail-open on malformed JSON).
 - [server/src/services/today.ts](/home/pi/cairn/server/src/services/today.ts)
   - Builds Today card surface and priority order. Now receives `DayFeasibility` and includes it in `TodaySurface`.
 - [server/src/services/decision.ts](/home/pi/cairn/server/src/services/decision.ts)
   - Pure deterministic conflict decision service: detects overlapping planned/confirmed events by epoch ms, computes overlap minutes, urgency (near/planning), actionability (`isResolvable` — strict forward gate: start ≥ now AND start ≤ now+6h), per-event cost extraction, internal score for suggestion ordering (never returned to client). Now accepts optional `eventPeopleContext: Map<number, PersonContextItem[]>` for social cost and guard evaluation. Blocked options excluded from suggestions; one-side-block adds `"required_by_people_constraint"` to unblocked side's reasonCodes. Resolve route re-checks guard in-transaction; returns 409 `PEOPLE_CONSTRAINT_BLOCKED` if blocked. No LLM dependency.
+- [server/src/services/notification-drafts.ts](/home/pi/cairn/server/src/services/notification-drafts.ts)
+  - Pure deterministic notification draft service (no DB, no LLM). `buildNotificationDrafts(affectedPeople, eventTitle, outcome, changedEventStart, nowMs)` — one draft per person with lead-time classification (enough/late/unknown via epoch ms), channel honesty (null/none → channel_unset), tone always neutral (tone_profile_unavailable), ordered reasonCodes. Deduplicates by personId (first-seen order). Called inside the conflict resolve transaction so any unexpected failure rolls back the event/annotation writes.
 - [server/src/repositories/annotations.ts](/home/pi/cairn/server/src/repositories/annotations.ts)
   - `insertStructuredAnnotation` added: one-shot ledger insert with outcome+reasonTags+reasonText (used by conflict resolve).
 - [server/src/services/feasibility.ts](/home/pi/cairn/server/src/services/feasibility.ts)
@@ -204,9 +206,12 @@ Contracts by domain:
   - `PersonDirectoryQuerySchema`, `PersonDetailQuerySchema` (both require `now: RFC3339 datetime with offset`).
   - `PersonDirectoryRowSchema` = `PersonRowSchema` extended with `totalMeets`, `lastMet`, `frequencyBand`.
   - `PersonDirectoryResponseSchema`, `PersonDetailResponseSchema`.
-- [shared/src/decision.ts](/home/pi/cairn/shared/src/decision.ts) (or merged location)
+- [shared/src/decision.ts](/home/pi/cairn/shared/src/decision.ts)
   - `RelationshipContributionSchema`, `SocialContextSchema` (`base/adjustment/effective/confidence/contributions`), `PeopleGuardConstraintSchema`, `PeopleGuardSchema` (`blocked/keepEventId/reasonCodes/constraints`).
   - `ConflictDecisionOptionSchema` extended with optional `socialContext` and `peopleGuard`.
+  - `ResolveConflictResponseDataSchema` — extended with required `notificationDrafts: NotificationDraft[]`. `ResolveConflictResponseData` type exported.
+- [shared/src/notification-drafts.ts](/home/pi/cairn/shared/src/notification-drafts.ts)
+  - `NotificationLeadTimeStatusSchema` (enough|late|unknown), `NotificationReasonCodeSchema`, `NotificationDraftSchema` — full contract for per-person deterministic notification drafts. `personId`, `personName`, `channel` (null when none/unset), `leadTimeDays`, `leadTimeStatus`, `tone` (literal "neutral"), `message` (non-empty), `reasonCodes`. Imported by `decision.ts` to compose the resolve response.
 - [shared/src/eventDetail.ts](/home/pi/cairn/shared/src/eventDetail.ts)
   - `CompactThreadSchema`, `EventDetailDataSchema` (event+people+annotations+thread), `PatchEventStatusRequestSchema`, `PatchEventStatusResponseDataSchema`.
 

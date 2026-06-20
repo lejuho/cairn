@@ -1387,6 +1387,86 @@ p {
   margin-top: 8px;
 }
 
+/* ── Notification draft sheet ───────────────────────────────────────────── */
+
+.draft-section { margin-top: 16px; }
+
+.draft-section-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.draft-empty {
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.draft-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+  background: var(--surface-elevated, var(--bg));
+}
+
+.draft-card-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+
+.draft-person-name { font-weight: 600; font-size: 0.95rem; }
+
+.draft-channel,
+.draft-lead-time {
+  font-size: 0.78rem;
+  color: var(--muted);
+  padding: 2px 6px;
+  background: var(--chip-bg, var(--bg));
+  border-radius: 4px;
+}
+
+.draft-tone-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-left: auto;
+}
+
+.draft-message {
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin: 0 0 10px;
+  word-break: break-word;
+}
+
+.draft-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.draft-copy-feedback {
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.draft-copy-feedback--ok { color: var(--confirmed); }
+.draft-copy-feedback--err { color: var(--error); }
+
+.draft-complete-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .draft-card { transition: border-color 0.15s ease; }
+}
+
 /* ── People directory & detail ──────────────────────────────────────────── */
 /* People is an execution/decision surface (A temperature): tokens only, top
    aligned single column on mobile, enhanced on wider screens. */
