@@ -297,6 +297,68 @@ describe("PersonDetail — profile editor", () => {
     expect(thuUnavail).toHaveAttribute("aria-pressed", "false");
   });
 
+  it("preferred→unavailable mutual exclusion (toggle preferred then same day unavailable clears preferred)", async () => {
+    stubDetail({ ok: true, data: { person: { ...ALICE_DIR, channel: "none", preferredWindows: null, leadTime: null }, recentMeetings: [] } });
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "프로필 편집" }));
+    const allWed = screen.getAllByRole("button", { name: "수" });
+    const wedPref = allWed[0]!;
+    const wedUnavail = allWed[1]!;
+    // Mark wednesday preferred first
+    fireEvent.click(wedPref);
+    expect(wedPref).toHaveAttribute("aria-pressed", "true");
+    // Mark wednesday unavailable — preferred must clear
+    fireEvent.click(wedUnavail);
+    expect(wedUnavail).toHaveAttribute("aria-pressed", "true");
+    expect(wedPref).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("backdrop click is blocked while saving (ISSUE-4)", async () => {
+    let resolveSave!: (v: unknown) => void;
+    const pendingSave = new Promise((res) => { resolveSave = res; });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ json: () => Promise.resolve({ ok: true, data: { person: ALICE_WITH_PROFILE, recentMeetings: [] } }) })
+      .mockReturnValueOnce({ json: () => pendingSave });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "프로필 편집" }));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    // Backdrop click while save pending — sheet must stay open
+    const backdrop = screen.getByTestId("profile-sheet");
+    fireEvent.click(backdrop);
+    expect(screen.getByTestId("profile-sheet")).toBeInTheDocument();
+    resolveSave({ ok: true, data: { person: ALICE_WITH_PROFILE } });
+  });
+
+  it("focus trap: end sentinel wraps to first dialog button (Tab-forward)", async () => {
+    stubFetch({ ok: true, data: { person: ALICE_WITH_PROFILE, recentMeetings: [] } });
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "프로필 편집" }));
+    // Sentinels are aria-hidden tabIndex=0 divs inside the backdrop.
+    const sentinels = document.querySelectorAll<HTMLDivElement>('[aria-hidden="true"][tabindex="0"]');
+    const endSentinel = sentinels[sentinels.length - 1]!;
+    fireEvent.focus(endSentinel);
+    // First focusable in dialog is the 닫기 button.
+    const closeBtn = screen.getByRole("button", { name: "닫기" });
+    expect(document.activeElement).toBe(closeBtn);
+  });
+
+  it("focus trap: start sentinel wraps to last dialog button (Shift+Tab-backward)", async () => {
+    stubFetch({ ok: true, data: { person: ALICE_WITH_PROFILE, recentMeetings: [] } });
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "프로필 편집" }));
+    const sentinels = document.querySelectorAll<HTMLDivElement>('[aria-hidden="true"][tabindex="0"]');
+    const startSentinel = sentinels[0]!;
+    fireEvent.focus(startSentinel);
+    // Last focusable in dialog is the 취소 button (저장 → 취소 in DOM order).
+    const cancelBtn = screen.getByRole("button", { name: "취소" });
+    expect(document.activeElement).toBe(cancelBtn);
+  });
+
   it("page content is inert while sheet is open (ISSUE-5)", async () => {
     stubDetail({ ok: true, data: { person: ALICE_WITH_PROFILE, recentMeetings: [] } });
     render(<PersonDetail id={1} />);
