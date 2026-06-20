@@ -23,18 +23,14 @@ describe("buildNotificationDrafts", () => {
     expect(buildNotificationDrafts([], TITLE, "moved", "2026-06-23T19:00:00+09:00", NOW)).toEqual([]);
   });
 
-  it("moved template includes event title and no replacement time claim", () => {
+  it("moved template is exact", () => {
     const [draft] = buildNotificationDrafts([person()], TITLE, "moved", "2026-06-23T19:00:00+09:00", NOW);
-    expect(draft!.message).toContain("저녁 약속");
-    expect(draft!.message).toContain("새 시간은 정해지는 대로");
-    expect(draft!.message).not.toMatch(/\d{1,2}:\d{2}/); // no time claim
+    expect(draft!.message).toBe(`민지님, "${TITLE}" 일정 변경이 필요해. 새 시간은 정해지는 대로 알려줄게.`);
   });
 
-  it("cancelled template includes event title and apology", () => {
+  it("cancelled template is exact", () => {
     const [draft] = buildNotificationDrafts([person()], TITLE, "cancelled", "2026-06-23T19:00:00+09:00", NOW);
-    expect(draft!.message).toContain("저녁 약속");
-    expect(draft!.message).toContain("미안해");
-    expect(draft!.message).not.toContain("새 시간");
+    expect(draft!.message).toBe(`민지님, "${TITLE}" 일정을 취소해야 해. 미안해.`);
   });
 
   it("channel=null emits channel_unset reason", () => {
@@ -98,16 +94,36 @@ describe("buildNotificationDrafts", () => {
     expect(d1!.leadTimeStatus).toBe(d2!.leadTimeStatus); // both "enough" (gap=0 >= 0)
   });
 
-  it("deduplicates people by id, keeps stable name/id order", () => {
+  it("deduplicates by id and sorts name asc, id asc inside service", () => {
     const p1 = person({ id: 2, name: "지수" });
     const p2 = person({ id: 1, name: "민지" });
     const dup = person({ id: 2, name: "지수" });
     const drafts = buildNotificationDrafts([p1, p2, dup], TITLE, "moved", "2026-06-23T19:00:00+09:00", NOW);
     expect(drafts).toHaveLength(2);
-    // Note: dedup preserves input order (first-seen), not alphabetical; sort is done in repo
-    const ids = drafts.map((d) => d.personId);
-    expect(ids).toContain(1);
-    expect(ids).toContain(2);
+    // 민지 < 지수 alphabetically
+    expect(drafts[0]!.personId).toBe(1);
+    expect(drafts[1]!.personId).toBe(2);
+  });
+
+  it("same-name id tie broken by id asc", () => {
+    const p1 = person({ id: 5, name: "동명" });
+    const p2 = person({ id: 2, name: "동명" });
+    const drafts = buildNotificationDrafts([p1, p2], TITLE, "moved", "2026-06-23T19:00:00+09:00", NOW);
+    expect(drafts[0]!.personId).toBe(2);
+    expect(drafts[1]!.personId).toBe(5);
+  });
+
+  it("null lead time + null event start emits both lead_time_unset and event_time_unknown", () => {
+    const [draft] = buildNotificationDrafts([person({ leadTime: null })], TITLE, "moved", null, NOW);
+    expect(draft!.leadTimeStatus).toBe("unknown");
+    expect(draft!.reasonCodes).toContain("lead_time_unset");
+    expect(draft!.reasonCodes).toContain("event_time_unknown");
+  });
+
+  it("null lead time + valid event start emits only lead_time_unset", () => {
+    const [draft] = buildNotificationDrafts([person({ leadTime: null })], TITLE, "moved", "2026-06-23T19:00:00+09:00", NOW);
+    expect(draft!.reasonCodes).toContain("lead_time_unset");
+    expect(draft!.reasonCodes).not.toContain("event_time_unknown");
   });
 
   it("tone is always neutral with tone_profile_unavailable reason", () => {

@@ -102,7 +102,7 @@ export function registerDecisionRoutes(app: FastifyInstance, db: CairnDatabase):
 
       // Read affected people and build drafts inside the transaction so any
       // unexpected failure here rolls back the event/annotation writes.
-      const affectedPeople = findEventPeopleFullProfiles(tx as CairnDatabase, changeEventId);
+      const affectedPeople = findEventPeopleFullProfiles(tx, changeEventId);
       const notificationDrafts = buildNotificationDrafts(
         affectedPeople,
         changeEvent.title ?? "",

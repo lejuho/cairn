@@ -1,10 +1,17 @@
 import Database from "better-sqlite3";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
+import type { BetterSQLiteTransaction } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import type { ExtractTablesWithRelations } from "drizzle-orm/relations";
 import { fileURLToPath } from "node:url";
 import * as schema from "./schema.js";
 
 export type CairnDatabase = BetterSQLite3Database<typeof schema>;
+
+// Union of db and transaction — safe to pass to read-only repo helpers inside transactions.
+export type CairnDbExecutor =
+  | CairnDatabase
+  | BetterSQLiteTransaction<typeof schema, ExtractTablesWithRelations<typeof schema>>;
 
 export type SqliteConnection = {
   sqlite: Database.Database;

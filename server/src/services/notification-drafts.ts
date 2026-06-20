@@ -12,22 +12,21 @@ function classifyLeadTime(
   eventStartIso: string | null | undefined,
   nowMs: number
 ): LeadTimeResult {
-  if (leadTimeDays == null) {
-    return { status: "unknown", codes: ["lead_time_unset"] };
-  }
-  if (!eventStartIso) {
-    return { status: "unknown", codes: ["event_time_unknown"] };
-  }
-  const startMs = Date.parse(eventStartIso);
-  if (!Number.isFinite(startMs)) {
-    return { status: "unknown", codes: ["event_time_unknown"] };
-  }
+  const codes: NotificationReasonCode[] = [];
+
+  if (leadTimeDays == null) codes.push("lead_time_unset");
+
+  const startMs = eventStartIso ? Date.parse(eventStartIso) : NaN;
+  if (!Number.isFinite(startMs)) codes.push("event_time_unknown");
+
+  // Any unknown dimension → unknown status; collect all applicable codes.
+  if (codes.length > 0) return { status: "unknown", codes };
+
   const gap = startMs - nowMs;
-  const required = leadTimeDays * MS_PER_DAY;
-  if (gap >= required) {
-    return { status: "enough", codes: [] };
-  }
-  return { status: "late", codes: ["lead_time_late"] };
+  const required = leadTimeDays! * MS_PER_DAY;
+  if (gap >= required) return { status: "enough", codes };
+  codes.push("lead_time_late");
+  return { status: "late", codes };
 }
 
 function buildMessage(name: string, title: string, outcome: "moved" | "cancelled"): string {
@@ -44,39 +43,38 @@ export function buildNotificationDrafts(
   changedEventStart: string | null | undefined,
   nowMs: number
 ): NotificationDraft[] {
-  const seen = new Set<number>();
-  const drafts: NotificationDraft[] = [];
-
+  // Dedup by id (first-seen), then sort name asc, id asc for determinism.
+  const seen = new Map<number, PersonRow>();
   for (const person of affectedPeople) {
-    if (seen.has(person.id)) continue;
-    seen.add(person.id);
+    if (!seen.has(person.id)) seen.set(person.id, person);
+  }
+  const sorted = [...seen.values()].sort((a, b) => {
+    const nc = a.name.localeCompare(b.name);
+    return nc !== 0 ? nc : a.id - b.id;
+  });
 
+  return sorted.map((person) => {
     const reasonCodes: NotificationReasonCode[] = [];
 
-    // Channel honesty
     const channel = (person.channel === "none" || person.channel == null)
       ? null
       : person.channel;
     if (!channel) reasonCodes.push("channel_unset");
 
-    // Lead-time classification
     const lt = classifyLeadTime(person.leadTime?.days ?? null, changedEventStart, nowMs);
     reasonCodes.push(...lt.codes);
 
-    // Tone always neutral; no authored tone vocabulary yet
     reasonCodes.push("tone_profile_unavailable");
 
-    drafts.push({
+    return {
       personId: person.id,
       personName: person.name,
       channel,
       leadTimeDays: person.leadTime?.days ?? null,
       leadTimeStatus: lt.status,
-      tone: "neutral",
+      tone: "neutral" as const,
       message: buildMessage(person.name, eventTitle, outcome),
       reasonCodes
-    });
-  }
-
-  return drafts;
+    };
+  });
 }

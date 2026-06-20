@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ConflictDecision, DayFeasibility, EventDetailData, NotificationDraft, SlotCandidate, ThreadSummary, TodaySurface } from "@cairn/shared";
+import type { ConflictDecision, DayFeasibility, EventDetailData, EventRow, NotificationDraft, SlotCandidate, ThreadSummary, TodaySurface } from "@cairn/shared";
+import { ResolveConflictResponseDataSchema } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString } from "./dateUtils.js";
 import { apiJson, type AccessSessionError } from "./api.js";
 
@@ -20,7 +21,7 @@ type SlotStateMap = Record<number, SlotState>;
 type ConflictSheetState =
   | { open: false }
   | { open: true; resolved: false; conflict: ConflictDecision; submitting: boolean; error: string | null }
-  | { open: true; resolved: true; outcome: "moved" | "cancelled"; notificationDrafts: NotificationDraft[] };
+  | { open: true; resolved: true; outcome: "moved" | "cancelled"; changedEvent: EventRow; notificationDrafts: NotificationDraft[] };
 
 type SheetMode = "task" | "event";
 type TaskForm = { title: string; estMinutes: string; threadId: string };
@@ -309,50 +310,102 @@ function NotificationDraftCard({
 
 function ConflictResolvedSheet({
   outcome,
+  changedEvent,
   notificationDrafts,
-  onComplete
+  onComplete,
+  openerRef
 }: {
   outcome: "moved" | "cancelled";
+  changedEvent: EventRow;
   notificationDrafts: NotificationDraft[];
   onComplete: () => void;
+  openerRef: React.RefObject<HTMLElement | null>;
 }) {
   const [copyStates, setCopyStates] = useState<DraftCopyState>({});
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const startSentinelRef = useRef<HTMLDivElement>(null);
+  const endSentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    closeRef.current?.focus();
+    return () => { openerRef.current?.focus(); };
+  }, [openerRef]);
 
   const handleCopy = useCallback((personId: number, message: string) => {
-    navigator.clipboard.writeText(message).then(() => {
-      setCopyStates((s) => ({ ...s, [personId]: "copied" }));
-    }).catch(() => {
+    const clip = navigator.clipboard;
+    if (!clip) {
       setCopyStates((s) => ({ ...s, [personId]: "error" }));
-    });
+      return;
+    }
+    Promise.resolve()
+      .then(() => clip.writeText(message))
+      .then(() => { setCopyStates((s) => ({ ...s, [personId]: "copied" })); })
+      .catch(() => { setCopyStates((s) => ({ ...s, [personId]: "error" })); });
+  }, []);
+
+  const handleKey = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "Escape") onComplete();
+  }, [onComplete]);
+
+  const focusableSel = 'button:not([disabled]),[tabindex="0"]:not([aria-hidden])';
+
+  const handleStartSentinel = useCallback(() => {
+    const panel = startSentinelRef.current?.parentElement;
+    if (!panel) return;
+    const all = Array.from(panel.querySelectorAll<HTMLElement>(focusableSel)).filter(
+      (el) => el !== startSentinelRef.current && el !== endSentinelRef.current
+    );
+    all[all.length - 1]?.focus();
+  }, []);
+
+  const handleEndSentinel = useCallback(() => {
+    const panel = endSentinelRef.current?.parentElement;
+    if (!panel) return;
+    const all = Array.from(panel.querySelectorAll<HTMLElement>(focusableSel)).filter(
+      (el) => el !== startSentinelRef.current && el !== endSentinelRef.current
+    );
+    all[0]?.focus();
   }, []);
 
   const outcomeLabel = outcome === "moved" ? "이동" : "취소";
 
   return (
-    <div className="sheet-overlay" role="dialog" aria-modal="true" aria-label="충돌 해결 완료">
-      <div className="sheet-panel">
-        <button className="sheet-close-btn" onClick={onComplete} aria-label="닫기">✕</button>
-        <h2 className="sheet-title">충돌 해결됨 — {outcomeLabel}</h2>
-        <section className="draft-section" aria-label="통보 초안">
-          <h3 className="draft-section-title">통보 초안</h3>
-          {notificationDrafts.length === 0 ? (
-            <p className="draft-empty">연결된 사람이 없어 통보 초안이 없어.</p>
-          ) : (
-            notificationDrafts.map((draft) => (
-              <NotificationDraftCard
-                key={draft.personId}
-                draft={draft}
-                copyState={copyStates[draft.personId] ?? "idle"}
-                onCopy={handleCopy}
-              />
-            ))
-          )}
-        </section>
-        <div className="draft-complete-row">
-          <button className="action-btn" onClick={onComplete}>완료</button>
+    <>
+      <div className="sheet-backdrop" aria-hidden="true" />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="충돌 해결 완료"
+        className="bottom-sheet"
+        onKeyDown={handleKey}
+      >
+        <div ref={startSentinelRef} tabIndex={0} aria-hidden="true" onFocus={handleStartSentinel} />
+        <div className="sheet-header">
+          <h2 className="sheet-title">{changedEvent.title ?? "일정"} — {outcomeLabel}</h2>
+          <button ref={closeRef} className="sheet-close" onClick={onComplete} aria-label="닫기">✕</button>
         </div>
+        <div className="sheet-body">
+          <section aria-label="통보 초안">
+            {notificationDrafts.length === 0 ? (
+              <p className="draft-empty">연결된 사람이 없어 통보 초안이 없어.</p>
+            ) : (
+              notificationDrafts.map((draft) => (
+                <NotificationDraftCard
+                  key={draft.personId}
+                  draft={draft}
+                  copyState={copyStates[draft.personId] ?? "idle"}
+                  onCopy={handleCopy}
+                />
+              ))
+            )}
+          </section>
+          <div className="draft-complete-row">
+            <button className="action-btn" onClick={onComplete}>완료</button>
+          </div>
+        </div>
+        <div ref={endSentinelRef} tabIndex={0} aria-hidden="true" onFocus={handleEndSentinel} />
       </div>
-    </div>
+    </>
   );
 }
 
@@ -371,6 +424,7 @@ export function Today() {
   const [conflictSheet, setConflictSheet] = useState<ConflictSheetState>({ open: false });
   const savedMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firstInputRef = useRef<HTMLInputElement>(null);
+  const conflictOpenerRef = useRef<HTMLElement | null>(null);
 
   const refresh = useCallback(async () => {
     setView({ tag: "loading" });
@@ -626,7 +680,7 @@ export function Today() {
     if (!conflictSheet.open || conflictSheet.resolved) return;
     setConflictSheet((s) => s.open && !s.resolved ? { ...s, submitting: true, error: null } : s);
     try {
-      const body = await apiJson<{ ok: boolean; data?: { notificationDrafts: NotificationDraft[] }; error?: { code: string } }>("/api/decisions/conflicts/resolve", {
+      const body = await apiJson<{ ok: boolean; data?: unknown; error?: { code: string } }>("/api/decisions/conflicts/resolve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ keepEventId, changeEventId, outcome })
@@ -639,7 +693,12 @@ export function Today() {
         setConflictSheet((s) => s.open && !s.resolved ? { ...s, submitting: false, error: msg } : s);
         return;
       }
-      setConflictSheet({ open: true, resolved: true, outcome, notificationDrafts: body.data?.notificationDrafts ?? [] });
+      const parsed = ResolveConflictResponseDataSchema.safeParse(body.data);
+      if (!parsed.success) {
+        setConflictSheet((s) => s.open && !s.resolved ? { ...s, submitting: false, error: "서버 응답이 예상과 달라" } : s);
+        return;
+      }
+      setConflictSheet({ open: true, resolved: true, outcome, changedEvent: parsed.data.changedEvent, notificationDrafts: parsed.data.notificationDrafts });
     } catch (e) {
       const msg = (e as AccessSessionError).kind === "access_session_required"
         ? "로그인 세션이 만료됐거나 네트워크가 끊겼어"
@@ -995,7 +1054,11 @@ export function Today() {
   const { surface } = view;
   return (
     <>
-      <main className="app-shell today-live" aria-labelledby="today-sr-title">
+      <main
+        className="app-shell today-live"
+        aria-labelledby="today-sr-title"
+        inert={conflictSheet.open && conflictSheet.resolved ? true : undefined}
+      >
         <h2 id="today-sr-title" className="sr-only">
           오늘 ({surface.cards.length}건)
         </h2>
@@ -1265,8 +1328,10 @@ export function Today() {
       {conflictSheet.open && conflictSheet.resolved && (
         <ConflictResolvedSheet
           outcome={conflictSheet.outcome}
+          changedEvent={conflictSheet.changedEvent}
           notificationDrafts={conflictSheet.notificationDrafts}
           onComplete={() => void handleCompleteResolved()}
+          openerRef={conflictOpenerRef}
         />
       )}
     </>

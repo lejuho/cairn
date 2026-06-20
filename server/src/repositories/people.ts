@@ -1,6 +1,6 @@
 import { asc, eq, inArray } from "drizzle-orm";
 import type { AuthoredLeadTime, AuthoredPreferredWindows, CreatePersonRequest, EventPeopleResponse, EventRow, FrequencyBand, HardConstraint, PersonDirectoryRow, PersonRow, UpdatePersonProfileRequest, Weekday } from "@cairn/shared";
-import type { CairnDatabase } from "../db/index.js";
+import type { CairnDatabase, CairnDbExecutor } from "../db/index.js";
 import { eventPeople, events, people } from "../db/schema.js";
 import { parseHardConstraints, parseLeadTime, parsePreferredWindows, toFrequencyBand } from "../services/people-impact.js";
 
@@ -236,7 +236,7 @@ export function updatePersonProfile(
   return mapPersonRow(rows[0]!);
 }
 
-export function findEventPeopleFullProfiles(db: CairnDatabase, eventId: number): PersonRow[] {
+export function findEventPeopleFullProfiles(db: CairnDbExecutor, eventId: number): PersonRow[] {
   return db
     .select(PERSON_COLS)
     .from(eventPeople)

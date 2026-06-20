@@ -1316,6 +1316,8 @@ describe("Today — conflict decision sheet", () => {
     cards: [{ kind: "conflict", pair: { a: eventA, b: eventB } }]
   };
 
+  const VALID_ANNOTATION = { id: 1, eventId: 2, outcome: "moved" as const, reasonTags: '["conflict_resolution"]', reasonText: "conflict_resolution", energyAtTime: null, loggedAt: "2026-06-20T00:00:00Z" };
+
   function mockDecisionFetch(resolveOk = true) {
     vi.stubGlobal(
       "fetch",
@@ -1325,7 +1327,7 @@ describe("Today — conflict decision sheet", () => {
             json: () =>
               Promise.resolve(
                 resolveOk
-                  ? { ok: true, data: { changedEvent: { ...eventB, status: "moved" }, annotation: { id: 1, eventId: 2, outcome: "moved", reasonTags: '["conflict_resolution"]', reasonText: "conflict_resolution", energyAtTime: null, loggedAt: "" } } }
+                  ? { ok: true, data: { changedEvent: { ...eventB, status: "moved" }, annotation: VALID_ANNOTATION, notificationDrafts: [] } }
                   : { ok: false, error: { code: "CONFLICT_STALE" } }
               )
           });
@@ -1384,7 +1386,7 @@ describe("Today — conflict decision sheet", () => {
     const fetchSpy = vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
       if ((opts?.method ?? "GET") === "POST" && String(url).includes("/resolve")) {
         return Promise.resolve({
-          json: () => Promise.resolve({ ok: true, data: { changedEvent: { ...eventB, status: "moved" }, annotation: {}, notificationDrafts: [] } })
+          json: () => Promise.resolve({ ok: true, data: { changedEvent: { ...eventB, status: "moved" }, annotation: VALID_ANNOTATION, notificationDrafts: [] } })
         });
       }
       if (String(url).includes("/api/decisions/conflicts")) {
@@ -1449,7 +1451,7 @@ describe("Today — conflict decision sheet", () => {
   it("resolvable conflict sheet still submits resolve payload and refetches Today", async () => {
     const fetchSpy = vi.fn().mockImplementation((url: string) => {
       if (String(url).includes("/api/decisions/conflicts/resolve")) {
-        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { changedEvent: { ...eventB, status: "moved" }, annotation: { id: 1, eventId: 2, outcome: "moved", reasonTags: '["conflict_resolution"]', reasonText: "conflict_resolution", energyAtTime: null, loggedAt: "" } } }) });
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { changedEvent: { ...eventB, status: "moved" }, annotation: VALID_ANNOTATION, notificationDrafts: [] } }) });
       }
       if (String(url).includes("/api/decisions/conflicts")) {
         return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { conflicts: [CONFLICT] } }) });
@@ -1492,7 +1494,7 @@ describe("Today — conflict decision sheet", () => {
     };
     const fetchSpy = vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
       if ((opts?.method ?? "GET") === "POST" && String(url).includes("/resolve")) {
-        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { changedEvent: { ...eventB, status: "moved" }, annotation: {}, notificationDrafts: [PERSON_DRAFT] } }) });
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { changedEvent: { ...eventB, status: "moved" }, annotation: VALID_ANNOTATION, notificationDrafts: [PERSON_DRAFT] } }) });
       }
       if (String(url).includes("/api/decisions/conflicts")) {
         return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { conflicts: [CONFLICT] } }) });
@@ -1524,7 +1526,7 @@ describe("Today — conflict decision sheet", () => {
     Object.defineProperty(navigator, "clipboard", { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true });
     const fetchSpy = vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
       if ((opts?.method ?? "GET") === "POST" && String(url).includes("/resolve")) {
-        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { changedEvent: { ...eventB, status: "cancelled" }, annotation: {}, notificationDrafts: [DRAFT] } }) });
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { changedEvent: { ...eventB, status: "cancelled" }, annotation: { ...VALID_ANNOTATION, outcome: "cancelled" as const }, notificationDrafts: [DRAFT] } }) });
       }
       if (String(url).includes("/api/decisions/conflicts")) {
         return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { conflicts: [CONFLICT] } }) });
@@ -1553,7 +1555,7 @@ describe("Today — conflict decision sheet", () => {
     Object.defineProperty(navigator, "clipboard", { value: { writeText: vi.fn().mockRejectedValue(new Error("denied")) }, configurable: true });
     const fetchSpy = vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
       if ((opts?.method ?? "GET") === "POST" && String(url).includes("/resolve")) {
-        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { changedEvent: { ...eventB, status: "moved" }, annotation: {}, notificationDrafts: [DRAFT] } }) });
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { changedEvent: { ...eventB, status: "moved" }, annotation: VALID_ANNOTATION, notificationDrafts: [DRAFT] } }) });
       }
       if (String(url).includes("/api/decisions/conflicts")) {
         return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { conflicts: [CONFLICT] } }) });
@@ -1570,6 +1572,56 @@ describe("Today — conflict decision sheet", () => {
     fireEvent.click(screen.getByRole("button", { name: "수지 초안 복사" }));
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
     expect(screen.getByRole("alert")).toHaveTextContent("복사 실패");
+  });
+
+  it("clipboard API unavailable shows 복사 실패 without throwing", async () => {
+    const DRAFT = {
+      personId: 9, personName: "나연", channel: "sms" as const,
+      leadTimeDays: 1, leadTimeStatus: "enough" as const, tone: "neutral" as const,
+      message: "나연님, \"미팅 B\" 일정 변경이 필요해. 새 시간은 정해지는 대로 알려줄게.",
+      reasonCodes: ["tone_profile_unavailable" as const]
+    };
+    Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
+      if ((opts?.method ?? "GET") === "POST" && String(url).includes("/resolve")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { changedEvent: { ...eventB, status: "moved" }, annotation: VALID_ANNOTATION, notificationDrafts: [DRAFT] } }) });
+      }
+      if (String(url).includes("/api/decisions/conflicts")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { conflicts: [CONFLICT] } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: SURFACE_WITH_CONFLICT }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/충돌 해결/));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("미팅 B 이동 처리"));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결 완료" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "나연 초안 복사" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent("복사 실패");
+  });
+
+  it("malformed resolve response retains conflict sheet with error", async () => {
+    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
+      if ((opts?.method ?? "GET") === "POST" && String(url).includes("/resolve")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { unexpected: true } }) });
+      }
+      if (String(url).includes("/api/decisions/conflicts")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { conflicts: [CONFLICT] } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: SURFACE_WITH_CONFLICT }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText(/충돌 해결/));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("미팅 B 이동 처리"));
+    await waitFor(() => expect(screen.getByText("서버 응답이 예상과 달라")).toBeInTheDocument());
+    expect(screen.queryByRole("dialog", { name: "충돌 해결 완료" })).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument();
   });
 });
 
