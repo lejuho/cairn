@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import type { EventRow, PersonDirectoryRow } from "@cairn/shared";
+import { useEffect, useRef, useState } from "react";
+import type { AuthoredPreferredWindows, EventRow, PersonDirectoryRow, PersonRow, PreferredPeriod, Weekday } from "@cairn/shared";
 import { apiJson } from "./api.js";
 import type { AccessSessionError } from "./api.js";
 import { formatLastMet } from "./lastMet.js";
@@ -10,6 +10,41 @@ type ViewState =
   | { tag: "not_found" }
   | { tag: "error"; message: string }
   | { tag: "access_error" };
+
+type SheetState = {
+  open: boolean;
+  preferredWeekdays: Weekday[];
+  preferredPeriods: PreferredPeriod[];
+  leadTimeDays: number | null;
+  channel: PersonRow["channel"];
+  unavailableWeekdays: Weekday[];
+  saving: boolean;
+  saveError: string | null;
+};
+
+const WEEKDAYS: Weekday[] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+const WEEKDAY_KO: Record<Weekday, string> = {
+  monday: "월", tuesday: "화", wednesday: "수", thursday: "목",
+  friday: "금", saturday: "토", sunday: "일"
+};
+const PERIODS: PreferredPeriod[] = ["morning", "afternoon", "evening"];
+const PERIOD_KO: Record<PreferredPeriod, string> = { morning: "오전", afternoon: "오후", evening: "저녁" };
+const LEAD_TIME_OPTIONS: Array<{ days: number | null; label: string }> = [
+  { days: null, label: "설정 없음" },
+  { days: 0, label: "당일" },
+  { days: 1, label: "1일" },
+  { days: 3, label: "3일" },
+  { days: 7, label: "7일" },
+  { days: 14, label: "14일" },
+  { days: 30, label: "30일" }
+];
+const CHANNELS: Array<{ value: PersonRow["channel"]; label: string }> = [
+  { value: "none", label: "없음" },
+  { value: "kakao", label: "카카오톡" },
+  { value: "sms", label: "문자" },
+  { value: "email", label: "이메일" },
+  { value: "telegram", label: "텔레그램" }
+];
 
 function formatWindow(start: string | null, end: string | null): string {
   if (!start && !end) return "시간 미정";
@@ -26,8 +61,39 @@ function frequencyLabel(band: PersonDirectoryRow["frequencyBand"]): string {
   return "처음 만남";
 }
 
+function leadTimeLabel(days: number | null): string {
+  if (days === null) return "설정 없음";
+  if (days === 0) return "당일";
+  return `${days}일 전`;
+}
+
+function buildInitialSheet(person: PersonRow): Omit<SheetState, "open" | "saving" | "saveError"> {
+  const win: AuthoredPreferredWindows | null | undefined = person.preferredWindows;
+  return {
+    preferredWeekdays: win?.weekdays ?? [],
+    preferredPeriods: win?.periods ?? [],
+    leadTimeDays: person.leadTime?.days ?? null,
+    channel: person.channel ?? "none",
+    unavailableWeekdays: (person.hardConstraints ?? [])
+      .filter((c) => c.type === "weekday_unavailable")
+      .map((c) => c.weekday)
+  };
+}
+
 export function PersonDetail({ id }: { id: number }) {
   const [view, setView] = useState<ViewState>({ tag: "loading" });
+  const [sheet, setSheet] = useState<SheetState>({
+    open: false,
+    preferredWeekdays: [],
+    preferredPeriods: [],
+    leadTimeDays: null,
+    channel: "none",
+    unavailableWeekdays: [],
+    saving: false,
+    saveError: null
+  });
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   async function load() {
     setView({ tag: "loading" });
@@ -55,6 +121,89 @@ export function PersonDetail({ id }: { id: number }) {
   }
 
   useEffect(() => { void load(); }, [id]);
+
+  // Close sheet on Escape
+  useEffect(() => {
+    if (!sheet.open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") closeSheet();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sheet.open]);
+
+  function openSheet(person: PersonRow) {
+    setSheet({ open: true, ...buildInitialSheet(person), saving: false, saveError: null });
+    // Focus close button after render
+    requestAnimationFrame(() => closeButtonRef.current?.focus());
+  }
+
+  function closeSheet() {
+    setSheet((s) => ({ ...s, open: false, saving: false, saveError: null }));
+  }
+
+  function togglePreferredWeekday(day: Weekday) {
+    setSheet((s) => {
+      const has = s.preferredWeekdays.includes(day);
+      const next = has
+        ? s.preferredWeekdays.filter((d) => d !== day)
+        : [...s.preferredWeekdays, day];
+      // Clear same day from unavailable (mutual exclusion)
+      const nextUnavail = has ? s.unavailableWeekdays : s.unavailableWeekdays.filter((d) => d !== day);
+      return { ...s, preferredWeekdays: next, unavailableWeekdays: nextUnavail };
+    });
+  }
+
+  function toggleUnavailableWeekday(day: Weekday) {
+    setSheet((s) => {
+      const has = s.unavailableWeekdays.includes(day);
+      const next = has
+        ? s.unavailableWeekdays.filter((d) => d !== day)
+        : [...s.unavailableWeekdays, day];
+      // Clear same day from preferred (mutual exclusion)
+      const nextPref = has ? s.preferredWeekdays : s.preferredWeekdays.filter((d) => d !== day);
+      return { ...s, unavailableWeekdays: next, preferredWeekdays: nextPref };
+    });
+  }
+
+  function togglePeriod(p: PreferredPeriod) {
+    setSheet((s) => {
+      const has = s.preferredPeriods.includes(p);
+      return { ...s, preferredPeriods: has ? s.preferredPeriods.filter((x) => x !== p) : [...s.preferredPeriods, p] };
+    });
+  }
+
+  async function saveSheet() {
+    setSheet((s) => ({ ...s, saving: true, saveError: null }));
+    try {
+      const body = await apiJson<{ ok: boolean; error?: { message: string } }>(
+        `/api/people/${id}/profile`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            preferredWeekdays: sheet.preferredWeekdays,
+            preferredPeriods: sheet.preferredPeriods,
+            leadTimeDays: sheet.leadTimeDays,
+            channel: sheet.channel,
+            unavailableWeekdays: sheet.unavailableWeekdays
+          })
+        }
+      );
+      if (!body.ok) {
+        setSheet((s) => ({ ...s, saving: false, saveError: body.error?.message ?? "저장 실패" }));
+        return;
+      }
+      setSheet((s) => ({ ...s, open: false, saving: false, saveError: null }));
+      await load();
+    } catch (e) {
+      setSheet((s) => ({
+        ...s,
+        saving: false,
+        saveError: e instanceof Error ? e.message : "저장 실패"
+      }));
+    }
+  }
 
   if (view.tag === "loading") {
     return (
@@ -104,6 +253,8 @@ export function PersonDetail({ id }: { id: number }) {
 
   const { person, recentMeetings } = view;
   const hasHistory = recentMeetings.length > 0;
+  const win = person.preferredWindows ?? null;
+  const lt = person.leadTime ?? null;
 
   return (
     <main className="app-shell" aria-label="사람 상세" data-testid="person-live">
@@ -119,17 +270,41 @@ export function PersonDetail({ id }: { id: number }) {
       <section className="person-detail-memory" aria-label="관계 기억">
         <h2>관계 기억</h2>
         <dl className="person-stats">
+          <div><dt>총 만남</dt><dd>{person.totalMeets}회</dd></div>
+          <div><dt>마지막 만남</dt><dd>{formatLastMet(person.lastMet)}</dd></div>
+          <div><dt>빈도</dt><dd>{frequencyLabel(person.frequencyBand)}</dd></div>
+        </dl>
+      </section>
+
+      <section className="person-detail-profile" aria-label="취급 프로필">
+        <div className="person-detail-profile-header">
+          <h2>취급 프로필</h2>
+          <button className="action-btn action-btn--sm" onClick={() => openSheet(person)} aria-label="프로필 편집">
+            프로필 편집
+          </button>
+        </div>
+        <dl className="person-stats">
           <div>
-            <dt>총 만남</dt>
-            <dd>{person.totalMeets}회</dd>
+            <dt>선호 요일</dt>
+            <dd data-testid="profile-preferred-days">
+              {win?.weekdays?.length ? win.weekdays.map((d) => WEEKDAY_KO[d]).join(", ") : "설정 없음"}
+            </dd>
           </div>
           <div>
-            <dt>마지막 만남</dt>
-            <dd>{formatLastMet(person.lastMet)}</dd>
+            <dt>선호 시간대</dt>
+            <dd data-testid="profile-preferred-periods">
+              {win?.periods?.length ? win.periods.map((p) => PERIOD_KO[p]).join(", ") : "설정 없음"}
+            </dd>
           </div>
           <div>
-            <dt>빈도</dt>
-            <dd>{frequencyLabel(person.frequencyBand)}</dd>
+            <dt>연락 채널</dt>
+            <dd data-testid="profile-channel">
+              {person.channel && person.channel !== "none" ? CHANNELS.find((c) => c.value === person.channel)?.label ?? person.channel : "설정 없음"}
+            </dd>
+          </div>
+          <div>
+            <dt>최소 사전 통보</dt>
+            <dd data-testid="profile-lead-time">{leadTimeLabel(lt?.days ?? null)}</dd>
           </div>
         </dl>
       </section>
@@ -160,6 +335,129 @@ export function PersonDetail({ id }: { id: number }) {
           <p className="person-quiet">아직 기록된 만남이 없어.</p>
         )}
       </section>
+
+      {sheet.open && (
+        <div
+          className="sheet-backdrop"
+          data-testid="profile-sheet"
+          ref={backdropRef}
+          role="presentation"
+          onClick={(e) => { if (e.target === backdropRef.current) closeSheet(); }}
+        >
+          <div
+            className="bottom-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-label="프로필 편집"
+            aria-describedby="sheet-desc"
+          >
+            <div className="sheet-header">
+              <h2 id="sheet-desc">프로필 편집</h2>
+              <button ref={closeButtonRef} className="sheet-close" aria-label="닫기" onClick={closeSheet}>✕</button>
+            </div>
+
+            <div className="sheet-body">
+              <fieldset className="sheet-fieldset">
+                <legend>선호 요일</legend>
+                <div className="toggle-row">
+                  {WEEKDAYS.map((day) => (
+                    <button
+                      key={day}
+                      type="button"
+                      className="day-toggle"
+                      aria-pressed={sheet.preferredWeekdays.includes(day)}
+                      onClick={() => togglePreferredWeekday(day)}
+                    >
+                      {WEEKDAY_KO[day]}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+
+              <fieldset className="sheet-fieldset">
+                <legend>선호 시간대</legend>
+                <div className="toggle-row">
+                  {PERIODS.map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      className="period-toggle"
+                      aria-pressed={sheet.preferredPeriods.includes(p)}
+                      onClick={() => togglePeriod(p)}
+                    >
+                      {PERIOD_KO[p]}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+
+              <fieldset className="sheet-fieldset">
+                <legend>최소 사전 통보</legend>
+                <div className="chip-row">
+                  {LEAD_TIME_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.label}
+                      type="button"
+                      className="lead-chip"
+                      aria-pressed={sheet.leadTimeDays === opt.days}
+                      onClick={() => setSheet((s) => ({ ...s, leadTimeDays: opt.days }))}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+
+              <fieldset className="sheet-fieldset">
+                <legend>연락 채널</legend>
+                <div className="chip-row">
+                  {CHANNELS.map((c) => (
+                    <button
+                      key={String(c.value)}
+                      type="button"
+                      className="channel-chip"
+                      aria-pressed={sheet.channel === c.value}
+                      onClick={() => setSheet((s) => ({ ...s, channel: c.value }))}
+                    >
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+
+              <fieldset className="sheet-fieldset">
+                <legend>만나기 어려운 요일</legend>
+                <div className="toggle-row">
+                  {WEEKDAYS.map((day) => (
+                    <button
+                      key={day}
+                      type="button"
+                      className="day-toggle"
+                      aria-pressed={sheet.unavailableWeekdays.includes(day)}
+                      onClick={() => toggleUnavailableWeekday(day)}
+                    >
+                      {WEEKDAY_KO[day]}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+
+              {sheet.saveError && (
+                <p role="alert" className="sheet-error">{sheet.saveError}</p>
+              )}
+
+              <div className="sheet-actions">
+                <button className="action-btn" onClick={() => void saveSheet()} disabled={sheet.saving} aria-busy={sheet.saving}>
+                  {sheet.saving ? "저장 중…" : "저장"}
+                </button>
+                <button className="action-btn action-btn--ghost" onClick={closeSheet} disabled={sheet.saving}>
+                  취소
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

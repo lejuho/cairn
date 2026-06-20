@@ -697,3 +697,209 @@ describe("GET /api/people/:id/detail", () => {
   });
 });
 
+// ── PUT /api/people/:id/profile ───────────────────────────────────────────────
+
+describe("PUT /api/people/:id/profile", () => {
+  const base = {
+    preferredWeekdays: ["monday", "wednesday"],
+    preferredPeriods: ["evening"],
+    leadTimeDays: 3,
+    channel: "kakao",
+    unavailableWeekdays: ["friday"]
+  };
+
+  it("updates and reads back all authored fields", async () => {
+    const conn = makeTestDb();
+    const id = insertPerson(conn, "프로필A");
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "PUT", url: `/api/people/${id}/profile`, payload: base });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.ok).toBe(true);
+    const person = body.data.person;
+    expect(person.preferredWindows?.weekdays).toEqual(["monday", "wednesday"]);
+    expect(person.preferredWindows?.periods).toEqual(["evening"]);
+    expect(person.preferredWindows?.firmness).toBe("hard");
+    expect(person.leadTime?.days).toBe(3);
+    expect(person.leadTime?.firmness).toBe("hard");
+    expect(person.channel).toBe("kakao");
+    expect(person.hardConstraints).toEqual([
+      { type: "weekday_unavailable", weekday: "friday", text: "friday 불가", firmness: "hard" }
+    ]);
+  });
+
+  it("normalizes duplicate weekdays and preserves canonical order", async () => {
+    const conn = makeTestDb();
+    const id = insertPerson(conn, "프로필B");
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "PUT", url: `/api/people/${id}/profile`,
+      payload: {
+        ...base,
+        preferredWeekdays: ["wednesday", "monday", "monday"],
+        unavailableWeekdays: ["friday", "friday", "saturday"]
+      }
+    });
+    expect(res.statusCode).toBe(200);
+    const person = res.json().data.person;
+    expect(person.preferredWindows?.weekdays).toEqual(["monday", "wednesday"]);
+    expect(person.hardConstraints?.map((c: { weekday: string }) => c.weekday)).toEqual(["friday", "saturday"]);
+  });
+
+  it("persists leadTimeDays=0 (same-day) and reads back 0", async () => {
+    const conn = makeTestDb();
+    const id = insertPerson(conn, "프로필C");
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "PUT", url: `/api/people/${id}/profile`, payload: { ...base, leadTimeDays: 0 } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.person.leadTime?.days).toBe(0);
+  });
+
+  it("clears preferred windows and lead time when both arrays empty and null", async () => {
+    const conn = makeTestDb();
+    const id = insertPerson(conn, "프로필D");
+    const app = buildServer(conn.db);
+    // Set first
+    await app.inject({ method: "PUT", url: `/api/people/${id}/profile`, payload: base });
+    // Then clear
+    const res = await app.inject({
+      method: "PUT", url: `/api/people/${id}/profile`,
+      payload: { ...base, preferredWeekdays: [], preferredPeriods: [], leadTimeDays: null, unavailableWeekdays: [] }
+    });
+    expect(res.statusCode).toBe(200);
+    const person = res.json().data.person;
+    expect(person.preferredWindows).toBeNull();
+    expect(person.leadTime).toBeNull();
+    expect(person.hardConstraints).toEqual([]);
+  });
+
+  it("rejects non-positive integer id", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "PUT", url: "/api/people/0/profile", payload: base });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 404 for unknown person", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "PUT", url: "/api/people/9999/profile", payload: base });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe("NOT_FOUND");
+  });
+
+  it("rejects invalid body (bad channel)", async () => {
+    const conn = makeTestDb();
+    const id = insertPerson(conn, "프로필E");
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "PUT", url: `/api/people/${id}/profile`, payload: { ...base, channel: "discord" } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("rejects contradictory weekdays (preferred ∩ unavailable ≠ ∅)", async () => {
+    const conn = makeTestDb();
+    const id = insertPerson(conn, "프로필F");
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "PUT", url: `/api/people/${id}/profile`,
+      payload: { ...base, preferredWeekdays: ["monday"], unavailableWeekdays: ["monday"] }
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("rejects half-empty windows (weekdays present but periods absent)", async () => {
+    const conn = makeTestDb();
+    const id = insertPerson(conn, "프로필G");
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "PUT", url: `/api/people/${id}/profile`,
+      payload: { ...base, preferredWeekdays: ["monday"], preferredPeriods: [] }
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("makes no partial writes on rejected input", async () => {
+    const conn = makeTestDb();
+    const id = insertPerson(conn, "프로필H");
+    const app = buildServer(conn.db);
+    // Set a known-good profile first
+    await app.inject({ method: "PUT", url: `/api/people/${id}/profile`, payload: base });
+    // Try to write contradictory — must fail
+    await app.inject({
+      method: "PUT", url: `/api/people/${id}/profile`,
+      payload: { ...base, preferredWeekdays: ["monday"], unavailableWeekdays: ["monday"] }
+    });
+    // Read back via GET detail — person should still have prior good values
+    const now = new Date().toISOString();
+    const res = await app.inject({ method: "GET", url: `/api/people/${id}/detail?now=${encodeURIComponent(now)}` });
+    const person = res.json().data.person;
+    expect(person.preferredWindows?.weekdays).toContain("monday");
+    expect(person.preferredWindows?.weekdays).toContain("wednesday");
+  });
+
+  it("fails open when stored preferred_windows JSON is malformed", async () => {
+    const conn = makeTestDb();
+    const id = insertPerson(conn, "프로필I");
+    // Inject malformed JSON directly
+    conn.sqlite.prepare("UPDATE people SET preferred_windows = ? WHERE id = ?").run("not-valid-json", id);
+    const app = buildServer(conn.db);
+    const now = new Date().toISOString();
+    const res = await app.inject({ method: "GET", url: `/api/people/${id}/detail?now=${encodeURIComponent(now)}` });
+    expect(res.statusCode).toBe(200);
+    const person = res.json().data.person;
+    expect(person.preferredWindows).toBeNull();
+    expect(person.name).toBe("프로필I");
+  });
+
+  it("fails open when stored lead_time JSON is malformed", async () => {
+    const conn = makeTestDb();
+    const id = insertPerson(conn, "프로필J");
+    conn.sqlite.prepare("UPDATE people SET lead_time = ? WHERE id = ?").run("{invalid}", id);
+    const app = buildServer(conn.db);
+    const now = new Date().toISOString();
+    const res = await app.inject({ method: "GET", url: `/api/people/${id}/detail?now=${encodeURIComponent(now)}` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.person.leadTime).toBeNull();
+  });
+
+  it("directory rows include normalized profile fields", async () => {
+    const conn = makeTestDb();
+    const id = insertPerson(conn, "프로필K");
+    const app = buildServer(conn.db);
+    await app.inject({ method: "PUT", url: `/api/people/${id}/profile`, payload: base });
+    const now = new Date().toISOString();
+    const res = await app.inject({ method: "GET", url: `/api/people/directory?now=${encodeURIComponent(now)}` });
+    const person = res.json().data.people.find((p: { id: number }) => p.id === id);
+    expect(person.preferredWindows?.weekdays).toEqual(["monday", "wednesday"]);
+    expect(person.leadTime?.days).toBe(3);
+  });
+
+  it("list endpoint includes normalized profile fields", async () => {
+    const conn = makeTestDb();
+    const id = insertPerson(conn, "프로필L");
+    const app = buildServer(conn.db);
+    await app.inject({ method: "PUT", url: `/api/people/${id}/profile`, payload: base });
+    const res = await app.inject({ method: "GET", url: "/api/people" });
+    const person = res.json().data.find((p: { id: number }) => p.id === id);
+    expect(person.preferredWindows?.weekdays).toEqual(["monday", "wednesday"]);
+    expect(person.leadTime?.days).toBe(3);
+  });
+
+  it("existing hard-constraint route still works after profile route added", async () => {
+    const conn = makeTestDb();
+    const id = insertPerson(conn, "프로필M");
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "PUT", url: `/api/people/${id}/hard-constraints`,
+      payload: { unavailableWeekdays: ["tuesday"] }
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.person.hardConstraints).toEqual([
+      { type: "weekday_unavailable", weekday: "tuesday", text: "tuesday 불가", firmness: "hard" }
+    ]);
+  });
+});
+

@@ -116,3 +116,178 @@ describe("PersonDetail", () => {
     expect(assignMock).toHaveBeenCalledWith("http://localhost/people/1");
   });
 });
+
+// ── Profile display ───────────────────────────────────────────────────────────
+
+const ALICE_WITH_PROFILE = {
+  ...ALICE_DIR,
+  preferredWindows: { weekdays: ["monday", "wednesday"], periods: ["evening"], firmness: "hard" },
+  leadTime: { days: 3, firmness: "hard" }
+};
+
+describe("PersonDetail — profile display", () => {
+  it("shows configured preferred days, periods, channel, lead time", async () => {
+    stubDetail({ ok: true, data: { person: ALICE_WITH_PROFILE, recentMeetings: [] } });
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
+    expect(screen.getByTestId("profile-preferred-days")).toHaveTextContent("월, 수");
+    expect(screen.getByTestId("profile-preferred-periods")).toHaveTextContent("저녁");
+    expect(screen.getByTestId("profile-lead-time")).toHaveTextContent("3일 전");
+    // channel=kakao shown as 카카오톡
+    expect(screen.getByTestId("profile-channel")).toHaveTextContent("카카오톡");
+  });
+
+  it("shows 설정 없음 when profile fields are null", async () => {
+    stubDetail({
+      ok: true,
+      data: {
+        person: { ...ALICE_DIR, channel: "none", preferredWindows: null, leadTime: null },
+        recentMeetings: []
+      }
+    });
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
+    expect(screen.getByTestId("profile-preferred-days")).toHaveTextContent("설정 없음");
+    expect(screen.getByTestId("profile-preferred-periods")).toHaveTextContent("설정 없음");
+    expect(screen.getByTestId("profile-lead-time")).toHaveTextContent("설정 없음");
+    expect(screen.getByTestId("profile-channel")).toHaveTextContent("설정 없음");
+  });
+});
+
+// ── Profile editor (bottom sheet) ────────────────────────────────────────────
+
+function stubFetch(firstResponse: unknown, ...rest: unknown[]) {
+  let mock = vi.fn().mockResolvedValueOnce({ json: () => Promise.resolve(firstResponse) });
+  for (const r of rest) {
+    mock = mock.mockResolvedValueOnce({ json: () => Promise.resolve(r) });
+  }
+  vi.stubGlobal("fetch", mock);
+  return mock;
+}
+
+describe("PersonDetail — profile editor", () => {
+  it("프로필 편집 button opens bottom sheet", async () => {
+    stubDetail({ ok: true, data: { person: ALICE_WITH_PROFILE, recentMeetings: [] } });
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
+    expect(screen.queryByTestId("profile-sheet")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "프로필 편집" }));
+    expect(screen.getByTestId("profile-sheet")).toBeInTheDocument();
+  });
+
+  it("sheet prefills from server PersonRow", async () => {
+    stubDetail({ ok: true, data: { person: ALICE_WITH_PROFILE, recentMeetings: [] } });
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "프로필 편집" }));
+    // Monday toggle should be pressed (in preferred days)
+    const mondayToggles = screen.getAllByRole("button", { name: "월" });
+    // First 월 is in preferred section, should be pressed
+    expect(mondayToggles[0]).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("닫기 button closes sheet without mutation", async () => {
+    const fetchMock = stubFetch({ ok: true, data: { person: ALICE_WITH_PROFILE, recentMeetings: [] } });
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "프로필 편집" }));
+    fireEvent.click(screen.getByRole("button", { name: "닫기" }));
+    expect(screen.queryByTestId("profile-sheet")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1); // only initial load, no PUT
+  });
+
+  it("Escape closes sheet without mutation", async () => {
+    const fetchMock = stubFetch({ ok: true, data: { person: ALICE_WITH_PROFILE, recentMeetings: [] } });
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "프로필 편집" }));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByTestId("profile-sheet")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("preferred day toggle toggles aria-pressed", async () => {
+    stubDetail({ ok: true, data: { person: { ...ALICE_DIR, channel: "none", preferredWindows: null, leadTime: null }, recentMeetings: [] } });
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "프로필 편집" }));
+    const tuesdayPref = screen.getAllByRole("button", { name: "화" })[0]!;
+    expect(tuesdayPref).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(tuesdayPref);
+    expect(tuesdayPref).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("selecting a preferred day clears same day from unavailable (mutual exclusion)", async () => {
+    stubDetail({ ok: true, data: { person: { ...ALICE_DIR, channel: "none", preferredWindows: null, leadTime: null }, recentMeetings: [] } });
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "프로필 편집" }));
+    const allWed = screen.getAllByRole("button", { name: "수" });
+    const wedPref = allWed[0]!;
+    const wedUnavail = allWed[1]!;
+    // [0] = preferred, [1] = unavailable
+    fireEvent.click(wedUnavail); // mark wednesday unavailable
+    expect(wedUnavail).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(wedPref); // mark wednesday preferred — should clear unavailable
+    expect(wedPref).toHaveAttribute("aria-pressed", "true");
+    expect(wedUnavail).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("save calls PUT with exact body and refreshes detail on success", async () => {
+    const fetchMock = stubFetch(
+      // initial load
+      { ok: true, data: { person: { ...ALICE_DIR, channel: "none", preferredWindows: null, leadTime: null }, recentMeetings: [] } },
+      // PUT response
+      { ok: true, data: { person: { ...ALICE_DIR, channel: "none", preferredWindows: null, leadTime: null } } },
+      // refetch after save
+      { ok: true, data: { person: { ...ALICE_DIR, channel: "none", preferredWindows: null, leadTime: null }, recentMeetings: [] } }
+    );
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "프로필 편집" }));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(screen.queryByTestId("profile-sheet")).not.toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    // Verify second call was a PUT to the profile endpoint
+    const putCall = fetchMock.mock.calls[1]!;
+    expect(putCall[0]).toContain("/profile");
+    const putOpts = putCall[1] as RequestInit;
+    expect(putOpts.method).toBe("PUT");
+    const body = JSON.parse(putOpts.body as string);
+    expect(body).toHaveProperty("preferredWeekdays");
+    expect(body).toHaveProperty("preferredPeriods");
+    expect(body).toHaveProperty("leadTimeDays");
+    expect(body).toHaveProperty("channel");
+    expect(body).toHaveProperty("unavailableWeekdays");
+  });
+
+  it("save failure keeps sheet and shows error", async () => {
+    const fetchMock = stubFetch(
+      { ok: true, data: { person: ALICE_WITH_PROFILE, recentMeetings: [] } },
+      { ok: false, error: { message: "overlap detected" } }
+    );
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "프로필 편집" }));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent("overlap detected");
+    expect(screen.getByTestId("profile-sheet")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("취소 button closes sheet without mutation after failed save", async () => {
+    const fetchMock = stubFetch(
+      { ok: true, data: { person: ALICE_WITH_PROFILE, recentMeetings: [] } },
+      { ok: false, error: { message: "error" } }
+    );
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "프로필 편집" }));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "취소" }));
+    expect(screen.queryByTestId("profile-sheet")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2); // no third call
+  });
+});

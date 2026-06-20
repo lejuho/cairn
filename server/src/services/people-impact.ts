@@ -1,4 +1,5 @@
-import type { FrequencyBand, HardConstraint, PeopleGuard, RelationshipContribution, SocialContext, Weekday } from "@cairn/shared";
+import type { AuthoredLeadTime, AuthoredPreferredWindows, FrequencyBand, HardConstraint, PeopleGuard, RelationshipContribution, SocialContext, Weekday } from "@cairn/shared";
+import { AuthoredLeadTimeSchema, AuthoredPreferredWindowsSchema } from "@cairn/shared";
 import type { PersonContextItem } from "../repositories/people.js";
 
 const WEEKDAY_NAMES: Weekday[] = [
@@ -31,6 +32,22 @@ export function parseHardConstraints(json: string | null): HardConstraint[] {
     }
   }
   return result;
+}
+
+export function parsePreferredWindows(json: string | null): AuthoredPreferredWindows | null {
+  if (!json) return null;
+  try {
+    const result = AuthoredPreferredWindowsSchema.safeParse(JSON.parse(json));
+    return result.success ? result.data : null;
+  } catch { return null; }
+}
+
+export function parseLeadTime(json: string | null): AuthoredLeadTime | null {
+  if (!json) return null;
+  try {
+    const result = AuthoredLeadTimeSchema.safeParse(JSON.parse(json));
+    return result.success ? result.data : null;
+  } catch { return null; }
 }
 
 export function toFrequencyBand(totalMeets: number): { band: FrequencyBand; adjustment: number } {

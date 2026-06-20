@@ -1,8 +1,41 @@
 import { asc, eq, inArray } from "drizzle-orm";
-import type { CreatePersonRequest, EventPeopleResponse, EventRow, FrequencyBand, HardConstraint, PersonDirectoryRow, PersonRow, Weekday } from "@cairn/shared";
+import type { AuthoredLeadTime, AuthoredPreferredWindows, CreatePersonRequest, EventPeopleResponse, EventRow, FrequencyBand, HardConstraint, PersonDirectoryRow, PersonRow, UpdatePersonProfileRequest, Weekday } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import { eventPeople, events, people } from "../db/schema.js";
-import { parseHardConstraints, toFrequencyBand } from "../services/people-impact.js";
+import { parseHardConstraints, parseLeadTime, parsePreferredWindows, toFrequencyBand } from "../services/people-impact.js";
+
+// Full person column projection — used by all single-table reads.
+const PERSON_COLS = {
+  id: people.id,
+  name: people.name,
+  relation: people.relation,
+  channel: people.channel,
+  hardConstraintsJson: people.hardConstraints,
+  preferredWindowsJson: people.preferredWindows,
+  leadTimeJson: people.leadTime
+} as const;
+
+type PersonFullRow = {
+  id: number;
+  name: string;
+  relation: string | null;
+  channel: string | null;
+  hardConstraintsJson: string | null;
+  preferredWindowsJson: string | null;
+  leadTimeJson: string | null;
+};
+
+function mapPersonRow(r: PersonFullRow): PersonRow {
+  return {
+    id: r.id,
+    name: r.name,
+    relation: r.relation ?? null,
+    channel: r.channel as PersonRow["channel"] ?? null,
+    hardConstraints: parseHardConstraints(r.hardConstraintsJson ?? null),
+    preferredWindows: parsePreferredWindows(r.preferredWindowsJson ?? null),
+    leadTime: parseLeadTime(r.leadTimeJson ?? null)
+  };
+}
 
 // Qualifying meeting predicate shared by directory and decision paths.
 // A past meeting is: status done|confirmed AND end is a finite epoch before nowMs.
@@ -13,34 +46,12 @@ export function isQualifyingMeet(end: string | null | undefined, status: string 
 }
 
 export function findAllPeople(db: CairnDatabase): PersonRow[] {
-  const rows = db
-    .select({ id: people.id, name: people.name, relation: people.relation, channel: people.channel, hardConstraintsJson: people.hardConstraints })
-    .from(people)
-    .orderBy(asc(people.name), asc(people.id))
-    .all();
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    relation: r.relation ?? null,
-    channel: r.channel as PersonRow["channel"] ?? null,
-    hardConstraints: parseHardConstraints(r.hardConstraintsJson ?? null)
-  }));
+  return db.select(PERSON_COLS).from(people).orderBy(asc(people.name), asc(people.id)).all().map(mapPersonRow);
 }
 
 export function findPersonById(db: CairnDatabase, id: number): PersonRow | null {
-  const row = db
-    .select({ id: people.id, name: people.name, relation: people.relation, channel: people.channel, hardConstraintsJson: people.hardConstraints })
-    .from(people)
-    .where(eq(people.id, id))
-    .get();
-  if (!row) return null;
-  return {
-    id: row.id,
-    name: row.name,
-    relation: row.relation ?? null,
-    channel: row.channel as PersonRow["channel"] ?? null,
-    hardConstraints: parseHardConstraints(row.hardConstraintsJson ?? null)
-  };
+  const row = db.select(PERSON_COLS).from(people).where(eq(people.id, id)).get();
+  return row ? mapPersonRow(row) : null;
 }
 
 export type MeetingStats = { totalMeets: number; lastMet: string | null };
@@ -141,36 +152,80 @@ export function replaceHardConstraints(
     firmness: "hard" as const
   }));
   const json = constraints.length > 0 ? JSON.stringify(constraints) : null;
-  const rows = db
-    .update(people)
-    .set({ hardConstraints: json })
-    .where(eq(people.id, personId))
-    .returning()
-    .all();
+  const rows = db.update(people).set({ hardConstraints: json }).where(eq(people.id, personId)).returning(PERSON_COLS).all();
   if (rows.length === 0) return null;
-  const updated = rows[0]!;
-  return {
-    id: updated.id,
-    name: updated.name,
-    relation: updated.relation ?? null,
-    channel: updated.channel as PersonRow["channel"] ?? null,
-    hardConstraints: constraints
-  };
+  return mapPersonRow(rows[0]!);
 }
 
 export function createPerson(db: CairnDatabase, input: CreatePersonRequest): PersonRow {
   const trimmedRelation = input.relation?.trim();
   const rows = db
     .insert(people)
-    .values({
-      name: input.displayName.trim(),
-      relation: trimmedRelation || null,
-      channel: input.channel
-    })
-    .returning()
+    .values({ name: input.displayName.trim(), relation: trimmedRelation || null, channel: input.channel })
+    .returning(PERSON_COLS)
     .all();
-  const row = rows[0]!;
-  return { id: row.id, name: row.name, relation: row.relation ?? null, channel: (row.channel as PersonRow["channel"]) ?? null };
+  return mapPersonRow(rows[0]!);
+}
+
+// Canonical weekday ordering for normalization.
+const WEEKDAY_ORDER: Weekday[] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+// Canonical period ordering.
+const PERIOD_ORDER = ["morning", "afternoon", "evening"] as const;
+
+export function updatePersonProfile(
+  db: CairnDatabase,
+  personId: number,
+  input: UpdatePersonProfileRequest
+): PersonRow | null {
+  // Normalize: dedup in canonical order.
+  const prefWeekdays = WEEKDAY_ORDER.filter((d) => input.preferredWeekdays.includes(d));
+  const unavailWeekdays = WEEKDAY_ORDER.filter((d) => input.unavailableWeekdays.includes(d));
+  const prefPeriods = PERIOD_ORDER.filter((p) => input.preferredPeriods.includes(p));
+
+  // Contradiction: a day cannot be both preferred and unavailable.
+  const overlap = prefWeekdays.filter((d) => unavailWeekdays.includes(d));
+  if (overlap.length > 0) return null; // caller converts to 400
+
+  // Half-empty: one of weekdays/periods non-empty while the other is empty.
+  const hasWeekdays = prefWeekdays.length > 0;
+  const hasPeriods = prefPeriods.length > 0;
+  if (hasWeekdays !== hasPeriods) return null; // caller converts to 400
+
+  // Build canonical JSON values.
+  let preferredWindowsJson: string | null = null;
+  if (hasWeekdays && hasPeriods) {
+    const win: AuthoredPreferredWindows = { weekdays: prefWeekdays, periods: prefPeriods as AuthoredPreferredWindows["periods"], firmness: "hard" };
+    preferredWindowsJson = JSON.stringify(win);
+  }
+
+  const constraints: HardConstraint[] = unavailWeekdays.map((weekday) => ({
+    type: "weekday_unavailable" as const,
+    weekday,
+    text: `${weekday} 불가`,
+    firmness: "hard" as const
+  }));
+  const hardConstraintsJson = constraints.length > 0 ? JSON.stringify(constraints) : null;
+
+  let leadTimeJson: string | null = null;
+  if (input.leadTimeDays !== null) {
+    const lt: AuthoredLeadTime = { days: input.leadTimeDays, firmness: "hard" };
+    leadTimeJson = JSON.stringify(lt);
+  }
+
+  const rows = db
+    .update(people)
+    .set({
+      channel: input.channel,
+      preferredWindows: preferredWindowsJson,
+      hardConstraints: hardConstraintsJson,
+      leadTime: leadTimeJson
+    })
+    .where(eq(people.id, personId))
+    .returning(PERSON_COLS)
+    .all();
+
+  if (rows.length === 0) return null;
+  return mapPersonRow(rows[0]!);
 }
 
 export function findEventWithPeople(db: CairnDatabase, eventId: number): EventPeopleResponse | null {
@@ -220,10 +275,7 @@ export function findPeopleByIds(db: CairnDatabase, ids: number[]): PersonRow[] {
 }
 
 export function findPeopleDirectoryRows(db: CairnDatabase, nowIso: string): PersonDirectoryRow[] {
-  const allPeople = db
-    .select({ id: people.id, name: people.name, relation: people.relation, channel: people.channel, hardConstraintsJson: people.hardConstraints })
-    .from(people)
-    .all();
+  const allPeople = db.select(PERSON_COLS).from(people).all();
 
   const personIds = allPeople.map((p) => p.id);
   const statsMap = personIds.length > 0 ? queryMeetingStats(db, personIds, nowIso) : new Map<number, MeetingStats>();
@@ -232,11 +284,7 @@ export function findPeopleDirectoryRows(db: CairnDatabase, nowIso: string): Pers
     const stats = statsMap.get(p.id) ?? { totalMeets: 0, lastMet: null };
     const { band } = toFrequencyBand(stats.totalMeets);
     return {
-      id: p.id,
-      name: p.name,
-      relation: p.relation ?? null,
-      channel: p.channel as PersonRow["channel"] ?? null,
-      hardConstraints: parseHardConstraints(p.hardConstraintsJson ?? null),
+      ...mapPersonRow(p),
       totalMeets: stats.totalMeets,
       lastMet: stats.lastMet,
       frequencyBand: band as FrequencyBand

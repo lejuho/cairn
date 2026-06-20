@@ -117,21 +117,22 @@ Route layer:
   - `POST /api/decisions/conflicts/resolve` — transaction order: exist→404, active-status→CONFLICT_STALE, overlap→CONFLICT_STALE, actionability→CONFLICT_NOT_ACTIONABLE, then update+annotation. Optional `now` body field for test-clock injection.
   - `PATCH /api/events/:id/schedule` — assigns `start`+`end` to an unscheduled Cairn event. Re-checks conflict; returns 409 on stale selection.
 - [server/src/routes/people.ts](/home/pi/cairn/server/src/routes/people.ts)
-  - `GET /api/people/directory?now=` — sorted people list with totalMeets, lastMet, frequencyBand per person. Sorted: lastMet desc by epoch (nulls last), then name asc, id asc. 400 on missing/invalid now.
-  - `GET /api/people/:id/detail?now=` — person (with stats) + up to 10 recent qualifying meetings newest-first. 400 on invalid id/now, 404 on missing person.
-  - `GET /api/people` — list all people sorted by name. Includes `hardConstraints: HardConstraint[]` (parsed from JSON column; malformed entries fail-open to `[]`).
+  - `GET /api/people/directory?now=` — sorted people list with totalMeets, lastMet, frequencyBand, preferredWindows, leadTime per person. Sorted: lastMet desc by epoch (nulls last), then name asc, id asc. 400 on missing/invalid now.
+  - `GET /api/people/:id/detail?now=` — person (with stats + profile fields) + up to 10 recent qualifying meetings newest-first. 400 on invalid id/now, 404 on missing person.
+  - `GET /api/people` — list all people sorted by name. Includes `hardConstraints`, `preferredWindows`, `leadTime` (all fail-open parsed from JSON columns).
   - `POST /api/people` — create person (`displayName`, `channel`, optional `relation`). Trims whitespace.
   - `GET /api/events/:id/people` — event + attached people list.
   - `PUT /api/events/:id/people` — replace event's people atomically (dedup, FK-check, transaction delete+insert).
   - `PUT /api/people/:id/hard-constraints` — replace person's hard constraints from `{ unavailableWeekdays: Weekday[] }`. Deduplicates, serializes to JSON column. Returns `{ ok: true, data: { person } }`. 404 on unknown id.
+  - `PUT /api/people/:id/profile` — full atomic replacement of authored availability profile (`preferredWeekdays`, `preferredPeriods`, `leadTimeDays`, `channel`, `unavailableWeekdays`). Normalizes duplicates in canonical enum order. Rejects half-empty windows, preferred/unavailable overlap, invalid channel/lead-time. Returns `{ ok: true, data: { person: PersonRow } }`. No partial writes.
 
 Repository/service split:
 
 - `server/src/repositories/*.ts`
   - Direct DB queries for events, tasks, watchers, annotations, people.
-  - [server/src/repositories/people.ts](/home/pi/cairn/server/src/repositories/people.ts) — `findAllPeople` (+ hardConstraints), `findPersonById`, `createPerson`, `findEventWithPeople`, `replaceEventPeople` (transaction), `findPeopleByIds`, `isQualifyingMeet` (shared predicate: done|confirmed + end epoch < nowMs), `queryMeetingStats` (past qualifying events per person), `findPeopleDirectoryRows` (all people with stats+band, sorted), `findRecentMeetings` (qualifying events for one person, newest-first, limit 10), `findEventPeopleContext` (people + stats per eventId batch), `replaceHardConstraints`.
+  - [server/src/repositories/people.ts](/home/pi/cairn/server/src/repositories/people.ts) — `PERSON_COLS` constant + `mapPersonRow` helper (unified full-column projection for all single-table reads). `findAllPeople`, `findPersonById`, `createPerson`, `findPeopleDirectoryRows` — all use `PERSON_COLS`+`mapPersonRow` and return `preferredWindows`/`leadTime`. `findEventWithPeople`, `replaceEventPeople`, `findPeopleByIds`, `findEventPeopleContext` — join paths, minimal projection, no profile fields. `isQualifyingMeet`, `queryMeetingStats`, `findRecentMeetings`, `replaceHardConstraints`. New: `updatePersonProfile` — normalize → check contradiction → atomic UPDATE; returns null on contradiction or not-found.
 - [server/src/services/people-impact.ts](/home/pi/cairn/server/src/services/people-impact.ts)
-  - Pure service (no DB). `parseHardConstraints` (fail-open JSON → HardConstraint[]), `toFrequencyBand` (0→cold_start/+0, 1-2→rare/+2, 3-7→established/+1, 8+→frequent/+0), `computeSocialContext` (base + adjustments from people history), `extractWeekday` (literal-date UTC — `isoStart.slice(0,10)+"T00:00:00Z"`), `evaluatePeopleGuard` (kept event weekday vs people's weekday_unavailable constraints; fail-open on malformed JSON).
+  - Pure service (no DB). `parseHardConstraints` (fail-open JSON → HardConstraint[]), `parsePreferredWindows` (fail-open JSON → AuthoredPreferredWindows|null), `parseLeadTime` (fail-open JSON → AuthoredLeadTime|null), `toFrequencyBand` (0→cold_start/+0, 1-2→rare/+2, 3-7→established/+1, 8+→frequent/+0), `computeSocialContext` (base + adjustments from people history), `extractWeekday` (literal-date UTC — `isoStart.slice(0,10)+"T00:00:00Z"`), `evaluatePeopleGuard` (kept event weekday vs people's weekday_unavailable constraints; fail-open on malformed JSON).
 - [server/src/services/today.ts](/home/pi/cairn/server/src/services/today.ts)
   - Builds Today card surface and priority order. Now receives `DayFeasibility` and includes it in `TodaySurface`.
 - [server/src/services/decision.ts](/home/pi/cairn/server/src/services/decision.ts)
@@ -194,8 +195,10 @@ Contracts by domain:
 - [shared/src/enums.ts](/home/pi/cairn/shared/src/enums.ts)
   - Lowercase persisted enum values and related constants.
 - [shared/src/people.ts](/home/pi/cairn/shared/src/people.ts)
-  - `PersonChannelSchema` (none|kakao|sms|email|telegram), `PersonRowSchema` (now includes optional `hardConstraints: HardConstraint[]`), `CreatePersonRequestSchema`, `EventPeopleResponseSchema`, `ReplaceEventPeopleRequestSchema`.
+  - `PersonChannelSchema` (none|kakao|sms|email|telegram), `PersonRowSchema` (includes optional `hardConstraints`, `preferredWindows: AuthoredPreferredWindows|null`, `leadTime: AuthoredLeadTime|null`), `CreatePersonRequestSchema`, `EventPeopleResponseSchema`, `ReplaceEventPeopleRequestSchema`.
   - `WeekdaySchema`, `HardConstraintSchema` (discriminated union; `weekday_unavailable` variant has `weekday`, `text`, `firmness: "hard"`), `ReplaceHardConstraintsRequestSchema`.
+  - `PreferredPeriodSchema` (morning|afternoon|evening), `AuthoredPreferredWindowsSchema` (weekdays min-1, periods min-1, firmness: "hard"), `AuthoredLeadTimeSchema` (days: int 0..30, firmness: "hard").
+  - `UpdatePersonProfileRequestSchema` — full-replacement profile body; shape-validates only (overlap/half-empty check is server business logic).
   - `FrequencyBandSchema` — canonical enum: `cold_start|rare|established|frequent`. Canonical location; `decision.ts` and `people-directory.ts` import from here, not inline.
 - [shared/src/people-directory.ts](/home/pi/cairn/shared/src/people-directory.ts)
   - `PersonDirectoryQuerySchema`, `PersonDetailQuerySchema` (both require `now: RFC3339 datetime with offset`).
@@ -254,7 +257,8 @@ Entry and routing:
   - `formatLastMet(lastMet)` shared by both People screens. Localized date+time (`toLocaleString` year/month/day/hour/minute); null/malformed → explicit `만남 기록 없음` fallback (never inferred).
 - [web/src/PersonDetail.tsx](/home/pi/cairn/web/src/PersonDetail.tsx)
   - `/people/:id` screen. States: loading, live, not_found, error, access_error.
-  - Live: person header (name, relation, channel if not "none"), stats (totalMeets, lastMet, frequencyBand), hard constraints list, recentMeetings list.
+  - Live: person header (name, relation, channel if not "none"), stats (totalMeets, lastMet, frequencyBand), 취급 프로필 section (preferredWindows, leadTime, channel, hardConstraints — all display "설정 없음" when null), recentMeetings list.
+  - 프로필 편집 button opens a bottom sheet with: 7 preferred-weekday toggles, morning/afternoon/evening period toggles, lead-time notice chips (당일/1일/3일/7일/14일/30일/설정없음), channel chips, 7 unavailable-weekday toggles. Selecting preferred day clears same day from unavailable and vice versa (mutual exclusion). Save calls `PUT /api/people/:id/profile`; success closes sheet and refetches. Save failure retains selections with local error alert. Backdrop tap, Escape, 닫기 close without mutation.
   - Not-found: "사람을 찾을 수 없어" + link to /people.
   - Fetches `GET /api/people/:id/detail?now=` via `apiJson`.
 - [web/src/ThreadIndex.tsx](/home/pi/cairn/web/src/ThreadIndex.tsx)

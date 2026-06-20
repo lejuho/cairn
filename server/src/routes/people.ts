@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { CreatePersonRequestSchema, PersonDetailQuerySchema, PersonDirectoryQuerySchema, ReplaceEventPeopleRequestSchema, ReplaceHardConstraintsRequestSchema } from "@cairn/shared";
+import { CreatePersonRequestSchema, PersonDetailQuerySchema, PersonDirectoryQuerySchema, ReplaceEventPeopleRequestSchema, ReplaceHardConstraintsRequestSchema, UpdatePersonProfileRequestSchema } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import { findEventById } from "../repositories/events.js";
 import {
@@ -11,7 +11,8 @@ import {
   findPersonById,
   findRecentMeetings,
   replaceEventPeople,
-  replaceHardConstraints
+  replaceHardConstraints,
+  updatePersonProfile
 } from "../repositories/people.js";
 
 export function registerPeopleRoutes(app: FastifyInstance, db: CairnDatabase): void {
@@ -41,6 +42,33 @@ export function registerPeopleRoutes(app: FastifyInstance, db: CairnDatabase): v
     }
     const recentMeetings = findRecentMeetings(db, id, parsed.data.now);
     return reply.send({ ok: true, data: { person: personDir, recentMeetings } });
+  });
+
+  app.put("/api/people/:id/profile", async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: "id must be a positive integer" } });
+    }
+    const parsed = UpdatePersonProfileRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: parsed.error.message } });
+    }
+    if (!findPersonById(db, id)) {
+      return reply.code(404).send({ ok: false, error: { code: "NOT_FOUND", message: "person not found" } });
+    }
+    const result = updatePersonProfile(db, id, parsed.data);
+    if (result === null) {
+      // null means validation failure (contradiction or half-empty) — the existence guard above
+      // already returned 404 for unknown persons, so this branch is validation-only.
+      const prefWd = parsed.data.preferredWeekdays;
+      const unavWd = parsed.data.unavailableWeekdays;
+      const hasOverlap = prefWd.some((d) => unavWd.includes(d));
+      const msg = hasOverlap
+        ? "preferredWeekdays and unavailableWeekdays must not overlap"
+        : "preferredWeekdays and preferredPeriods must both be non-empty or both empty";
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: msg } });
+    }
+    return reply.send({ ok: true, data: { person: result } });
   });
 
   app.get("/api/people", async (_req, reply) => {
