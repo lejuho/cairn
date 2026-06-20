@@ -62,7 +62,15 @@ export const UpdatePersonProfileRequestSchema = z.object({
   leadTimeDays: z.number().int().min(0).max(30).nullable(),
   channel: PersonChannelSchema,
   unavailableWeekdays: z.array(WeekdaySchema)
-});
+})
+  .refine(
+    (v) => (v.preferredWeekdays.length > 0) === (v.preferredPeriods.length > 0),
+    { message: "preferredWeekdays and preferredPeriods must both be non-empty or both empty", path: ["preferredPeriods"] }
+  )
+  .refine(
+    (v) => !v.preferredWeekdays.some((d) => v.unavailableWeekdays.includes(d)),
+    { message: "preferredWeekdays and unavailableWeekdays must not overlap", path: ["unavailableWeekdays"] }
+  );
 export type UpdatePersonProfileRequest = z.infer<typeof UpdatePersonProfileRequestSchema>;
 
 export const CreatePersonRequestSchema = z.object({
@@ -72,9 +80,18 @@ export const CreatePersonRequestSchema = z.object({
 });
 export type CreatePersonRequest = z.infer<typeof CreatePersonRequestSchema>;
 
+// Narrow person shape used in event-people join responses (no authored profile fields).
+export const EventPersonRowSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+  relation: z.string().nullable(),
+  channel: PersonChannelSchema.nullable()
+});
+export type EventPersonRow = z.infer<typeof EventPersonRowSchema>;
+
 export const EventPeopleResponseSchema = z.object({
   event: EventRowSchema,
-  people: z.array(PersonRowSchema)
+  people: z.array(EventPersonRowSchema)
 });
 export type EventPeopleResponse = z.infer<typeof EventPeopleResponseSchema>;
 

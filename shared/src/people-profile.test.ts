@@ -105,13 +105,23 @@ describe("UpdatePersonProfileRequestSchema", () => {
     expect(UpdatePersonProfileRequestSchema.safeParse({ ...base, leadTimeDays: 1.5 }).success).toBe(false);
   });
 
-  it("allows contradictory weekdays at schema level (server rejects at business-logic layer)", () => {
-    // Schema validates shape only; overlap check is server responsibility.
-    const r = UpdatePersonProfileRequestSchema.safeParse({
+  it("rejects half-empty windows — weekdays present, periods absent", () => {
+    expect(UpdatePersonProfileRequestSchema.safeParse({
+      ...base, preferredWeekdays: ["monday"], preferredPeriods: []
+    }).success).toBe(false);
+  });
+
+  it("rejects half-empty windows — periods present, weekdays absent", () => {
+    expect(UpdatePersonProfileRequestSchema.safeParse({
+      ...base, preferredWeekdays: [], preferredPeriods: ["morning"]
+    }).success).toBe(false);
+  });
+
+  it("rejects overlap — a day in both preferred and unavailable", () => {
+    expect(UpdatePersonProfileRequestSchema.safeParse({
       ...base,
       preferredWeekdays: ["monday"],
       unavailableWeekdays: ["monday"]
-    });
-    expect(r.success).toBe(true);
+    }).success).toBe(false);
   });
 });

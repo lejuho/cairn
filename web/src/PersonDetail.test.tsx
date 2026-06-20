@@ -290,4 +290,40 @@ describe("PersonDetail — profile editor", () => {
     expect(screen.queryByTestId("profile-sheet")).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2); // no third call
   });
+
+  it("닫기 and Escape are blocked while saving (ISSUE-4)", async () => {
+    let resolveSave!: (v: unknown) => void;
+    const pendingSave = new Promise((res) => { resolveSave = res; });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ json: () => Promise.resolve({ ok: true, data: { person: ALICE_WITH_PROFILE, recentMeetings: [] } }) })
+      .mockReturnValueOnce({ json: () => pendingSave });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "프로필 편집" }));
+    // Trigger save — fetch hangs
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    // Sheet still open; close button now disabled
+    expect(screen.getByRole("button", { name: "닫기" })).toBeDisabled();
+    // Escape should be blocked
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.getByTestId("profile-sheet")).toBeInTheDocument();
+    // Resolve the save
+    resolveSave({ ok: true, data: { person: ALICE_WITH_PROFILE } });
+  });
+
+  it("focus restores to 프로필 편집 button after sheet closes (ISSUE-5)", async () => {
+    stubFetch({ ok: true, data: { person: ALICE_WITH_PROFILE, recentMeetings: [] } });
+    // Make rAF synchronous so focus-restore fires before assertion.
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => { cb(0); return 0; });
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
+    const opener = screen.getByRole("button", { name: "프로필 편집" });
+    fireEvent.click(opener);
+    expect(screen.getByTestId("profile-sheet")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "닫기" }));
+    expect(screen.queryByTestId("profile-sheet")).not.toBeInTheDocument();
+    // opener should regain focus after close
+    expect(document.activeElement).toBe(opener);
+  });
 });

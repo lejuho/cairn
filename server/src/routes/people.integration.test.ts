@@ -903,3 +903,62 @@ describe("PUT /api/people/:id/profile", () => {
   });
 });
 
+// ── PUT /api/people/:id/hard-constraints — profile invariant guard (ISSUE-2) ──
+
+describe("PUT /api/people/:id/hard-constraints — profile invariant", () => {
+  it("rejects unavailable day that overlaps existing preferred windows", async () => {
+    const conn = makeTestDb();
+    const id = insertPerson(conn, "제약충돌A");
+    const app = buildServer(conn.db);
+    // Set preferred windows first
+    await app.inject({
+      method: "PUT", url: `/api/people/${id}/profile`,
+      payload: { preferredWeekdays: ["monday", "wednesday"], preferredPeriods: ["evening"], leadTimeDays: null, channel: "none", unavailableWeekdays: [] }
+    });
+    // Now try to mark monday as unavailable via legacy route — must be rejected
+    const res = await app.inject({
+      method: "PUT", url: `/api/people/${id}/hard-constraints`,
+      payload: { unavailableWeekdays: ["monday"] }
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("leaves existing row unchanged when legacy route rejects overlap", async () => {
+    const conn = makeTestDb();
+    const id = insertPerson(conn, "제약충돌B");
+    const app = buildServer(conn.db);
+    await app.inject({
+      method: "PUT", url: `/api/people/${id}/profile`,
+      payload: { preferredWeekdays: ["monday"], preferredPeriods: ["morning"], leadTimeDays: null, channel: "none", unavailableWeekdays: [] }
+    });
+    // Rejected PUT
+    await app.inject({
+      method: "PUT", url: `/api/people/${id}/hard-constraints`,
+      payload: { unavailableWeekdays: ["monday"] }
+    });
+    // Person should still have empty hardConstraints
+    const now = new Date().toISOString();
+    const res = await app.inject({ method: "GET", url: `/api/people/${id}/detail?now=${encodeURIComponent(now)}` });
+    const person = res.json().data.person;
+    expect(person.hardConstraints).toEqual([]);
+    expect(person.preferredWindows?.weekdays).toContain("monday");
+  });
+
+  it("allows non-overlapping unavailable days even when preferred windows exist", async () => {
+    const conn = makeTestDb();
+    const id = insertPerson(conn, "제약충돌C");
+    const app = buildServer(conn.db);
+    await app.inject({
+      method: "PUT", url: `/api/people/${id}/profile`,
+      payload: { preferredWeekdays: ["monday"], preferredPeriods: ["morning"], leadTimeDays: null, channel: "none", unavailableWeekdays: [] }
+    });
+    const res = await app.inject({
+      method: "PUT", url: `/api/people/${id}/hard-constraints`,
+      payload: { unavailableWeekdays: ["tuesday"] }
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.person.hardConstraints[0].weekday).toBe("tuesday");
+  });
+});
+

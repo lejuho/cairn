@@ -94,6 +94,9 @@ export function PersonDetail({ id }: { id: number }) {
   });
   const backdropRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const openerRef = useRef<HTMLButtonElement>(null);
+  const startSentinelRef = useRef<HTMLDivElement>(null);
+  const endSentinelRef = useRef<HTMLDivElement>(null);
 
   async function load() {
     setView({ tag: "loading" });
@@ -122,24 +125,48 @@ export function PersonDetail({ id }: { id: number }) {
 
   useEffect(() => { void load(); }, [id]);
 
-  // Close sheet on Escape
+  // Escape and focus-restore on sheet close. Blocked while saving (ISSUE-4).
   useEffect(() => {
     if (!sheet.open) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") closeSheet();
+      if (e.key === "Escape" && !sheet.saving) closeSheet();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [sheet.open]);
+  }, [sheet.open, sheet.saving]);
 
   function openSheet(person: PersonRow) {
     setSheet({ open: true, ...buildInitialSheet(person), saving: false, saveError: null });
-    // Focus close button after render
     requestAnimationFrame(() => closeButtonRef.current?.focus());
   }
 
   function closeSheet() {
     setSheet((s) => ({ ...s, open: false, saving: false, saveError: null }));
+    // Restore focus to the button that opened the sheet (ISSUE-5).
+    requestAnimationFrame(() => openerRef.current?.focus());
+  }
+
+  // Focus-trap helpers (sentinel-div approach — ISSUE-5).
+  function onStartSentinelFocus() {
+    // Tab backward from start: wrap to last focusable in dialog.
+    const dialog = backdropRef.current?.querySelector("[role='dialog']");
+    if (!dialog) return;
+    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+      "button:not([disabled]), [tabindex='0']:not([tabindex='-1'])"
+    ));
+    const last = focusable.filter((el) => el !== startSentinelRef.current && el !== endSentinelRef.current).at(-1);
+    last?.focus();
+  }
+
+  function onEndSentinelFocus() {
+    // Tab forward from end: wrap to first focusable in dialog.
+    const dialog = backdropRef.current?.querySelector("[role='dialog']");
+    if (!dialog) return;
+    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+      "button:not([disabled]), [tabindex='0']:not([tabindex='-1'])"
+    ));
+    const first = focusable.filter((el) => el !== startSentinelRef.current && el !== endSentinelRef.current)[0];
+    first?.focus();
   }
 
   function togglePreferredWeekday(day: Weekday) {
@@ -279,7 +306,7 @@ export function PersonDetail({ id }: { id: number }) {
       <section className="person-detail-profile" aria-label="취급 프로필">
         <div className="person-detail-profile-header">
           <h2>취급 프로필</h2>
-          <button className="action-btn action-btn--sm" onClick={() => openSheet(person)} aria-label="프로필 편집">
+          <button ref={openerRef} className="action-btn action-btn--sm" onClick={() => openSheet(person)} aria-label="프로필 편집">
             프로필 편집
           </button>
         </div>
@@ -342,8 +369,13 @@ export function PersonDetail({ id }: { id: number }) {
           data-testid="profile-sheet"
           ref={backdropRef}
           role="presentation"
-          onClick={(e) => { if (e.target === backdropRef.current) closeSheet(); }}
+          onClick={(e) => {
+            // Block backdrop dismissal while saving (ISSUE-4).
+            if (!sheet.saving && e.target === backdropRef.current) closeSheet();
+          }}
         >
+          {/* Start focus-trap sentinel (ISSUE-5): Tab-backward from first child wraps to last. */}
+          <div ref={startSentinelRef} tabIndex={0} aria-hidden="true" onFocus={onStartSentinelFocus} style={{ position: "absolute", width: 0, height: 0, overflow: "hidden" }} />
           <div
             className="bottom-sheet"
             role="dialog"
@@ -353,7 +385,8 @@ export function PersonDetail({ id }: { id: number }) {
           >
             <div className="sheet-header">
               <h2 id="sheet-desc">프로필 편집</h2>
-              <button ref={closeButtonRef} className="sheet-close" aria-label="닫기" onClick={closeSheet}>✕</button>
+              {/* Close blocked while saving (ISSUE-4). */}
+              <button ref={closeButtonRef} className="sheet-close" aria-label="닫기" onClick={() => { if (!sheet.saving) closeSheet(); }} disabled={sheet.saving}>✕</button>
             </div>
 
             <div className="sheet-body">
@@ -456,6 +489,8 @@ export function PersonDetail({ id }: { id: number }) {
               </div>
             </div>
           </div>
+          {/* End focus-trap sentinel: Tab-forward from last child wraps to first. */}
+          <div ref={endSentinelRef} tabIndex={0} aria-hidden="true" onFocus={onEndSentinelFocus} style={{ position: "absolute", width: 0, height: 0, overflow: "hidden" }} />
         </div>
       )}
     </main>

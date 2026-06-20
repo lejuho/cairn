@@ -13,6 +13,7 @@
   --moved: #d6a24e;
   --cancelled: #c05e52;
   --late: #9b7fb5;
+  --error: #c05e52;
   --firm-hard: #5ba88e;
   --firm-soft: #d6a24e;
   --firm-tent: #3a474d;
@@ -46,6 +47,7 @@
     --moved: #b0791f;
     --cancelled: #ad453b;
     --late: #735b8f;
+    --error: #ad453b;
     --firm-hard: #2e8b6e;
     --firm-soft: #b0791f;
     --firm-tent: #c7c0ae;
@@ -748,7 +750,7 @@ p {
 
 .sheet-error {
   margin-top: 10px;
-  color: var(--cancelled);
+  color: var(--error);
   font-size: 0.85rem;
 }
 
@@ -1636,7 +1638,7 @@ p {
 .action-btn--sm {
   padding: 6px 14px;
   font-size: 0.85rem;
-  min-height: 36px;
+  min-height: 44px;
 }
 
 /* Profile edit bottom sheet */
@@ -1743,11 +1745,6 @@ p {
 .channel-chip:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-}
-
-.sheet-error {
-  color: var(--warm, #e07b54);
-  font-size: 0.9rem;
 }
 
 .sheet-actions {

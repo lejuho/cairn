@@ -120,11 +120,13 @@ export function registerPeopleRoutes(app: FastifyInstance, db: CairnDatabase): v
     if (!parsed.success) {
       return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: parsed.error.message } });
     }
-    const existing = findPersonById(db, id);
-    if (!existing) {
+    const person = replaceHardConstraints(db, id, parsed.data.unavailableWeekdays);
+    if (person === null) {
       return reply.code(404).send({ ok: false, error: { code: "NOT_FOUND", message: "person not found" } });
     }
-    const person = replaceHardConstraints(db, id, parsed.data.unavailableWeekdays);
+    if (person === "conflict") {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: "unavailableWeekdays overlaps with existing preferredWeekdays" } });
+    }
     return reply.send({ ok: true, data: { person } });
   });
 
