@@ -465,7 +465,7 @@ function ThreadRollupSection({ rollup }: { rollup: ThreadRollup }) {
       <h2 id="thread-rollup-title" className="eyebrow" style={{ marginBottom: "12px" }}>포함 롤업</h2>
 
       {rollup.warnings.length > 0 && (
-        <p className="card-meta" role="note" style={{ color: "var(--color-warn, #b45309)", marginBottom: "8px" }} data-testid="rollup-warning">
+        <p className="card-meta" role="note" style={{ color: "var(--moved)", marginBottom: "8px" }} data-testid="rollup-warning">
           ⚠ {rollup.warnings.join(", ")}
         </p>
       )}
@@ -495,7 +495,7 @@ function ThreadRollupSection({ rollup }: { rollup: ThreadRollup }) {
                 <td style={{ textAlign: "right" }}>{rollup.contains.progress.done}/{rollup.contains.progress.total}</td>
                 <td style={{ textAlign: "right", paddingRight: "8px" }}>{rollup.contains.energyHours.toFixed(1)}</td>
               </tr>
-              <tr style={{ borderTop: "1px solid var(--color-border, #e5e7eb)", fontWeight: 600 }}>
+              <tr style={{ borderTop: "1px solid var(--border)", fontWeight: 600 }}>
                 <td style={{ padding: "4px 8px 4px 0" }}>합계</td>
                 <td style={{ textAlign: "right" }}>{rollup.total.progress.done}/{rollup.total.progress.total}</td>
                 <td style={{ textAlign: "right", paddingRight: "8px" }}>{rollup.total.energyHours.toFixed(1)}</td>
