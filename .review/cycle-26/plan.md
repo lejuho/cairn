@@ -3,7 +3,7 @@
 Branch: `feature/cycle-26-thread-rollup-a`
 Cycle: `26`
 Created: `2026-06-21`
-Skills: `backend-fastify, frontend-react-pwa, design-principles`
+Skills: backend-fastify, frontend-react-pwa, design-principles
 
 ## Summary
 
