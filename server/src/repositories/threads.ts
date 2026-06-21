@@ -229,6 +229,68 @@ export function deleteLinkById(
   return true;
 }
 
+// Rollup A helpers — hard contains adjacency with link ids for traversal.
+export type ContainsEdge = { relationId: number; parentId: number; childId: number };
+
+export function findHardContainsEdges(db: CairnDatabase): ContainsEdge[] {
+  const rows = db
+    .select({
+      id: threadLinks.id,
+      from: threadLinks.fromThread,
+      to: threadLinks.toThread
+    })
+    .from(threadLinks)
+    .where(sql`${threadLinks.kind} = 'contains' AND ${threadLinks.firmness} = 'hard'`)
+    .all();
+  const edges: ContainsEdge[] = [];
+  for (const r of rows) {
+    if (r.from == null || r.to == null) continue;
+    edges.push({ relationId: r.id, parentId: r.from, childId: r.to });
+  }
+  return edges;
+}
+
+// Minimal event rows for rollup: id, threadId, start, end, status.
+export type EventSlim = { id: number; threadId: number; start: string | null; end: string | null; status: string | null };
+
+export function findEventsSlimByThreadIds(db: CairnDatabase, threadIds: number[]): EventSlim[] {
+  if (threadIds.length === 0) return [];
+  return db
+    .select({
+      id: events.id,
+      threadId: events.threadId,
+      start: events.start,
+      end: events.end,
+      status: events.status
+    })
+    .from(events)
+    .all()
+    .filter((r) => r.threadId != null && threadIds.includes(r.threadId as number)) as EventSlim[];
+}
+
+// Minimal task rows for rollup: id, threadId, status.
+export type TaskSlim = { id: number; threadId: number; status: string | null };
+
+export function findTasksSlimByThreadIds(db: CairnDatabase, threadIds: number[]): TaskSlim[] {
+  if (threadIds.length === 0) return [];
+  return db
+    .select({ id: tasks.id, threadId: tasks.threadId, status: tasks.status })
+    .from(tasks)
+    .all()
+    .filter((r) => r.threadId != null && threadIds.includes(r.threadId as number)) as TaskSlim[];
+}
+
+// Minimal thread rows for rollup: id, name.
+export function findThreadNamesByIds(db: CairnDatabase, ids: number[]): Map<number, string> {
+  if (ids.length === 0) return new Map();
+  const rows = db.select({ id: threads.id, name: threads.name }).from(threads).all();
+  const map = new Map<number, string>();
+  for (const r of rows) {
+    if (ids.includes(r.id)) map.set(r.id, r.name);
+  }
+  return map;
+}
+
 // Used for hard-parent conflict check: does toThread already have a hard contains parent?
 export function findHardContainsParent(
   db: CairnDatabase,

@@ -78,12 +78,51 @@ export const ThreadSummarySchema = z.object({
   relationCounts: ThreadRelationCountsSchema
 });
 
+// Thread rollup schemas (FR-THR-10 Rollup A)
+
+export const ThreadRollupMetricSchema = z.object({
+  progress: ThreadProgressSchema,
+  energyHours: z.number()
+});
+
+export const ThreadRollupBucketSchema = z.object({
+  childCount: z.number(),
+  descendantCount: z.number(),
+  progress: ThreadProgressSchema,
+  energyHours: z.number(),
+  missingCost: z.null(),
+  missingCostStatus: z.literal("unavailable")
+});
+
+export const ThreadRollupChildSchema = z.object({
+  thread: ThreadLinkPeerSchema,
+  depth: z.number().int().positive(),
+  relationId: z.number(),
+  progress: ThreadProgressSchema,
+  energyHours: z.number(),
+  descendantCount: z.number()
+});
+
+export const ThreadRollupSchema = z.object({
+  direct: ThreadRollupMetricSchema,
+  contains: ThreadRollupBucketSchema,
+  total: z.object({
+    progress: ThreadProgressSchema,
+    energyHours: z.number(),
+    missingCost: z.null(),
+    missingCostStatus: z.literal("unavailable")
+  }),
+  children: z.array(ThreadRollupChildSchema),
+  warnings: z.array(z.string())
+});
+
 export const ThreadDetailSchema = z.object({
   thread: ThreadRowSchema,
   events: z.array(EventRowSchema),
   tasks: z.array(TaskRowSchema),
   progress: ThreadProgressSchema,
-  relations: ThreadRelationsSchema
+  relations: ThreadRelationsSchema,
+  rollup: ThreadRollupSchema
 });
 
 export type ThreadRow = z.infer<typeof ThreadRowSchema>;
@@ -98,3 +137,7 @@ export type CreateThreadLinkRequest = z.infer<typeof CreateThreadLinkRequestSche
 export type ThreadRelationCounts = z.infer<typeof ThreadRelationCountsSchema>;
 export type ThreadSummary = z.infer<typeof ThreadSummarySchema>;
 export type ThreadDetail = z.infer<typeof ThreadDetailSchema>;
+export type ThreadRollupMetric = z.infer<typeof ThreadRollupMetricSchema>;
+export type ThreadRollupBucket = z.infer<typeof ThreadRollupBucketSchema>;
+export type ThreadRollupChild = z.infer<typeof ThreadRollupChildSchema>;
+export type ThreadRollup = z.infer<typeof ThreadRollupSchema>;

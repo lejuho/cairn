@@ -6,6 +6,7 @@ import type {
   ThreadLinkRow,
   ThreadProgress,
   ThreadRelations,
+  ThreadRollup,
   ThreadRow,
   ThreadSummary
 } from "@cairn/shared";
@@ -17,15 +18,20 @@ import {
   findContainsAdjacency,
   findDuplicateLink,
   findEventsByThreadId,
+  findEventsSlimByThreadIds,
+  findHardContainsEdges,
   findHardContainsParent,
   findLinksWithPeers,
   findTasksByThreadId,
+  findTasksSlimByThreadIds,
   findThreadById,
+  findThreadNamesByIds,
   findThreadsByIds,
   insertLink,
   listThreads as repoList
 } from "../repositories/threads.js";
 import { wouldCreateContainsCycle } from "./thread-links.js";
+import { computeRollup } from "./thread-rollup.js";
 import type { CreateThreadRequest } from "@cairn/shared";
 
 export function createThread(db: CairnDatabase, input: CreateThreadRequest): ThreadRow {
@@ -72,7 +78,48 @@ export function getThreadDetail(db: CairnDatabase, id: number): ThreadDetail | n
   const threadTasks = findTasksByThreadId(db, thread.id);
   const progress = computeProgress(threadEvents, threadTasks);
   const relations: ThreadRelations = findLinksWithPeers(db, id);
-  return { thread, events: threadEvents, tasks: threadTasks, progress, relations };
+  const rollup = buildRollup(db, id);
+  return { thread, events: threadEvents, tasks: threadTasks, progress, relations, rollup };
+}
+
+function buildRollup(db: CairnDatabase, rootId: number): ThreadRollup {
+  const edges = findHardContainsEdges(db);
+
+  // Collect all thread ids we need (root + reachable descendants) for a single batch read.
+  const adj = new Map<number, number[]>();
+  for (const e of edges) {
+    const ch = adj.get(e.parentId) ?? [];
+    ch.push(e.childId);
+    adj.set(e.parentId, ch);
+  }
+  const reachable = new Set<number>([rootId]);
+  const queue = [...(adj.get(rootId) ?? [])];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    if (reachable.has(id)) continue;
+    reachable.add(id);
+    queue.push(...(adj.get(id) ?? []));
+  }
+  const allIds = [...reachable];
+
+  const eventsSlim = findEventsSlimByThreadIds(db, allIds);
+  const tasksSlim = findTasksSlimByThreadIds(db, allIds);
+  const nameById = findThreadNamesByIds(db, allIds);
+
+  const eventsByThread = new Map<number, typeof eventsSlim>();
+  for (const e of eventsSlim) {
+    const bucket = eventsByThread.get(e.threadId) ?? [];
+    bucket.push(e);
+    eventsByThread.set(e.threadId, bucket);
+  }
+  const tasksByThread = new Map<number, typeof tasksSlim>();
+  for (const t of tasksSlim) {
+    const bucket = tasksByThread.get(t.threadId) ?? [];
+    bucket.push(t);
+    tasksByThread.set(t.threadId, bucket);
+  }
+
+  return computeRollup({ rootId, edges, eventsByThread, tasksByThread, nameById });
 }
 
 export type CreateThreadLinkResult =

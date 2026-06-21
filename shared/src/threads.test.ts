@@ -5,6 +5,7 @@ import {
   ThreadLinkRowSchema,
   ThreadLinkViewSchema,
   ThreadRelationsSchema,
+  ThreadRollupSchema,
   ThreadSummarySchema
 } from "./threads.js";
 
@@ -142,9 +143,27 @@ describe("ThreadDetailSchema.relations", () => {
       events: [],
       tasks: [],
       progress: { done: 1, total: 5 },
-      relations: { incoming: [VIEW], outgoing: [] }
+      relations: { incoming: [VIEW], outgoing: [] },
+      rollup: {
+        direct: { progress: { done: 1, total: 5 }, energyHours: 2 },
+        contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, missingCost: null, missingCostStatus: "unavailable" },
+        total: { progress: { done: 1, total: 5 }, energyHours: 2, missingCost: null, missingCostStatus: "unavailable" },
+        children: [],
+        warnings: []
+      }
     });
     expect(r.success).toBe(true);
+  });
+
+  it("rejects a detail missing rollup", () => {
+    const r = ThreadDetailSchema.safeParse({
+      thread: THREAD_ROW,
+      events: [],
+      tasks: [],
+      progress: { done: 1, total: 5 },
+      relations: { incoming: [VIEW], outgoing: [] }
+    });
+    expect(r.success).toBe(false);
   });
 
   it("rejects a detail missing relations", () => {
@@ -153,6 +172,55 @@ describe("ThreadDetailSchema.relations", () => {
       events: [],
       tasks: [],
       progress: { done: 1, total: 5 }
+    });
+    expect(r.success).toBe(false);
+  });
+});
+
+const EMPTY_ROLLUP = {
+  direct: { progress: { done: 0, total: 0 }, energyHours: 0 },
+  contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, missingCost: null, missingCostStatus: "unavailable" as const },
+  total: { progress: { done: 0, total: 0 }, energyHours: 0, missingCost: null, missingCostStatus: "unavailable" as const },
+  children: [],
+  warnings: []
+};
+
+describe("ThreadRollupSchema", () => {
+  it("parses valid empty rollup (no children)", () => {
+    expect(ThreadRollupSchema.safeParse(EMPTY_ROLLUP).success).toBe(true);
+  });
+
+  it("parses rollup with children and warnings", () => {
+    const r = ThreadRollupSchema.safeParse({
+      ...EMPTY_ROLLUP,
+      contains: { childCount: 1, descendantCount: 2, progress: { done: 3, total: 7 }, energyHours: 5.5, missingCost: null, missingCostStatus: "unavailable" },
+      total: { progress: { done: 4, total: 10 }, energyHours: 7.5, missingCost: null, missingCostStatus: "unavailable" },
+      children: [{ thread: { id: 2, name: "하위" }, depth: 1, relationId: 10, progress: { done: 3, total: 7 }, energyHours: 5.5, descendantCount: 1 }],
+      warnings: ["CONTAINS_CYCLE_DETECTED"]
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects missingCostStatus other than unavailable", () => {
+    const r = ThreadRollupSchema.safeParse({
+      ...EMPTY_ROLLUP,
+      contains: { ...EMPTY_ROLLUP.contains, missingCostStatus: "available" }
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("rejects non-null missingCost", () => {
+    const r = ThreadRollupSchema.safeParse({
+      ...EMPTY_ROLLUP,
+      contains: { ...EMPTY_ROLLUP.contains, missingCost: 42 }
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("rejects child with non-positive depth", () => {
+    const r = ThreadRollupSchema.safeParse({
+      ...EMPTY_ROLLUP,
+      children: [{ thread: { id: 2, name: "하위" }, depth: 0, relationId: 10, progress: { done: 0, total: 0 }, energyHours: 0, descendantCount: 0 }]
     });
     expect(r.success).toBe(false);
   });

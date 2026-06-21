@@ -524,3 +524,136 @@ describe("POST /api/events + /api/tasks with threadId linkage", () => {
     expect(detail.json().data.events).toHaveLength(0);
   });
 });
+
+describe("GET /api/threads/:id — rollup (FR-THR-10 Rollup A)", () => {
+  let app: FastifyInstance;
+  let conn: ReturnType<typeof makeTestDb>;
+  beforeEach(() => {
+    conn = makeTestDb();
+    app = buildServer(conn.db);
+  });
+  afterEach(() => conn.sqlite.close());
+
+  async function createThread(name: string) {
+    const res = await app.inject({ method: "POST", url: "/api/threads", payload: { name } });
+    return res.json().data.id as number;
+  }
+
+  async function linkThreads(fromId: number, toId: number, kind = "contains", firmness = "hard") {
+    return app.inject({ method: "POST", url: `/api/threads/${fromId}/links`, payload: { toThreadId: toId, kind, firmness } });
+  }
+
+  it("returns empty rollup for a thread with no hard contains children", async () => {
+    const tid = await createThread("Alone");
+    const res = await app.inject({ method: "GET", url: `/api/threads/${tid}` });
+    const rollup = res.json().data.rollup;
+    expect(rollup.contains.childCount).toBe(0);
+    expect(rollup.contains.descendantCount).toBe(0);
+    expect(rollup.children).toHaveLength(0);
+    expect(rollup.warnings).toHaveLength(0);
+  });
+
+  it("aggregates direct and contains progress from parent→child→grandchild chain", async () => {
+    const parent = await createThread("Parent");
+    const child = await createThread("Child");
+    const grand = await createThread("Grandchild");
+    await linkThreads(parent, child);
+    await linkThreads(child, grand);
+
+    // Add an event to grandchild, then mark it done
+    const grandEvRes = await app.inject({ method: "POST", url: "/api/events", payload: { title: "Grand event", threadId: grand, start: "2026-06-21T09:00:00+09:00", end: "2026-06-21T11:00:00+09:00" } });
+    const grandEvId = grandEvRes.json().data.id as number;
+    await app.inject({ method: "PATCH", url: `/api/events/${grandEvId}/status`, payload: { status: "done" } });
+
+    // Add a planned event to parent (direct)
+    await app.inject({ method: "POST", url: "/api/events", payload: { title: "Parent event", threadId: parent, start: "2026-06-21T13:00:00+09:00", end: "2026-06-21T14:00:00+09:00" } });
+
+    const res = await app.inject({ method: "GET", url: `/api/threads/${parent}` });
+    const rollup = res.json().data.rollup;
+    expect(rollup.direct.progress.total).toBe(1);
+    expect(rollup.contains.descendantCount).toBe(2);
+    expect(rollup.contains.progress).toEqual({ done: 1, total: 1 }); // grandchild's done event
+    expect(rollup.total.progress).toEqual({ done: 1, total: 2 }); // parent planned + grandchild done
+  });
+
+  it("grandchild progress counted exactly once (not double-counted)", async () => {
+    const parent = await createThread("Parent2");
+    const child = await createThread("Child2");
+    const grand = await createThread("Grand2");
+    await linkThreads(parent, child);
+    await linkThreads(child, grand);
+
+    await app.inject({ method: "POST", url: "/api/events", payload: { title: "G", threadId: grand, start: "2026-06-21T10:00:00+09:00", end: "2026-06-21T11:00:00+09:00" } });
+
+    const res = await app.inject({ method: "GET", url: `/api/threads/${parent}` });
+    const rollup = res.json().data.rollup;
+    expect(rollup.contains.progress.total).toBe(1);
+    expect(rollup.total.progress.total).toBe(1);
+  });
+
+  it("soft contains links do not affect rollup", async () => {
+    const parent = await createThread("SoftParent");
+    const child = await createThread("SoftChild");
+    await linkThreads(parent, child, "contains", "soft");
+
+    const res = await app.inject({ method: "GET", url: `/api/threads/${parent}` });
+    const rollup = res.json().data.rollup;
+    expect(rollup.contains.descendantCount).toBe(0);
+    expect(rollup.children).toHaveLength(0);
+  });
+
+  it("feeds links do not affect rollup", async () => {
+    const a = await createThread("FeedA");
+    const b = await createThread("FeedB");
+    await linkThreads(a, b, "feeds", "hard");
+
+    const res = await app.inject({ method: "GET", url: `/api/threads/${a}` });
+    const rollup = res.json().data.rollup;
+    expect(rollup.contains.descendantCount).toBe(0);
+  });
+
+  it("scheduled event durations sum to energyHours", async () => {
+    const tid = await createThread("EnergyThread");
+    // 2-hour event
+    await app.inject({ method: "POST", url: "/api/events", payload: { title: "E1", threadId: tid, start: "2026-06-21T09:00:00+00:00", end: "2026-06-21T11:00:00+00:00" } });
+    // 1.5-hour event
+    await app.inject({ method: "POST", url: "/api/events", payload: { title: "E2", threadId: tid, start: "2026-06-21T13:00:00+00:00", end: "2026-06-21T14:30:00+00:00" } });
+
+    const res = await app.inject({ method: "GET", url: `/api/threads/${tid}` });
+    const rollup = res.json().data.rollup;
+    expect(rollup.direct.energyHours).toBeCloseTo(3.5, 5);
+  });
+
+  it("thread with no events has zero direct energyHours", async () => {
+    const tid = await createThread("NoEvents");
+    const res = await app.inject({ method: "GET", url: `/api/threads/${tid}` });
+    expect(res.json().data.rollup.direct.energyHours).toBe(0);
+  });
+
+  it("missingCost fields are null/unavailable", async () => {
+    const tid = await createThread("MissingCost");
+    const res = await app.inject({ method: "GET", url: `/api/threads/${tid}` });
+    const { contains, total } = res.json().data.rollup;
+    expect(contains.missingCost).toBeNull();
+    expect(contains.missingCostStatus).toBe("unavailable");
+    expect(total.missingCost).toBeNull();
+    expect(total.missingCostStatus).toBe("unavailable");
+  });
+
+  it("children sorted by depth then name", async () => {
+    const root = await createThread("Root");
+    const b = await createThread("Zebra");   // depth 1
+    const a = await createThread("Alpha");   // depth 1
+    const c = await createThread("Deep");    // depth 2
+    await linkThreads(root, b);
+    await linkThreads(root, a);
+    await linkThreads(a, c);
+
+    const res = await app.inject({ method: "GET", url: `/api/threads/${root}` });
+    const children = res.json().data.rollup.children as Array<{ thread: { name: string }; depth: number }>;
+    expect(children[0]!.thread.name).toBe("Alpha");
+    expect(children[1]!.thread.name).toBe("Zebra");
+    expect(children[2]!.depth).toBe(2);
+    expect(children[2]!.thread.name).toBe("Deep");
+  });
+});

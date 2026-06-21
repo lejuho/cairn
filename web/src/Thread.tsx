@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ThreadDetail, ThreadLinkKind, ThreadRow, ThreadSummary } from "@cairn/shared";
+import type { ThreadDetail, ThreadLinkKind, ThreadRollup, ThreadRow, ThreadSummary } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
 
 type ViewState =
@@ -356,6 +356,9 @@ export function Thread({ id }: { id: number }) {
             </ul>
           )}
         </section>
+
+        {/* Rollup section (FR-THR-10 Rollup A) */}
+        <ThreadRollupSection rollup={detail.rollup} />
       </main>
 
       {linkSheet.tag === "open" && (
@@ -447,5 +450,81 @@ export function Thread({ id }: { id: number }) {
         </div>
       )}
     </>
+  );
+}
+
+function ThreadRollupSection({ rollup }: { rollup: ThreadRollup }) {
+  const hasChildren = rollup.children.length > 0;
+
+  return (
+    <section
+      aria-labelledby="thread-rollup-title"
+      style={{ width: "min(100%, 480px)", marginTop: "32px" }}
+      data-testid="thread-rollup"
+    >
+      <h2 id="thread-rollup-title" className="eyebrow" style={{ marginBottom: "12px" }}>포함 롤업</h2>
+
+      {rollup.warnings.length > 0 && (
+        <p className="card-meta" role="note" style={{ color: "var(--color-warn, #b45309)", marginBottom: "8px" }} data-testid="rollup-warning">
+          ⚠ {rollup.warnings.join(", ")}
+        </p>
+      )}
+
+      {!hasChildren ? (
+        <p className="card-meta" style={{ padding: "8px 0", opacity: 0.8 }} data-testid="rollup-no-children">
+          포함된 하위 스레드가 아직 없어
+        </p>
+      ) : (
+        <>
+          <table className="rollup-table" style={{ borderCollapse: "collapse", width: "100%", fontSize: "0.875rem" }} data-testid="rollup-metrics">
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", padding: "4px 8px 4px 0", opacity: 0.6 }}>구분</th>
+                <th style={{ textAlign: "right", padding: "4px 0" }}>진행</th>
+                <th style={{ textAlign: "right", padding: "4px 0 4px 8px" }}>에너지(h)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style={{ padding: "4px 8px 4px 0" }}>직접</td>
+                <td style={{ textAlign: "right" }}>{rollup.direct.progress.done}/{rollup.direct.progress.total}</td>
+                <td style={{ textAlign: "right", paddingRight: "8px" }}>{rollup.direct.energyHours.toFixed(1)}</td>
+              </tr>
+              <tr>
+                <td style={{ padding: "4px 8px 4px 0" }}>하위 ({rollup.contains.descendantCount})</td>
+                <td style={{ textAlign: "right" }}>{rollup.contains.progress.done}/{rollup.contains.progress.total}</td>
+                <td style={{ textAlign: "right", paddingRight: "8px" }}>{rollup.contains.energyHours.toFixed(1)}</td>
+              </tr>
+              <tr style={{ borderTop: "1px solid var(--color-border, #e5e7eb)", fontWeight: 600 }}>
+                <td style={{ padding: "4px 8px 4px 0" }}>합계</td>
+                <td style={{ textAlign: "right" }}>{rollup.total.progress.done}/{rollup.total.progress.total}</td>
+                <td style={{ textAlign: "right", paddingRight: "8px" }}>{rollup.total.energyHours.toFixed(1)}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <p className="card-meta" style={{ opacity: 0.6, margin: "4px 0 12px", fontSize: "0.75rem" }}>
+            누락 비용 모델은 아직 없어
+          </p>
+
+          <ul className="today-stack" role="list" style={{ marginTop: "8px" }} data-testid="rollup-children">
+            {rollup.children.map((child) => (
+              <li key={child.relationId} className="today-card" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <span className="card-chip" style={{ opacity: 0.7 }}>깊이 {child.depth}</span>
+                  <a href={`/threads/${child.thread.id}`} className="card-title">{child.thread.name}</a>
+                  {child.descendantCount > 0 && (
+                    <span className="card-chip" style={{ marginLeft: "4px", opacity: 0.6 }}>+{child.descendantCount}</span>
+                  )}
+                </div>
+                <span className="card-meta" style={{ whiteSpace: "nowrap", paddingLeft: "8px" }}>
+                  {child.progress.done}/{child.progress.total} · {child.energyHours.toFixed(1)}h
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
   );
 }

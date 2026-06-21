@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Thread } from "./Thread.js";
-import type { ThreadDetail, ThreadLinkView, ThreadSummary } from "@cairn/shared";
+import type { ThreadDetail, ThreadLinkView, ThreadRollup, ThreadSummary } from "@cairn/shared";
 
 afterEach(() => {
   cleanup();
@@ -38,6 +38,14 @@ const BASE_TASK = {
 
 const EMPTY_RELATIONS: ThreadDetail["relations"] = { incoming: [], outgoing: [] };
 
+const EMPTY_ROLLUP: ThreadRollup = {
+  direct: { progress: { done: 0, total: 0 }, energyHours: 0 },
+  contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, missingCost: null, missingCostStatus: "unavailable" },
+  total: { progress: { done: 0, total: 0 }, energyHours: 0, missingCost: null, missingCostStatus: "unavailable" },
+  children: [],
+  warnings: []
+};
+
 const OUTGOING_LINK: ThreadLinkView = {
   id: 100,
   fromThread: { id: 1, name: "프로젝트 알파" },
@@ -62,8 +70,8 @@ const SUMMARY_OTHER: ThreadSummary = {
   relationCounts: { incoming: 0, outgoing: 0 }
 };
 
-function mockFetch(detail: Omit<ThreadDetail, "relations"> & Partial<Pick<ThreadDetail, "relations">>) {
-  const data: ThreadDetail = { relations: EMPTY_RELATIONS, ...detail };
+function mockFetch(detail: Omit<ThreadDetail, "relations" | "rollup"> & Partial<Pick<ThreadDetail, "relations" | "rollup">>) {
+  const data: ThreadDetail = { relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, ...detail };
   vi.stubGlobal(
     "fetch",
     vi.fn().mockResolvedValue({
@@ -144,7 +152,8 @@ describe("Thread — empty items still expose relations", () => {
         json: () => Promise.resolve({
           ok: true, data: {
             thread: BASE_THREAD, events: [], tasks: [],
-            progress: { done: 0, total: 0 }, relations: EMPTY_RELATIONS
+            progress: { done: 0, total: 0 }, relations: EMPTY_RELATIONS,
+            rollup: EMPTY_ROLLUP
           }
         })
       })
@@ -274,7 +283,8 @@ describe("Thread — relations section", () => {
           ok: true, data: {
             thread: BASE_THREAD, events: [BASE_EVENT], tasks: [],
             progress: { done: 0, total: 1 },
-            relations: { incoming: [], outgoing: [OUTGOING_LINK] }
+            relations: { incoming: [], outgoing: [OUTGOING_LINK] },
+            rollup: EMPTY_ROLLUP
           }
         })
       })
@@ -292,7 +302,8 @@ describe("Thread — relations section", () => {
           ok: true, data: {
             thread: BASE_THREAD, events: [BASE_EVENT], tasks: [],
             progress: { done: 0, total: 1 },
-            relations: { incoming: [], outgoing: [] }
+            relations: { incoming: [], outgoing: [] },
+            rollup: EMPTY_ROLLUP
           }
         })
       });
@@ -314,7 +325,8 @@ describe("Thread — add link sheet", () => {
         json: () => Promise.resolve({
           ok: true, data: {
             thread: BASE_THREAD, events: [BASE_EVENT], tasks: [],
-            progress: { done: 0, total: 1 }, relations: EMPTY_RELATIONS
+            progress: { done: 0, total: 1 }, relations: EMPTY_RELATIONS,
+            rollup: EMPTY_ROLLUP
           }
         })
       })
@@ -346,7 +358,8 @@ describe("Thread — add link sheet", () => {
         json: () => Promise.resolve({
           ok: true, data: {
             thread: BASE_THREAD, events: [BASE_EVENT], tasks: [],
-            progress: { done: 0, total: 1 }, relations: EMPTY_RELATIONS
+            progress: { done: 0, total: 1 }, relations: EMPTY_RELATIONS,
+            rollup: EMPTY_ROLLUP
           }
         })
       })
@@ -383,7 +396,8 @@ describe("Thread — add link sheet", () => {
         json: () => Promise.resolve({
           ok: true, data: {
             thread: BASE_THREAD, events: [BASE_EVENT], tasks: [],
-            progress: { done: 0, total: 1 }, relations: EMPTY_RELATIONS
+            progress: { done: 0, total: 1 }, relations: EMPTY_RELATIONS,
+            rollup: EMPTY_ROLLUP
           }
         })
       })
@@ -419,7 +433,8 @@ describe("Thread — add link sheet", () => {
         json: () => Promise.resolve({
           ok: true, data: {
             thread: BASE_THREAD, events: [BASE_EVENT], tasks: [],
-            progress: { done: 0, total: 1 }, relations: EMPTY_RELATIONS
+            progress: { done: 0, total: 1 }, relations: EMPTY_RELATIONS,
+            rollup: EMPTY_ROLLUP
           }
         })
       })
@@ -445,7 +460,8 @@ describe("Thread — add link sheet", () => {
           ok: true, data: {
             thread: BASE_THREAD, events: [BASE_EVENT], tasks: [],
             progress: { done: 0, total: 1 },
-            relations: { incoming: [], outgoing: [OUTGOING_LINK] }
+            relations: { incoming: [], outgoing: [OUTGOING_LINK] },
+            rollup: EMPTY_ROLLUP
           }
         })
       })
@@ -458,6 +474,38 @@ describe("Thread — add link sheet", () => {
     fireEvent.click(screen.getByRole("button", { name: "연결하기 →" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(screen.getByTestId("outgoing-relation")).toBeInTheDocument());
+  });
+});
+
+describe("Thread — rollup section", () => {
+  it("shows quiet no-children state when rollup has no children", async () => {
+    mockFetch({ thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 } });
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByTestId("rollup-no-children")).toBeInTheDocument());
+    expect(screen.queryByTestId("rollup-metrics")).not.toBeInTheDocument();
+  });
+
+  it("shows metrics table and child drilldown when rollup has children", async () => {
+    const rollup = {
+      ...EMPTY_ROLLUP,
+      direct: { progress: { done: 1, total: 3 }, energyHours: 2 },
+      contains: { childCount: 1, descendantCount: 1, progress: { done: 2, total: 4 }, energyHours: 3, missingCost: null as null, missingCostStatus: "unavailable" as const },
+      total: { progress: { done: 3, total: 7 }, energyHours: 5, missingCost: null as null, missingCostStatus: "unavailable" as const },
+      children: [{ thread: { id: 2, name: "하위 스레드" }, depth: 1, relationId: 10, progress: { done: 2, total: 4 }, energyHours: 3, descendantCount: 0 }]
+    };
+    mockFetch({ thread: BASE_THREAD, events: [BASE_EVENT], tasks: [], progress: { done: 1, total: 1 }, rollup });
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByTestId("rollup-metrics")).toBeInTheDocument());
+    expect(screen.getByTestId("rollup-children")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "하위 스레드" })).toHaveAttribute("href", "/threads/2");
+  });
+
+  it("shows warning when rollup.warnings is non-empty", async () => {
+    const rollup = { ...EMPTY_ROLLUP, warnings: ["CONTAINS_CYCLE_DETECTED"] };
+    mockFetch({ thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 }, rollup });
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByTestId("rollup-warning")).toBeInTheDocument());
+    expect(screen.getByTestId("rollup-warning")).toHaveTextContent("CONTAINS_CYCLE_DETECTED");
   });
 });
 
