@@ -264,7 +264,9 @@ describe("POST /api/threads/:id/links", () => {
       payload: { toThreadId: a, kind: "contains" }
     });
     expect(res.statusCode).toBe(400);
-    expect(res.json().error.code).toBe("SELF_LINK");
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
+    const rows = conn.sqlite.prepare("SELECT count(*) as cnt FROM thread_links").get() as { cnt: number };
+    expect(rows.cnt).toBe(0);
   });
 
   it("missing thread returns 404 NOT_FOUND", async () => {

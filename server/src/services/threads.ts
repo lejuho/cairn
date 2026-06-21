@@ -78,7 +78,7 @@ export function getThreadDetail(db: CairnDatabase, id: number): ThreadDetail | n
 export type CreateThreadLinkResult =
   | { status: "created"; link: ThreadLinkRow }
   | { status: "existing"; link: ThreadLinkRow }
-  | { status: "error"; code: "SELF_LINK" | "VALIDATION_ERROR" | "NOT_FOUND" | "CONTAINS_CYCLE" | "CONTAINS_PARENT_CONFLICT"; message: string };
+  | { status: "error"; code: "VALIDATION_ERROR" | "NOT_FOUND" | "CONTAINS_CYCLE" | "CONTAINS_PARENT_CONFLICT"; message: string };
 
 export function createThreadLink(
   db: CairnDatabase,
@@ -88,7 +88,7 @@ export function createThreadLink(
   const { toThreadId, kind, firmness } = input;
 
   if (fromThreadId === toThreadId) {
-    return { status: "error", code: "SELF_LINK", message: "Cannot link a thread to itself" };
+    return { status: "error", code: "VALIDATION_ERROR", message: "Cannot link a thread to itself" };
   }
 
   const both = findThreadsByIds(db, [fromThreadId, toThreadId]);

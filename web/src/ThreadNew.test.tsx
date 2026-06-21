@@ -66,4 +66,22 @@ describe("ThreadNew — submission", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
     expect(screen.getByLabelText(/이름/)).toHaveValue("Dup");
   });
+
+  it("shows access-session error on submit when fetch returns 401 and keeps form open", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false, status: 401,
+      headers: { get: () => "text/html" },
+      redirected: false, url: "/api/threads",
+      json: () => Promise.resolve({}),
+      text: () => Promise.resolve("Cloudflare-Access")
+    }));
+
+    render(<ThreadNew />);
+    fireEvent.change(screen.getByLabelText(/이름/), { target: { value: "세션만료" } });
+    fireEvent.click(screen.getByLabelText("스레드 만들기 제출"));
+
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByText(/로그인 세션이 만료/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/이름/)).toHaveValue("세션만료");
+  });
 });

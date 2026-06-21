@@ -4,7 +4,6 @@ import { apiJson, type AccessSessionError } from "./api.js";
 
 type ViewState =
   | { tag: "loading" }
-  | { tag: "empty" }
   | { tag: "live"; detail: ThreadDetail }
   | { tag: "error"; message: string }
   | { tag: "access_session_required" };
@@ -39,9 +38,7 @@ export function Thread({ id }: { id: number }) {
     setView({ tag: "loading" });
     loadThread(id)
       .then((detail) => {
-        const isEmpty = detail.events.length === 0 && detail.tasks.length === 0 &&
-          detail.relations.incoming.length === 0 && detail.relations.outgoing.length === 0;
-        setView(isEmpty ? { tag: "empty" } : { tag: "live", detail });
+        setView({ tag: "live", detail });
       })
       .catch((e: unknown) => {
         const err = e as Partial<AccessSessionError>;
@@ -59,9 +56,7 @@ export function Thread({ id }: { id: number }) {
     loadThread(id)
       .then((detail) => {
         if (!cancelled) {
-          const isEmpty = detail.events.length === 0 && detail.tasks.length === 0 &&
-            detail.relations.incoming.length === 0 && detail.relations.outgoing.length === 0;
-          setView(isEmpty ? { tag: "empty" } : { tag: "live", detail });
+          setView({ tag: "live", detail });
         }
       })
       .catch((e: unknown) => {
@@ -203,19 +198,6 @@ export function Thread({ id }: { id: number }) {
     );
   }
 
-  if (view.tag === "empty") {
-    return (
-      <main className="app-shell" aria-labelledby="thread-title" data-testid="thread-empty">
-        <section className="quiet-card warm">
-          <span className="quiet-dot" aria-hidden="true" />
-          <p className="eyebrow">Thread</p>
-          <h1 id="thread-title">아직 연결된 항목이 없어</h1>
-          <p>이 스레드에 이벤트나 작업을 연결하면 여기 나타나.</p>
-        </section>
-      </main>
-    );
-  }
-
   const { detail } = view;
   const now = new Date();
 
@@ -232,6 +214,7 @@ export function Thread({ id }: { id: number }) {
   const { progress } = detail;
   const { incoming, outgoing } = detail.relations;
   const hasRelations = incoming.length > 0 || outgoing.length > 0;
+  const hasItems = detail.events.length > 0 || detail.tasks.length > 0;
 
   return (
     <>
@@ -305,6 +288,16 @@ export function Thread({ id }: { id: number }) {
             </li>
           ))}
         </ul>
+
+        {!hasItems && (
+          <p
+            className="card-meta"
+            data-testid="thread-empty"
+            style={{ width: "min(100%, 480px)", padding: "8px 0", opacity: 0.8 }}
+          >
+            아직 연결된 항목이 없어. 이벤트나 작업을 연결하면 여기 나타나.
+          </p>
+        )}
 
         {/* Relations section */}
         <section

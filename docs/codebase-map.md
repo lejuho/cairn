@@ -103,7 +103,7 @@ Route layer:
   - Raw annotation first, best-effort LLM parse second.
 - [server/src/routes/threads.ts](/home/pi/cairn/server/src/routes/threads.ts)
   - `POST /api/threads`, `GET /api/threads`, `GET /api/threads/:id`.
-  - `POST /api/threads/:id/links` — create outgoing link (201 new, 200 idempotent). Body: `toThreadId`, `kind`, optional `firmness` (default `hard`). Errors: 400 VALIDATION_ERROR/SELF_LINK, 404 NOT_FOUND, 409 CONTAINS_CYCLE/CONTAINS_PARENT_CONFLICT. No writes on error paths.
+  - `POST /api/threads/:id/links` — create outgoing link (201 new, 200 idempotent). Body: `toThreadId`, `kind`, optional `firmness` (default `hard`). Errors: 400 VALIDATION_ERROR (includes self-link), 404 NOT_FOUND, 409 CONTAINS_CYCLE/CONTAINS_PARENT_CONFLICT. No writes on error paths.
   - `DELETE /api/threads/:id/links/:linkId` — delete outgoing link only (404 if incoming or missing).
   - Deterministic. No LLM dependency. Summary rows include `relationCounts: {incoming, outgoing}`; detail includes `relations: {incoming, outgoing}` with peer thread id/name.
 - [server/src/routes/capture.ts](/home/pi/cairn/server/src/routes/capture.ts)
@@ -281,7 +281,7 @@ Entry and routing:
 - [web/src/ThreadNew.tsx](/home/pi/cairn/web/src/ThreadNew.tsx)
   - `/threads/new` manual creation form (cycle 10, apiJson migration cycle 25). Fields: name (required), kind, goal, deadline. Client-side trim validation. On success navigates to `/threads/:id` via `window.location.href`. Access session and generic errors preserved in form.
 - [web/src/Thread.tsx](/home/pi/cairn/web/src/Thread.tsx)
-  - `/threads/:id` spine (cycles 9/25). Loading/empty/live/error/access_session_required states. Header: name, goal, deadline, kind, progress chip. Spine split into future/past sections. Empty when no events, tasks, or relations.
+  - `/threads/:id` spine (cycles 9/25). Loading/live/error/access_session_required states (no screen-level empty state since cycle 25: a thread with no events/tasks still renders live so the 관계 section + "+ 연결" stay reachable for FR-THR-09 first-link). Header: name, goal, deadline, kind, progress chip. Spine split into future/past sections. When events+tasks are empty, an inline quiet note (`data-testid="thread-empty"`, "아직 연결된 항목이 없어…") renders above the 관계 section.
   - 관계 section (cycle 25): outgoing links show peer name (→ link to peer thread) + kind chip + delete button. Incoming links show peer name (← link to peer thread) + kind chip; no delete. Empty state: "아직 연결된 스레드가 없어".
   - "+ 연결" button opens a bottom sheet: lazy-loads all threads (excluding current), `<select>` for target + kind (contains/blocks/feeds/competes/shares; firmness defaults to hard). 409 CONTAINS_CYCLE → "이 연결은 순환 구조를 만들어. 다른 방향을 선택해봐." 409 CONTAINS_PARENT_CONFLICT → "이 스레드는 이미 다른 상위 스레드가 있어." On success: closes sheet, refreshes detail. Focus trap (sentinels + Escape + backdrop tap), opener restore on close.
 - [web/vite.config.ts](/home/pi/cairn/web/vite.config.ts)

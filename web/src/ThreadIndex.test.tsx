@@ -73,3 +73,18 @@ describe("ThreadIndex — error", () => {
     expect(screen.getByRole("link", { name: "+ 새 스레드" })).toBeInTheDocument();
   });
 });
+
+describe("ThreadIndex — access-session", () => {
+  it("renders access-session recovery when fetch returns 401", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false, status: 401,
+      headers: { get: () => "text/html" },
+      redirected: false, url: "/api/threads",
+      json: () => Promise.resolve({}),
+      text: () => Promise.resolve("/cdn-cgi/access/login")
+    }));
+    render(<ThreadIndex />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "로그인이 필요해" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "새로 고침" })).toBeInTheDocument();
+  });
+});

@@ -109,12 +109,57 @@ describe("Thread — error state", () => {
   });
 });
 
-describe("Thread — empty state", () => {
-  it("renders empty state when no events, tasks, or relations", async () => {
+describe("Thread — access-session state", () => {
+  it("renders access-session recovery when fetch returns 401", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false, status: 401,
+      headers: { get: () => "text/html" },
+      redirected: false, url: "/api/threads/1",
+      json: () => Promise.resolve({}),
+      text: () => Promise.resolve("Cloudflare-Access")
+    }));
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "로그인이 필요해" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "새로 고침" })).toBeInTheDocument();
+  });
+});
+
+describe("Thread — empty items still expose relations", () => {
+  it("shows quiet empty-items note inside live state, not a dead-end screen", async () => {
     mockFetch({ thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 } });
     render(<Thread id={1} />);
     await waitFor(() => expect(screen.getByTestId("thread-empty")).toBeInTheDocument());
-    expect(screen.getByRole("heading", { name: "아직 연결된 항목이 없어" })).toBeInTheDocument();
+    // Header and relation section remain reachable even with no events/tasks.
+    expect(screen.getByRole("heading", { name: "프로젝트 알파" })).toBeInTheDocument();
+    expect(screen.getByTestId("thread-relations")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "관계 추가" })).toBeInTheDocument();
+  });
+
+  it("opens the relation sheet from an empty thread (FR-THR-09 first-link path)", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: { get: () => "application/json" },
+        redirected: false, url: "/api/threads/1",
+        json: () => Promise.resolve({
+          ok: true, data: {
+            thread: BASE_THREAD, events: [], tasks: [],
+            progress: { done: 0, total: 0 }, relations: EMPTY_RELATIONS
+          }
+        })
+      })
+      .mockResolvedValue({
+        ok: true, status: 200,
+        headers: { get: () => "application/json" },
+        redirected: false, url: "/api/threads",
+        json: () => Promise.resolve({ ok: true, data: [SUMMARY_OTHER] })
+      })
+    );
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "관계 추가" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "관계 추가" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("option", { name: "하위 스레드" })).toBeInTheDocument());
   });
 });
 
