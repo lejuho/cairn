@@ -103,7 +103,9 @@ Route layer:
   - Raw annotation first, best-effort LLM parse second.
 - [server/src/routes/threads.ts](/home/pi/cairn/server/src/routes/threads.ts)
   - `POST /api/threads`, `GET /api/threads`, `GET /api/threads/:id`.
-  - Deterministic. No LLM dependency. Returns thread detail with linked events/tasks and progress.
+  - `POST /api/threads/:id/links` — create outgoing link (201 new, 200 idempotent). Body: `toThreadId`, `kind`, optional `firmness` (default `hard`). Errors: 400 VALIDATION_ERROR/SELF_LINK, 404 NOT_FOUND, 409 CONTAINS_CYCLE/CONTAINS_PARENT_CONFLICT. No writes on error paths.
+  - `DELETE /api/threads/:id/links/:linkId` — delete outgoing link only (404 if incoming or missing).
+  - Deterministic. No LLM dependency. Summary rows include `relationCounts: {incoming, outgoing}`; detail includes `relations: {incoming, outgoing}` with peer thread id/name.
 - [server/src/routes/capture.ts](/home/pi/cairn/server/src/routes/capture.ts)
   - `POST /api/capture/flat-event`. Registered only when both DB and LLM gateway exist.
   - Parse → fallback → persist order owned by `server/src/services/flatCapture.ts`.
@@ -129,7 +131,9 @@ Route layer:
 Repository/service split:
 
 - `server/src/repositories/*.ts`
-  - Direct DB queries for events, tasks, watchers, annotations, people.
+  - Direct DB queries for events, tasks, watchers, annotations, people, and thread links.
+  - [server/src/repositories/threads.ts](/home/pi/cairn/server/src/repositories/threads.ts) — `createThread`, `listThreads`, `findThreadById`, `findThreadsByIds`, `findEventsByThreadId`, `findTasksByThreadId`, `countLinksForAllThreads` (single-pass GROUP BY aggregate, returns `Map<threadId, {incoming,outgoing}>`), `findContainsAdjacency` (all `contains` edges as `Map<fromId,childIds[]>` for cycle detection), `findLinksWithPeers` (LEFT JOIN alias join returning `{incoming,outgoing}: ThreadLinkView[]`), `findDuplicateLink`, `insertLink`, `deleteLinkById`, `findHardContainsParent`.
+  - [server/src/services/thread-links.ts](/home/pi/cairn/server/src/services/thread-links.ts) — Pure graph invariant: `wouldCreateContainsCycle(fromId, toId, adjacency)` — DFS from `toId` through existing `contains` edges; returns true if `fromId` is reachable (adding the edge would create a cycle). Accepts a pre-loaded adjacency map to avoid N+1.
   - [server/src/repositories/people.ts](/home/pi/cairn/server/src/repositories/people.ts) — `PERSON_COLS` constant + `mapPersonRow` helper (unified full-column projection for all single-table reads). `findAllPeople`, `findPersonById`, `createPerson`, `findPeopleDirectoryRows` — all use `PERSON_COLS`+`mapPersonRow` and return normalized `PersonRow` including `preferredWindows`/`leadTime`. `findEventWithPeople`, `replaceEventPeople`, `findPeopleByIds` — join paths now also use `PERSON_COLS`+`mapPersonRow`, returning full `PersonRow[]`. `findEventPeopleContext` — minimal projection for social/guard context only. `findEventPeopleFullProfiles(db, eventId)` — returns full `PersonRow[]` ordered name/id; used by conflict resolve to build notification drafts. `isQualifyingMeet`, `queryMeetingStats`, `findRecentMeetings`, `replaceHardConstraints`, `updatePersonProfile`.
 - [server/src/services/people-impact.ts](/home/pi/cairn/server/src/services/people-impact.ts)
   - Pure service (no DB). `parseHardConstraints` (fail-open JSON → HardConstraint[]), `parsePreferredWindows` (fail-open JSON → AuthoredPreferredWindows|null), `parseLeadTime` (fail-open JSON → AuthoredLeadTime|null), `toFrequencyBand` (0→cold_start/+0, 1-2→rare/+2, 3-7→established/+1, 8+→frequent/+0), `computeSocialContext` (base + adjustments from people history), `extractWeekday` (literal-date UTC — `isoStart.slice(0,10)+"T00:00:00Z"`), `evaluatePeopleGuard` (kept event weekday vs people's weekday_unavailable constraints; fail-open on malformed JSON).
@@ -195,7 +199,12 @@ Contracts by domain:
 - [shared/src/llm.ts](/home/pi/cairn/shared/src/llm.ts)
   - OpenAI-compatible chat request/response shapes used by gateway boundary.
 - [shared/src/enums.ts](/home/pi/cairn/shared/src/enums.ts)
-  - Lowercase persisted enum values and related constants.
+  - Lowercase persisted enum values and related constants. Includes `THREAD_LINK_KINDS` (`contains|blocks|feeds|competes|shares`) and `ThreadLinkKindSchema`.
+- [shared/src/threads.ts](/home/pi/cairn/shared/src/threads.ts)
+  - `ThreadRowSchema`, `CreateThreadRequestSchema`, `ThreadProgressSchema`.
+  - Thread link schemas (cycle 25): `ThreadLinkFirmnessSchema` (`hard|soft`), `ThreadLinkRowSchema`, `ThreadLinkPeerSchema` (`{id,name}`), `ThreadLinkViewSchema` (link with embedded peer objects), `ThreadRelationsSchema` (`{incoming,outgoing}: ThreadLinkView[]`), `CreateThreadLinkRequestSchema` (`toThreadId`, `kind`, optional `firmness` default `hard`), `ThreadRelationCountsSchema`.
+  - Extended `ThreadSummarySchema` — now includes required `relationCounts: {incoming,outgoing}`.
+  - Extended `ThreadDetailSchema` — now includes required `relations: ThreadRelations`.
 - [shared/src/people.ts](/home/pi/cairn/shared/src/people.ts)
   - `PersonChannelSchema` (none|kakao|sms|email|telegram), `PersonRowSchema` (includes optional `hardConstraints`, `preferredWindows: AuthoredPreferredWindows|null`, `leadTime: AuthoredLeadTime|null`), `CreatePersonRequestSchema`, `EventPeopleResponseSchema`, `ReplaceEventPeopleRequestSchema`.
   - `WeekdaySchema`, `HardConstraintSchema` (discriminated union; `weekday_unavailable` variant has `weekday`, `text`, `firmness: "hard"`), `ReplaceHardConstraintsRequestSchema`.
@@ -232,7 +241,7 @@ Entry and routing:
 - [web/src/api.ts](/home/pi/cairn/web/src/api.ts)
   - Frontend fetch boundary (cycle 20). Wraps `fetch` + JSON parsing; classifies errors as `AccessSessionError` (`kind: "access_session_required"`) or `ApiError`.
   - Detection order: (1) 302/401/403 status → access_session_required; (2) `response.redirected` + cloudflareaccess.com URL → access_session_required; (3) HTML/text body with CF Access markers (`/cdn-cgi/access/login`, `cloudflareaccess.com`) → access_session_required; (4) HTML without markers → api_error; (5) fetch() rejection (network error) → access_session_required with "로그인 세션이 만료됐거나 네트워크가 끊겼어".
-  - Used by Today.tsx and InputHub.tsx for all API calls: top-level loads, secondary reads, and mutations. Thread/ThreadIndex/ThreadNew screens use direct fetch (not yet migrated).
+  - Used by Today.tsx, InputHub.tsx, Thread.tsx, ThreadIndex.tsx, and ThreadNew.tsx for all API calls: top-level loads, secondary reads, and mutations.
 - [web/src/InputHub.tsx](/home/pi/cairn/web/src/InputHub.tsx)
   - `/input` pull-surface hub (cycle 14). Five states: loading, quiet, live, error, access_error.
   - Quiet when `unscheduledEvents.length === 0`; live otherwise.
@@ -268,11 +277,13 @@ Entry and routing:
   - Not-found: "사람을 찾을 수 없어" + link to /people.
   - Fetches `GET /api/people/:id/detail?now=` via `apiJson`.
 - [web/src/ThreadIndex.tsx](/home/pi/cairn/web/src/ThreadIndex.tsx)
-  - `/threads` index page (cycle 10). Loading/empty/live/error states. Lists thread summaries with progress/deadline chips, each linking to `/threads/:id`. "+ 새 스레드" links to `/threads/new`.
+  - `/threads` index page (cycle 10, apiJson migration cycle 25). Loading/empty/live/error/access_session_required states. Lists thread summaries with progress/deadline chips; shows relation count chips (↑ incoming / ↓ outgoing) when count > 0. Each card links to `/threads/:id`. "+ 새 스레드" links to `/threads/new`.
 - [web/src/ThreadNew.tsx](/home/pi/cairn/web/src/ThreadNew.tsx)
-  - `/threads/new` manual creation form (cycle 10). Fields: name (required), kind, goal, deadline. Client-side trim validation. On success navigates to `/threads/:id` via `window.location.href`. Error state preserves form values.
+  - `/threads/new` manual creation form (cycle 10, apiJson migration cycle 25). Fields: name (required), kind, goal, deadline. Client-side trim validation. On success navigates to `/threads/:id` via `window.location.href`. Access session and generic errors preserved in form.
 - [web/src/Thread.tsx](/home/pi/cairn/web/src/Thread.tsx)
-  - Read-only `/threads/:id` spine (cycle 9). Loading/empty/live/error states. Header: name, goal, deadline, kind, progress chip. Spine split into future/past sections via `new Date()`. Event and task nodes. Null-start events sorted last.
+  - `/threads/:id` spine (cycles 9/25). Loading/empty/live/error/access_session_required states. Header: name, goal, deadline, kind, progress chip. Spine split into future/past sections. Empty when no events, tasks, or relations.
+  - 관계 section (cycle 25): outgoing links show peer name (→ link to peer thread) + kind chip + delete button. Incoming links show peer name (← link to peer thread) + kind chip; no delete. Empty state: "아직 연결된 스레드가 없어".
+  - "+ 연결" button opens a bottom sheet: lazy-loads all threads (excluding current), `<select>` for target + kind (contains/blocks/feeds/competes/shares; firmness defaults to hard). 409 CONTAINS_CYCLE → "이 연결은 순환 구조를 만들어. 다른 방향을 선택해봐." 409 CONTAINS_PARENT_CONFLICT → "이 스레드는 이미 다른 상위 스레드가 있어." On success: closes sheet, refreshes detail. Focus trap (sentinels + Escape + backdrop tap), opener restore on close.
 - [web/vite.config.ts](/home/pi/cairn/web/vite.config.ts)
   - Local dev proxy forwards `/api` and `/health` to `http://localhost:3100`.
 - [web/src/styles.css](/home/pi/cairn/web/src/styles.css)
