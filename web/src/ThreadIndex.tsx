@@ -1,15 +1,16 @@
 import { useEffect, useState } from "react";
 import type { ThreadSummary } from "@cairn/shared";
+import { apiJson, type AccessSessionError } from "./api.js";
 
 type ViewState =
   | { tag: "loading" }
   | { tag: "empty" }
   | { tag: "live"; summaries: ThreadSummary[] }
-  | { tag: "error"; message: string };
+  | { tag: "error"; message: string }
+  | { tag: "access_session_required" };
 
 async function loadThreads(): Promise<ThreadSummary[]> {
-  const res = await fetch("/api/threads");
-  const body = (await res.json()) as { ok: boolean; data?: ThreadSummary[]; error?: { message: string } };
+  const body = await apiJson<{ ok: boolean; data?: ThreadSummary[]; error?: { message: string } }>("/api/threads");
   if (!body.ok) throw new Error(body.error?.message ?? "알 수 없는 오류");
   return body.data!;
 }
@@ -25,9 +26,14 @@ export function ThreadIndex() {
           setView(summaries.length === 0 ? { tag: "empty" } : { tag: "live", summaries });
         }
       })
-      .catch((e) => {
+      .catch((e: unknown) => {
         if (!cancelled) {
-          setView({ tag: "error", message: e instanceof Error ? e.message : "오류" });
+          const err = e as Partial<AccessSessionError>;
+          if (err.kind === "access_session_required") {
+            setView({ tag: "access_session_required" });
+          } else {
+            setView({ tag: "error", message: e instanceof Error ? e.message : "오류" });
+          }
         }
       });
     return () => { cancelled = true; };
@@ -40,6 +46,19 @@ export function ThreadIndex() {
           <div className="today-skel" />
           <div className="today-skel today-skel--delay" />
         </div>
+      </main>
+    );
+  }
+
+  if (view.tag === "access_session_required") {
+    return (
+      <main className="app-shell" aria-labelledby="threads-title">
+        <section className="quiet-card" role="alert">
+          <p className="eyebrow">Threads</p>
+          <h1 id="threads-title">로그인이 필요해</h1>
+          <p>세션이 만료됐어. 페이지를 새로 고침해봐.</p>
+          <button className="thread-index-new-btn" onClick={() => window.location.reload()}>새로 고침</button>
+        </section>
       </main>
     );
   }
@@ -89,6 +108,16 @@ export function ThreadIndex() {
                 {s.totalCount > 0 ? ` · ${s.doneCount}/${s.totalCount}` : ""}
                 {s.thread.deadline ? ` · 마감 ${s.thread.deadline}` : ""}
               </p>
+              {(s.relationCounts.incoming > 0 || s.relationCounts.outgoing > 0) && (
+                <p className="card-meta thread-relation-chips" aria-label="관계">
+                  {s.relationCounts.incoming > 0 && (
+                    <span className="card-chip" aria-label={`들어오는 관계 ${s.relationCounts.incoming}개`}>↑ {s.relationCounts.incoming}</span>
+                  )}
+                  {s.relationCounts.outgoing > 0 && (
+                    <span className="card-chip" aria-label={`나가는 관계 ${s.relationCounts.outgoing}개`}>↓ {s.relationCounts.outgoing}</span>
+                  )}
+                </p>
+              )}
             </a>
           </li>
         ))}

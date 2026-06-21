@@ -26,7 +26,9 @@ function mockFetch(summaries: ThreadSummary[]) {
 }
 
 function mockFetchError() {
-  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("서버 오류")));
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+    json: () => Promise.resolve({ ok: false, error: { message: "서버 오류" } })
+  }));
 }
 
 describe("ThreadIndex — loading", () => {

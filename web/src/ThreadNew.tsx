@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { apiJson, type AccessSessionError } from "./api.js";
 
 type FormState = { name: string; kind: string; goal: string; deadline: string };
 type SubmitState = { submitting: boolean; error: string | null };
@@ -20,16 +21,20 @@ export function ThreadNew() {
       if (form.goal.trim()) payload.goal = form.goal.trim();
       if (form.deadline) payload.deadline = form.deadline;
 
-      const res = await fetch("/api/threads", {
+      const body = await apiJson<{ ok: boolean; data?: { id: number }; error?: { message: string } }>("/api/threads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
-      const body = (await res.json()) as { ok: boolean; data?: { id: number }; error?: { message: string } };
       if (!body.ok) throw new Error(body.error?.message ?? "서버 오류");
       window.location.href = `/threads/${body.data!.id}`;
     } catch (e) {
-      setSubmitState({ submitting: false, error: e instanceof Error ? e.message : "오류" });
+      const err = e as Partial<AccessSessionError>;
+      if (err.kind === "access_session_required") {
+        setSubmitState({ submitting: false, error: err.message ?? "로그인 세션이 만료됐어" });
+      } else {
+        setSubmitState({ submitting: false, error: e instanceof Error ? e.message : "오류" });
+      }
     }
   }
 
