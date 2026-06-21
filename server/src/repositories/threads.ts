@@ -1,7 +1,16 @@
-import { asc, desc, eq } from "drizzle-orm";
-import type { CreateThreadRequest, EventRow, TaskRow, ThreadRow } from "@cairn/shared";
+import { alias } from "drizzle-orm/sqlite-core";
+import { asc, desc, eq, or, sql } from "drizzle-orm";
+import type {
+  CreateThreadRequest,
+  EventRow,
+  TaskRow,
+  ThreadLinkFirmness,
+  ThreadLinkRow,
+  ThreadLinkView,
+  ThreadRow
+} from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
-import { events, tasks, threads } from "../db/schema.js";
+import { events, tasks, threadLinks, threads } from "../db/schema.js";
 
 export function createThread(db: CairnDatabase, input: CreateThreadRequest): ThreadRow {
   const [row] = db
@@ -31,6 +40,15 @@ export function findThreadById(db: CairnDatabase, id: number): ThreadRow | null 
   return row ? (row as ThreadRow) : null;
 }
 
+export function findThreadsByIds(db: CairnDatabase, ids: number[]): ThreadRow[] {
+  if (ids.length === 0) return [];
+  return db
+    .select()
+    .from(threads)
+    .all()
+    .filter((r) => ids.includes(r.id)) as ThreadRow[];
+}
+
 export function findEventsByThreadId(db: CairnDatabase, threadId: number): EventRow[] {
   return db
     .select()
@@ -52,4 +70,177 @@ export function findTasksByThreadId(db: CairnDatabase, threadId: number): TaskRo
     .where(eq(tasks.threadId, threadId))
     .orderBy(asc(tasks.createdAt))
     .all() as TaskRow[];
+}
+
+// Returns incoming and outgoing link counts per thread as a single-pass aggregate.
+export function countLinksForAllThreads(
+  db: CairnDatabase
+): Map<number, { incoming: number; outgoing: number }> {
+  const result = new Map<number, { incoming: number; outgoing: number }>();
+  const ensure = (id: number) => {
+    if (!result.has(id)) result.set(id, { incoming: 0, outgoing: 0 });
+    return result.get(id)!;
+  };
+
+  const outgoing = db
+    .select({ tid: threadLinks.fromThread, cnt: sql<number>`count(*)` })
+    .from(threadLinks)
+    .groupBy(threadLinks.fromThread)
+    .all();
+  for (const r of outgoing) {
+    if (r.tid != null) ensure(r.tid).outgoing = r.cnt;
+  }
+
+  const incoming = db
+    .select({ tid: threadLinks.toThread, cnt: sql<number>`count(*)` })
+    .from(threadLinks)
+    .groupBy(threadLinks.toThread)
+    .all();
+  for (const r of incoming) {
+    if (r.tid != null) ensure(r.tid).incoming = r.cnt;
+  }
+
+  return result;
+}
+
+// Returns all contains edges as an adjacency map (parent → children) for cycle detection.
+export function findContainsAdjacency(db: CairnDatabase): Map<number, number[]> {
+  const rows = db
+    .select({ from: threadLinks.fromThread, to: threadLinks.toThread })
+    .from(threadLinks)
+    .where(eq(threadLinks.kind, "contains"))
+    .all();
+  const map = new Map<number, number[]>();
+  for (const r of rows) {
+    if (r.from == null || r.to == null) continue;
+    const children = map.get(r.from) ?? [];
+    children.push(r.to);
+    map.set(r.from, children);
+  }
+  return map;
+}
+
+// Returns a link with peer thread names for rendering.
+type RawLinkJoin = {
+  id: number;
+  fromThreadId: number | null;
+  fromThreadName: string | null;
+  toThreadId: number | null;
+  toThreadName: string | null;
+  kind: string | null;
+  firmness: string;
+  createdAt: string | null;
+};
+
+function rawToView(r: RawLinkJoin): ThreadLinkView | null {
+  if (
+    r.fromThreadId == null || r.fromThreadName == null ||
+    r.toThreadId == null || r.toThreadName == null ||
+    r.kind == null
+  ) return null;
+  return {
+    id: r.id,
+    fromThread: { id: r.fromThreadId, name: r.fromThreadName },
+    toThread: { id: r.toThreadId, name: r.toThreadName },
+    kind: r.kind as ThreadLinkView["kind"],
+    firmness: r.firmness as ThreadLinkFirmness,
+    createdAt: r.createdAt
+  };
+}
+
+export function findLinksWithPeers(db: CairnDatabase, threadId: number): {
+  incoming: ThreadLinkView[];
+  outgoing: ThreadLinkView[];
+} {
+  const ft = alias(threads, "ft");
+  const tt = alias(threads, "tt");
+
+  const rows = db
+    .select({
+      id: threadLinks.id,
+      fromThreadId: threadLinks.fromThread,
+      fromThreadName: ft.name,
+      toThreadId: threadLinks.toThread,
+      toThreadName: tt.name,
+      kind: threadLinks.kind,
+      firmness: threadLinks.firmness,
+      createdAt: threadLinks.createdAt
+    })
+    .from(threadLinks)
+    .leftJoin(ft, eq(threadLinks.fromThread, ft.id))
+    .leftJoin(tt, eq(threadLinks.toThread, tt.id))
+    .where(or(eq(threadLinks.fromThread, threadId), eq(threadLinks.toThread, threadId)))
+    .all() as RawLinkJoin[];
+
+  const incoming: ThreadLinkView[] = [];
+  const outgoing: ThreadLinkView[] = [];
+  for (const r of rows) {
+    const view = rawToView(r);
+    if (!view) continue;
+    if (r.toThreadId === threadId) incoming.push(view);
+    else outgoing.push(view);
+  }
+  return { incoming, outgoing };
+}
+
+export function findDuplicateLink(
+  db: CairnDatabase,
+  fromThread: number,
+  toThread: number,
+  kind: string
+): ThreadLinkRow | null {
+  const row = db
+    .select()
+    .from(threadLinks)
+    .where(
+      sql`${threadLinks.fromThread} = ${fromThread} AND ${threadLinks.toThread} = ${toThread} AND ${threadLinks.kind} = ${kind}`
+    )
+    .get();
+  return row ? (row as unknown as ThreadLinkRow) : null;
+}
+
+export function insertLink(
+  db: CairnDatabase,
+  fromThread: number,
+  toThread: number,
+  kind: string,
+  firmness: string
+): ThreadLinkRow {
+  const [row] = db
+    .insert(threadLinks)
+    .values({ fromThread, toThread, kind, firmness })
+    .returning()
+    .all();
+  return row as unknown as ThreadLinkRow;
+}
+
+export function deleteLinkById(
+  db: CairnDatabase,
+  linkId: number,
+  fromThreadId: number
+): boolean {
+  const existing = db
+    .select()
+    .from(threadLinks)
+    .where(sql`${threadLinks.id} = ${linkId} AND ${threadLinks.fromThread} = ${fromThreadId}`)
+    .get();
+  if (!existing) return false;
+  db.delete(threadLinks).where(eq(threadLinks.id, linkId)).run();
+  return true;
+}
+
+// Used for hard-parent conflict check: does toThread already have a hard contains parent?
+export function findHardContainsParent(
+  db: CairnDatabase,
+  toThreadId: number,
+  excludeFromThread?: number
+): ThreadLinkRow | null {
+  const rows = db
+    .select()
+    .from(threadLinks)
+    .where(
+      sql`${threadLinks.toThread} = ${toThreadId} AND ${threadLinks.kind} = 'contains' AND ${threadLinks.firmness} = 'hard'`
+    )
+    .all() as ThreadLinkRow[];
+  return rows.find((r) => r.fromThread !== excludeFromThread) ?? null;
 }

@@ -1,6 +1,12 @@
 import type { FastifyInstance } from "fastify";
-import { CreateThreadRequestSchema } from "@cairn/shared";
-import { createThread, getThreadDetail, listThreads } from "../services/threads.js";
+import { CreateThreadLinkRequestSchema, CreateThreadRequestSchema } from "@cairn/shared";
+import {
+  createThread,
+  createThreadLink,
+  deleteThreadLink,
+  getThreadDetail,
+  listThreads
+} from "../services/threads.js";
 import type { CairnDatabase } from "../db/index.js";
 
 export function registerThreadRoutes(app: FastifyInstance, db: CairnDatabase): void {
@@ -37,5 +43,58 @@ export function registerThreadRoutes(app: FastifyInstance, db: CairnDatabase): v
       });
     }
     return reply.send({ ok: true, data: detail });
+  });
+
+  app.post("/api/threads/:id/links", async (req, reply) => {
+    const fromThreadId = parseInt((req.params as { id: string }).id, 10);
+    if (!Number.isFinite(fromThreadId) || fromThreadId <= 0) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "VALIDATION_ERROR", message: "id must be a positive integer" }
+      });
+    }
+    const parsed = CreateThreadLinkRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "VALIDATION_ERROR", message: parsed.error.message }
+      });
+    }
+
+    const result = createThreadLink(db, fromThreadId, parsed.data);
+    if (result.status === "error") {
+      const httpCode =
+        result.code === "NOT_FOUND" ? 404
+        : (result.code === "CONTAINS_CYCLE" || result.code === "CONTAINS_PARENT_CONFLICT") ? 409
+        : 400;
+      return reply.code(httpCode).send({
+        ok: false,
+        error: { code: result.code, message: result.message }
+      });
+    }
+    const httpStatus = result.status === "created" ? 201 : 200;
+    return reply.code(httpStatus).send({ ok: true, data: { link: result.link } });
+  });
+
+  app.delete("/api/threads/:id/links/:linkId", async (req, reply) => {
+    const params = req.params as { id: string; linkId: string };
+    const fromThreadId = parseInt(params.id, 10);
+    const linkId = parseInt(params.linkId, 10);
+    if (!Number.isFinite(fromThreadId) || fromThreadId <= 0 || !Number.isFinite(linkId) || linkId <= 0) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "VALIDATION_ERROR", message: "id and linkId must be positive integers" }
+      });
+    }
+
+    const result = deleteThreadLink(db, fromThreadId, linkId);
+    if (result.status === "error") {
+      const httpCode = result.code === "NOT_FOUND" ? 404 : 400;
+      return reply.code(httpCode).send({
+        ok: false,
+        error: { code: result.code, message: result.message }
+      });
+    }
+    return reply.send({ ok: true });
   });
 }

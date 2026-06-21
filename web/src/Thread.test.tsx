@@ -36,11 +36,14 @@ const BASE_TASK = {
   status: "todo" as const, optional: 0, createdAt: null
 };
 
-function mockFetch(detail: ThreadDetail) {
+const EMPTY_RELATIONS: ThreadDetail["relations"] = { incoming: [], outgoing: [] };
+
+function mockFetch(detail: Omit<ThreadDetail, "relations"> & Partial<Pick<ThreadDetail, "relations">>) {
+  const data: ThreadDetail = { relations: EMPTY_RELATIONS, ...detail };
   vi.stubGlobal(
     "fetch",
     vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ ok: true, data: detail })
+      json: () => Promise.resolve({ ok: true, data })
     })
   );
 }

@@ -206,6 +206,262 @@ describe("GET /api/threads/:id", () => {
   });
 });
 
+describe("POST /api/threads/:id/links", () => {
+  let app: FastifyInstance;
+  let conn: ReturnType<typeof makeTestDb>;
+
+  beforeEach(() => {
+    conn = makeTestDb();
+    app = buildServer(conn.db);
+  });
+
+  afterEach(() => conn.sqlite.close());
+
+  async function makeThread(name: string): Promise<number> {
+    const res = await app.inject({ method: "POST", url: "/api/threads", payload: { name } });
+    return res.json().data.id as number;
+  }
+
+  it("creates a link and returns 201 with link row", async () => {
+    const [a, b] = [await makeThread("A"), await makeThread("B")];
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/threads/${a}/links`,
+      payload: { toThreadId: b, kind: "contains" }
+    });
+    expect(res.statusCode).toBe(201);
+    const { link } = res.json().data as { link: { id: number; fromThread: number; toThread: number; kind: string; firmness: string } };
+    expect(link.fromThread).toBe(a);
+    expect(link.toThread).toBe(b);
+    expect(link.kind).toBe("contains");
+    expect(link.firmness).toBe("hard");
+    expect(link.id).toBeTypeOf("number");
+  });
+
+  it("repeat create is idempotent: returns 200, no duplicate row", async () => {
+    const [a, b] = [await makeThread("A"), await makeThread("B")];
+    const first = await app.inject({
+      method: "POST",
+      url: `/api/threads/${a}/links`,
+      payload: { toThreadId: b, kind: "contains" }
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: `/api/threads/${a}/links`,
+      payload: { toThreadId: b, kind: "contains" }
+    });
+    expect(first.statusCode).toBe(201);
+    expect(second.statusCode).toBe(200);
+    const rows = conn.sqlite.prepare("SELECT count(*) as cnt FROM thread_links").get() as { cnt: number };
+    expect(rows.cnt).toBe(1);
+  });
+
+  it("self-link returns 400 VALIDATION_ERROR", async () => {
+    const a = await makeThread("A");
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/threads/${a}/links`,
+      payload: { toThreadId: a, kind: "contains" }
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("SELF_LINK");
+  });
+
+  it("missing thread returns 404 NOT_FOUND", async () => {
+    const a = await makeThread("A");
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/threads/${a}/links`,
+      payload: { toThreadId: 9999, kind: "blocks" }
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe("NOT_FOUND");
+    const rows = conn.sqlite.prepare("SELECT count(*) as cnt FROM thread_links").get() as { cnt: number };
+    expect(rows.cnt).toBe(0);
+  });
+
+  it("invalid kind returns 400", async () => {
+    const [a, b] = [await makeThread("A"), await makeThread("B")];
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/threads/${a}/links`,
+      payload: { toThreadId: b, kind: "unknown_kind" }
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("contains cycle returns 409 CONTAINS_CYCLE without write", async () => {
+    const [a, b, c] = [await makeThread("A"), await makeThread("B"), await makeThread("C")];
+    await app.inject({ method: "POST", url: `/api/threads/${a}/links`, payload: { toThreadId: b, kind: "contains" } });
+    await app.inject({ method: "POST", url: `/api/threads/${b}/links`, payload: { toThreadId: c, kind: "contains" } });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/threads/${c}/links`,
+      payload: { toThreadId: a, kind: "contains" }
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("CONTAINS_CYCLE");
+    const rows = conn.sqlite.prepare("SELECT count(*) as cnt FROM thread_links").get() as { cnt: number };
+    expect(rows.cnt).toBe(2);
+  });
+
+  it("hard contains parent conflict returns 409 CONTAINS_PARENT_CONFLICT", async () => {
+    const [a, b, c] = [await makeThread("A"), await makeThread("B"), await makeThread("C")];
+    await app.inject({ method: "POST", url: `/api/threads/${a}/links`, payload: { toThreadId: c, kind: "contains" } });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/threads/${b}/links`,
+      payload: { toThreadId: c, kind: "contains" }
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("CONTAINS_PARENT_CONFLICT");
+    const rows = conn.sqlite.prepare("SELECT count(*) as cnt FROM thread_links").get() as { cnt: number };
+    expect(rows.cnt).toBe(1);
+  });
+});
+
+describe("DELETE /api/threads/:id/links/:linkId", () => {
+  let app: FastifyInstance;
+  let conn: ReturnType<typeof makeTestDb>;
+
+  beforeEach(() => {
+    conn = makeTestDb();
+    app = buildServer(conn.db);
+  });
+
+  afterEach(() => conn.sqlite.close());
+
+  async function makeThread(name: string): Promise<number> {
+    const res = await app.inject({ method: "POST", url: "/api/threads", payload: { name } });
+    return res.json().data.id as number;
+  }
+
+  it("deletes outgoing link and removes only that row", async () => {
+    const [a, b] = [await makeThread("A"), await makeThread("B")];
+    const linkRes = await app.inject({
+      method: "POST",
+      url: `/api/threads/${a}/links`,
+      payload: { toThreadId: b, kind: "blocks" }
+    });
+    const linkId = linkRes.json().data.link.id as number;
+
+    const del = await app.inject({ method: "DELETE", url: `/api/threads/${a}/links/${linkId}` });
+    expect(del.statusCode).toBe(200);
+    expect(del.json().ok).toBe(true);
+    const rows = conn.sqlite.prepare("SELECT count(*) as cnt FROM thread_links").get() as { cnt: number };
+    expect(rows.cnt).toBe(0);
+  });
+
+  it("cannot delete incoming link from target thread — returns 404", async () => {
+    const [a, b] = [await makeThread("A"), await makeThread("B")];
+    const linkRes = await app.inject({
+      method: "POST",
+      url: `/api/threads/${a}/links`,
+      payload: { toThreadId: b, kind: "feeds" }
+    });
+    const linkId = linkRes.json().data.link.id as number;
+
+    // Attempt to delete from b's perspective (b is the toThread, not fromThread)
+    const del = await app.inject({ method: "DELETE", url: `/api/threads/${b}/links/${linkId}` });
+    expect(del.statusCode).toBe(404);
+    const rows = conn.sqlite.prepare("SELECT count(*) as cnt FROM thread_links").get() as { cnt: number };
+    expect(rows.cnt).toBe(1);
+  });
+
+  it("returns 404 for non-existent link", async () => {
+    const a = await makeThread("A");
+    const del = await app.inject({ method: "DELETE", url: `/api/threads/${a}/links/9999` });
+    expect(del.statusCode).toBe(404);
+  });
+});
+
+describe("Thread relation counts and peer views", () => {
+  let app: FastifyInstance;
+  let conn: ReturnType<typeof makeTestDb>;
+
+  beforeEach(() => {
+    conn = makeTestDb();
+    app = buildServer(conn.db);
+  });
+
+  afterEach(() => conn.sqlite.close());
+
+  async function makeThread(name: string): Promise<number> {
+    const res = await app.inject({ method: "POST", url: "/api/threads", payload: { name } });
+    return res.json().data.id as number;
+  }
+
+  it("GET /api/threads includes relationCounts (0/0 when no links)", async () => {
+    const a = await makeThread("A");
+    const res = await app.inject({ method: "GET", url: "/api/threads" });
+    const summaries = res.json().data as Array<{ thread: { id: number }; relationCounts: { incoming: number; outgoing: number } }>;
+    const s = summaries.find((x) => x.thread.id === a)!;
+    expect(s.relationCounts.incoming).toBe(0);
+    expect(s.relationCounts.outgoing).toBe(0);
+  });
+
+  it("GET /api/threads reflects correct incoming/outgoing counts after link creation", async () => {
+    const [a, b, c] = [await makeThread("A"), await makeThread("B"), await makeThread("C")];
+    await app.inject({ method: "POST", url: `/api/threads/${a}/links`, payload: { toThreadId: b, kind: "contains" } });
+    await app.inject({ method: "POST", url: `/api/threads/${a}/links`, payload: { toThreadId: c, kind: "blocks" } });
+
+    const res = await app.inject({ method: "GET", url: "/api/threads" });
+    const summaries = res.json().data as Array<{ thread: { id: number }; relationCounts: { incoming: number; outgoing: number } }>;
+    const sa = summaries.find((x) => x.thread.id === a)!;
+    const sb = summaries.find((x) => x.thread.id === b)!;
+    expect(sa.relationCounts.outgoing).toBe(2);
+    expect(sa.relationCounts.incoming).toBe(0);
+    expect(sb.relationCounts.incoming).toBe(1);
+    expect(sb.relationCounts.outgoing).toBe(0);
+  });
+
+  it("GET /api/threads/:id detail includes relations with peer names", async () => {
+    const [a, b] = [await makeThread("Alpha"), await makeThread("Beta")];
+    await app.inject({ method: "POST", url: `/api/threads/${a}/links`, payload: { toThreadId: b, kind: "feeds" } });
+
+    const res = await app.inject({ method: "GET", url: `/api/threads/${a}` });
+    expect(res.statusCode).toBe(200);
+    const { relations } = res.json().data as {
+      relations: { incoming: Array<unknown>; outgoing: Array<{ fromThread: { name: string }; toThread: { name: string }; kind: string }> }
+    };
+    expect(relations.outgoing).toHaveLength(1);
+    expect(relations.outgoing[0]!.fromThread.name).toBe("Alpha");
+    expect(relations.outgoing[0]!.toThread.name).toBe("Beta");
+    expect(relations.outgoing[0]!.kind).toBe("feeds");
+    expect(relations.incoming).toHaveLength(0);
+  });
+
+  it("incoming link visible from target detail", async () => {
+    const [a, b] = [await makeThread("Alpha"), await makeThread("Beta")];
+    await app.inject({ method: "POST", url: `/api/threads/${a}/links`, payload: { toThreadId: b, kind: "contains" } });
+
+    const res = await app.inject({ method: "GET", url: `/api/threads/${b}` });
+    const { relations } = res.json().data as {
+      relations: { incoming: Array<{ fromThread: { name: string } }>; outgoing: Array<unknown> }
+    };
+    expect(relations.incoming).toHaveLength(1);
+    expect(relations.incoming[0]!.fromThread.name).toBe("Alpha");
+    expect(relations.outgoing).toHaveLength(0);
+  });
+
+  it("contains cycle: long chain A→B→C, reject C→A", async () => {
+    const [a, b, c] = [await makeThread("A"), await makeThread("B"), await makeThread("C")];
+    await app.inject({ method: "POST", url: `/api/threads/${a}/links`, payload: { toThreadId: b, kind: "contains" } });
+    await app.inject({ method: "POST", url: `/api/threads/${b}/links`, payload: { toThreadId: c, kind: "contains" } });
+
+    // A→D is fine (unrelated branch)
+    const d = await makeThread("D");
+    const ok = await app.inject({ method: "POST", url: `/api/threads/${a}/links`, payload: { toThreadId: d, kind: "contains" } });
+    expect(ok.statusCode).toBe(201);
+
+    // C→A creates cycle → 409
+    const cycle = await app.inject({ method: "POST", url: `/api/threads/${c}/links`, payload: { toThreadId: a, kind: "contains" } });
+    expect(cycle.statusCode).toBe(409);
+    expect(cycle.json().error.code).toBe("CONTAINS_CYCLE");
+  });
+});
+
 describe("POST /api/events + /api/tasks with threadId linkage", () => {
   let app: FastifyInstance;
   let conn: ReturnType<typeof makeTestDb>;

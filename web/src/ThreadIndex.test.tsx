@@ -15,7 +15,8 @@ const BASE_THREAD = {
 
 const SUMMARY: ThreadSummary = {
   thread: BASE_THREAD,
-  eventCount: 2, taskCount: 3, doneCount: 1, totalCount: 5
+  eventCount: 2, taskCount: 3, doneCount: 1, totalCount: 5,
+  relationCounts: { incoming: 0, outgoing: 0 }
 };
 
 function mockFetch(summaries: ThreadSummary[]) {
