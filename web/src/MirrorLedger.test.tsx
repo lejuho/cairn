@@ -1,6 +1,6 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { MirrorLedgerData, MirrorPatternsData } from "@cairn/shared";
+import type { MirrorEnergyTrendData, MirrorLedgerData, MirrorPatternsData } from "@cairn/shared";
 import { MirrorLedger } from "./MirrorLedger.js";
 
 afterEach(() => {
@@ -26,6 +26,42 @@ const EMPTY_PATTERNS: MirrorPatternsData = {
   type: [],
   thread: [],
   sampleStatus: "low_sample"
+};
+
+const EMPTY_ENERGY: MirrorEnergyTrendData = {
+  range: { from: "2026-05-23", to: "2026-06-22" },
+  summary: {
+    days: 31,
+    scheduledDays: 0,
+    deficitDays: 0,
+    averageDailyLoadUnits: 0,
+    averageScheduledLoadUnits: 0,
+    peakLoadUnits: 0,
+    budgetUnits: 8,
+    sampleStatus: "low_sample"
+  },
+  days: [],
+  sampleStatus: "low_sample"
+};
+
+const LIVE_ENERGY: MirrorEnergyTrendData = {
+  range: { from: "2026-06-20", to: "2026-06-22" },
+  summary: {
+    days: 3,
+    scheduledDays: 3,
+    deficitDays: 1,
+    averageDailyLoadUnits: 3,
+    averageScheduledLoadUnits: 3,
+    peakLoadUnits: 5,
+    budgetUnits: 8,
+    sampleStatus: "ok"
+  },
+  days: [
+    { date: "2026-06-22", eventCount: 2, loadUnits: 5, budgetUnits: 8, remainingUnits: 3, deficit: false, continuousExceeded: false },
+    { date: "2026-06-21", eventCount: 1, loadUnits: 9, budgetUnits: 8, remainingUnits: -1, deficit: true, continuousExceeded: false },
+    { date: "2026-06-20", eventCount: 1, loadUnits: 1, budgetUnits: 8, remainingUnits: 7, deficit: false, continuousExceeded: false }
+  ],
+  sampleStatus: "ok"
 };
 
 const LIVE_PATTERNS: MirrorPatternsData = {
@@ -78,12 +114,19 @@ function ledger(over: Partial<MirrorLedgerData>): MirrorLedgerData {
   };
 }
 
-function stubFetch(ledgerData: MirrorLedgerData, patternsData: MirrorPatternsData = EMPTY_PATTERNS) {
+function stubFetch(
+  ledgerData: MirrorLedgerData,
+  patternsData: MirrorPatternsData = EMPTY_PATTERNS,
+  energyData: MirrorEnergyTrendData = EMPTY_ENERGY
+) {
   vi.stubGlobal(
     "fetch",
     vi.fn((url: string) => {
       if (url.includes("/api/mirror/patterns")) {
         return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: patternsData }) });
+      }
+      if (url.includes("/api/mirror/energy-trends")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: energyData }) });
       }
       return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: ledgerData }) });
     })
@@ -132,7 +175,7 @@ describe("MirrorLedger — live state", () => {
   });
 
   it("renders pattern section and ledger entries", async () => {
-    stubFetch(liveData, LIVE_PATTERNS);
+    stubFetch(liveData, LIVE_PATTERNS, LIVE_ENERGY);
     render(<MirrorLedger />);
     await waitFor(() => {
       expect(screen.getByTestId("mirror-patterns")).toBeInTheDocument();
@@ -143,7 +186,7 @@ describe("MirrorLedger — live state", () => {
   });
 
   it("shows weekday bucket copy in patterns section", async () => {
-    stubFetch(liveData, LIVE_PATTERNS);
+    stubFetch(liveData, LIVE_PATTERNS, LIVE_ENERGY);
     render(<MirrorLedger />);
     await waitFor(() => {
       expect(screen.getByTestId("mirror-patterns")).toBeInTheDocument();
@@ -152,7 +195,7 @@ describe("MirrorLedger — live state", () => {
   });
 
   it("does not show ledger low-sample copy when sampleStatus is ok", async () => {
-    stubFetch(liveData, LIVE_PATTERNS);
+    stubFetch(liveData, LIVE_PATTERNS, LIVE_ENERGY);
     render(<MirrorLedger />);
     await waitFor(() => {
       expect(screen.getByTestId("mirror-entries")).toBeInTheDocument();
@@ -161,7 +204,7 @@ describe("MirrorLedger — live state", () => {
   });
 
   it("avoids prescriptive/moralizing copy", async () => {
-    stubFetch(liveData, LIVE_PATTERNS);
+    stubFetch(liveData, LIVE_PATTERNS, LIVE_ENERGY);
     render(<MirrorLedger />);
     await waitFor(() => {
       expect(screen.getByTestId("mirror-summary")).toBeInTheDocument();
@@ -188,7 +231,7 @@ describe("MirrorLedger — live state", () => {
         }
       ]
     });
-    stubFetch(lowData, LIVE_PATTERNS);
+    stubFetch(lowData, LIVE_PATTERNS, LIVE_ENERGY);
     render(<MirrorLedger />);
     await waitFor(() => {
       expect(screen.getByTestId("mirror-low-sample")).toBeInTheDocument();
@@ -201,11 +244,70 @@ describe("MirrorLedger — live state", () => {
       ...LIVE_PATTERNS,
       sampleStatus: "low_sample"
     };
-    stubFetch(liveData, lowPatterns);
+    stubFetch(liveData, lowPatterns, LIVE_ENERGY);
     render(<MirrorLedger />);
     await waitFor(() => {
       expect(screen.getByTestId("patterns-low-sample")).toBeInTheDocument();
     });
+  });
+
+  it("renders energy trend section with summary chips", async () => {
+    stubFetch(liveData, LIVE_PATTERNS, LIVE_ENERGY);
+    render(<MirrorLedger />);
+    await waitFor(() => {
+      expect(screen.getByTestId("mirror-energy-trend")).toBeInTheDocument();
+    });
+    expect(screen.getByText(/예산 초과 1일/)).toBeInTheDocument();
+    expect(screen.getByText(/예산 8시간/)).toBeInTheDocument();
+    expect(screen.getByText(/일정 있는 날 3일/)).toBeInTheDocument();
+  });
+
+  it("marks deficit day rows with testid", async () => {
+    stubFetch(liveData, LIVE_PATTERNS, LIVE_ENERGY);
+    render(<MirrorLedger />);
+    await waitFor(() => {
+      expect(screen.getByTestId("mirror-energy-trend")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("energy-deficit-2026-06-21")).toBeInTheDocument();
+  });
+
+  it("shows energy low-sample note when scheduledDays < 3", async () => {
+    const lowEnergy: MirrorEnergyTrendData = {
+      ...EMPTY_ENERGY,
+      summary: {
+        ...EMPTY_ENERGY.summary,
+        scheduledDays: 2,
+        days: 7
+      },
+      days: [
+        { date: "2026-06-21", eventCount: 1, loadUnits: 2, budgetUnits: 8, remainingUnits: 6, deficit: false, continuousExceeded: false },
+        { date: "2026-06-22", eventCount: 1, loadUnits: 1, budgetUnits: 8, remainingUnits: 7, deficit: false, continuousExceeded: false }
+      ],
+      sampleStatus: "low_sample"
+    };
+    stubFetch(liveData, LIVE_PATTERNS, lowEnergy);
+    render(<MirrorLedger />);
+    await waitFor(() => {
+      expect(screen.getByTestId("energy-low-sample")).toBeInTheDocument();
+    });
+  });
+
+  it("does not render energy section when scheduledDays is 0", async () => {
+    stubFetch(liveData, LIVE_PATTERNS, EMPTY_ENERGY);
+    render(<MirrorLedger />);
+    await waitFor(() => {
+      expect(screen.getByTestId("mirror-entries")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("mirror-energy-trend")).not.toBeInTheDocument();
+  });
+
+  it("enters live state when only energy has scheduledDays > 0", async () => {
+    stubFetch(ledger({ entries: [] }), EMPTY_PATTERNS, LIVE_ENERGY);
+    render(<MirrorLedger />);
+    await waitFor(() => {
+      expect(screen.getByTestId("mirror-energy-trend")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("mirror-quiet")).not.toBeInTheDocument();
   });
 });
 

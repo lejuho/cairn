@@ -199,6 +199,17 @@ export function findPlannedAndConfirmedByDate(
     ) as EventRow[];
 }
 
+// All planned/confirmed events with any start value. Date-range filtering is
+// deferred to the pure service (consistent with findPlannedAndConfirmedByDate).
+export function findPlannedAndConfirmedAll(db: CairnDatabase): EventRow[] {
+  return db
+    .select()
+    .from(events)
+    .orderBy(asc(events.start))
+    .all()
+    .filter((e) => e.status === "planned" || e.status === "confirmed") as EventRow[];
+}
+
 export function findEventsWithCostsForDate(
   db: CairnDatabase,
   date: string
