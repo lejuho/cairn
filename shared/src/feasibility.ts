@@ -54,3 +54,45 @@ export type GapMode = z.infer<typeof GapModeSchema>;
 export type Gap = z.infer<typeof GapSchema>;
 export type Continuous = z.infer<typeof ContinuousSchema>;
 export type DayFeasibility = z.infer<typeof DayFeasibilitySchema>;
+
+// Full replacement body — all five keys required, ranges enforced.
+export const UpdateFeasibilityParamsRequestSchema = z.object({
+  energyBudget: z.number().finite().min(1).max(16),
+  meetBufferMinutes: z.number().finite().int().min(0).max(120),
+  deepBufferMinutes: z.number().finite().int().min(0).max(180),
+  travelMargin: z.number().finite().min(0.5).max(3),
+  maxContinuousMinutes: z.number().finite().int().min(60).max(960)
+}).strict();
+
+export const FeasibilityParamLimitSchema = z.object({
+  min: z.number(),
+  max: z.number(),
+  step: z.number(),
+  unit: z.string()
+}).strict();
+
+export const FeasibilityParamLimitsSchema = z.object({
+  energyBudget: FeasibilityParamLimitSchema,
+  meetBufferMinutes: FeasibilityParamLimitSchema,
+  deepBufferMinutes: FeasibilityParamLimitSchema,
+  travelMargin: FeasibilityParamLimitSchema,
+  maxContinuousMinutes: FeasibilityParamLimitSchema
+}).strict();
+
+export const FeasibilityParamSettingsDataSchema = z.object({
+  params: FeasibilityParamsSchema,
+  defaults: FeasibilityParamsSchema,
+  limits: FeasibilityParamLimitsSchema
+}).strict();
+
+export const PreviewFeasibilityRequestSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD"),
+  now: z.string().datetime({ offset: true }),
+  params: UpdateFeasibilityParamsRequestSchema
+}).strict();
+
+export type UpdateFeasibilityParamsRequest = z.infer<typeof UpdateFeasibilityParamsRequestSchema>;
+export type FeasibilityParamLimit = z.infer<typeof FeasibilityParamLimitSchema>;
+export type FeasibilityParamLimits = z.infer<typeof FeasibilityParamLimitsSchema>;
+export type FeasibilityParamSettingsData = z.infer<typeof FeasibilityParamSettingsDataSchema>;
+export type PreviewFeasibilityRequest = z.infer<typeof PreviewFeasibilityRequestSchema>;

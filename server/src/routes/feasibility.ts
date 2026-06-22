@@ -1,8 +1,16 @@
 import type { FastifyInstance } from "fastify";
-import { FeasibilityQuerySchema } from "@cairn/shared";
+import {
+  FeasibilityQuerySchema,
+  UpdateFeasibilityParamsRequestSchema,
+  PreviewFeasibilityRequestSchema
+} from "@cairn/shared";
 import { readNumericParam } from "../repositories/params.js";
 import { findPlannedAndConfirmedByDate } from "../repositories/events.js";
 import { buildFeasibilityParams, computeDayFeasibility } from "../services/feasibility.js";
+import {
+  readFeasibilityParamSettings,
+  writeFeasibilityParams
+} from "../services/feasibility-params.js";
 import type { CairnDatabase } from "../db/index.js";
 
 export function registerFeasibilityRoutes(app: FastifyInstance, db: CairnDatabase): void {
@@ -28,6 +36,39 @@ export function registerFeasibilityRoutes(app: FastifyInstance, db: CairnDatabas
     const events = findPlannedAndConfirmedByDate(db, date);
     const feasibility = computeDayFeasibility(date, now, events, p);
 
+    return reply.send({ ok: true, data: feasibility });
+  });
+
+  app.get("/api/feasibility/params", async (_req, reply) => {
+    const settings = readFeasibilityParamSettings(db);
+    return reply.send({ ok: true, data: settings });
+  });
+
+  app.put("/api/feasibility/params", async (req, reply) => {
+    const parsed = UpdateFeasibilityParamsRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "VALIDATION_ERROR", message: parsed.error.message }
+      });
+    }
+    writeFeasibilityParams(db, parsed.data);
+    const settings = readFeasibilityParamSettings(db);
+    return reply.send({ ok: true, data: settings });
+  });
+
+  app.post("/api/feasibility/day/preview", async (req, reply) => {
+    const parsed = PreviewFeasibilityRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "VALIDATION_ERROR", message: parsed.error.message }
+      });
+    }
+    const { date, now, params: reqParams } = parsed.data;
+    // Use supplied params directly — no DB read, no write.
+    const events = findPlannedAndConfirmedByDate(db, date);
+    const feasibility = computeDayFeasibility(date, now, events, reqParams);
     return reply.send({ ok: true, data: feasibility });
   });
 }

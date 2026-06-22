@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import type { CairnDatabase } from "../db/index.js";
+import type { CairnDatabase, CairnDbExecutor } from "../db/index.js";
 import { params } from "../db/schema.js";
 
 export function readParam(db: CairnDatabase, key: string): string | null {
@@ -14,7 +14,7 @@ export function readNumericParam(db: CairnDatabase, key: string, defaultValue: n
   return Number.isFinite(parsed) ? parsed : defaultValue;
 }
 
-export function upsertParam(db: CairnDatabase, key: string, value: string): void {
+export function upsertParam(db: CairnDbExecutor, key: string, value: string): void {
   db
     .insert(params)
     .values({ key, value })

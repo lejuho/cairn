@@ -1282,6 +1282,159 @@ p {
   color: var(--text);
 }
 
+.feas-adjust-btn {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 0 14px;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.feas-adjust-btn:hover { color: var(--text); border-color: var(--text); }
+
+/* Feasibility settings sheet */
+.feas-settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.feas-settings-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+.feas-settings-loading,
+.feas-settings-err {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 8px 0;
+}
+.feas-settings-err { color: var(--cancelled); }
+.feas-settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.feas-param-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.feas-param-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+.feas-param-unit {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.feas-param-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.feas-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 44px;      /* touch target height */
+  background: transparent;
+  cursor: pointer;
+}
+.feas-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--raised);
+}
+.feas-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-top: -9px;
+  cursor: pointer;
+}
+.feas-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--raised);
+}
+.feas-slider::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+  cursor: pointer;
+}
+.feas-slider:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.feas-slider:disabled { opacity: 0.5; cursor: not-allowed; }
+.feas-param-val {
+  min-width: 3.5ch;
+  text-align: right;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+.feas-preview {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--raised);
+  font-size: 0.85rem;
+}
+.feas-preview-label { color: var(--muted); }
+.feas-preview-val {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text);
+}
+.feas-settings-actions {
+  display: flex;
+  gap: 10px;
+}
+.feas-settings-cancel-btn {
+  flex: 1;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+.feas-settings-apply-btn {
+  flex: 2;
+  min-height: 44px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.feas-settings-apply-btn:disabled,
+.feas-settings-cancel-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feas-slider::-webkit-slider-thumb { transition: none; }
+  .feas-slider::-moz-range-thumb { transition: none; }
+}
+
 /* Conflict decision sheet */
 .conflict-overlap {
   font-size: 0.82rem;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ConflictDecision, DayFeasibility, EventDetailData, EventRow, NotificationDraft, SlotCandidate, ThreadSummary, TodaySurface } from "@cairn/shared";
+import type { ConflictDecision, DayFeasibility, EventDetailData, EventRow, FeasibilityParamLimits, FeasibilityParamSettingsData, FeasibilityParams, NotificationDraft, SlotCandidate, ThreadSummary, TodaySurface, UpdateFeasibilityParamsRequest } from "@cairn/shared";
 import { ResolveConflictResponseDataSchema } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString } from "./dateUtils.js";
 import { apiJson, type AccessSessionError } from "./api.js";
@@ -36,6 +36,20 @@ type ViewState =
   | { tag: "live"; surface: TodaySurface }
   | { tag: "error"; message: string }
   | { tag: "access_error" };
+
+type FeasSettingsSheetState =
+  | { open: false }
+  | {
+      open: true;
+      loadState: "loading" | "ready" | "error";
+      draft: UpdateFeasibilityParamsRequest;
+      limits: FeasibilityParamLimits;
+      defaults: FeasibilityParams;
+      preview: DayFeasibility | null;
+      previewError: string | null;
+      saveError: string | null;
+      saving: boolean;
+    };
 
 const EMPTY_TASK_FORM: TaskForm = { title: "", estMinutes: "2", threadId: "" };
 const EMPTY_EVENT_FORM: EventForm = { title: "", start: "", end: "", threadId: "" };
@@ -138,7 +152,7 @@ async function createEvent(title: string, start: string, end: string, threadId?:
   if (!body.ok) throw new Error("일정 생성 실패");
 }
 
-function FeasibilityPanel({ f }: { f: DayFeasibility }) {
+function FeasibilityPanel({ f, onAdjust }: { f: DayFeasibility; onAdjust?: () => void }) {
   const { energy, gaps, continuous } = f;
   const pct = Math.min(100, Math.round((energy.loadUnits / energy.budgetUnits) * 100));
   const warningGaps = gaps.filter((g) => g.status !== "ok");
@@ -166,6 +180,11 @@ function FeasibilityPanel({ f }: { f: DayFeasibility }) {
         <div className="feas-continuous" role="status">
           ⚠ 연속 {Math.round(continuous.spanMinutes)}분 — 쉬는 시간 없어
         </div>
+      )}
+      {onAdjust && (
+        <button className="feas-adjust-btn" onClick={onAdjust} aria-label="feasibility 파라미터 조정">
+          조정
+        </button>
       )}
     </div>
   );
@@ -432,6 +451,9 @@ export function Today() {
   const [detailNote, setDetailNote] = useState<DetailNoteState>({ text: "", submitting: false, error: null });
   const [conflictSheet, setConflictSheet] = useState<ConflictSheetState>({ open: false });
   const [watcherSnoozeError, setWatcherSnoozeError] = useState<Record<number, string>>({});
+  const [feasSettings, setFeasSettings] = useState<FeasSettingsSheetState>({ open: false });
+  const feasPreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const feasPreviewAbortRef = useRef<AbortController | null>(null);
   const savedMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firstInputRef = useRef<HTMLInputElement>(null);
   const conflictOpenerRef = useRef<HTMLElement | null>(null);
@@ -700,6 +722,102 @@ export function Today() {
       (live ?? liveMainRef.current)?.focus();
     });
   }, [refresh]);
+
+  const handleOpenFeasSettings = useCallback(async (currentParams: FeasibilityParams) => {
+    const FALLBACK_LIMITS: FeasibilityParamLimits = {
+      energyBudget:        { min: 1,    max: 16,  step: 0.5, unit: "h" },
+      meetBufferMinutes:   { min: 0,    max: 120, step: 5,   unit: "min" },
+      deepBufferMinutes:   { min: 0,    max: 180, step: 5,   unit: "min" },
+      travelMargin:        { min: 0.5,  max: 3,   step: 0.1, unit: "x" },
+      maxContinuousMinutes:{ min: 60,   max: 960, step: 30,  unit: "min" }
+    };
+    setFeasSettings({
+      open: true,
+      loadState: "loading",
+      draft: currentParams,
+      limits: FALLBACK_LIMITS,
+      defaults: currentParams,
+      preview: null,
+      previewError: null,
+      saveError: null,
+      saving: false
+    });
+    try {
+      const body = await apiJson<{ ok: boolean; data?: FeasibilityParamSettingsData; error?: { message: string } }>("/api/feasibility/params");
+      if (!body.ok || !body.data) throw new Error(body.error?.message ?? "불러오기 실패");
+      setFeasSettings((s) => s.open ? {
+        ...s,
+        loadState: "ready",
+        draft: body.data!.params,
+        limits: body.data!.limits,
+        defaults: body.data!.defaults
+      } : s);
+    } catch {
+      setFeasSettings((s) => s.open ? { ...s, loadState: "error" } : s);
+    }
+  }, []);
+
+  const handleFeasSliderChange = useCallback((
+    key: keyof UpdateFeasibilityParamsRequest,
+    value: number,
+    surface: TodaySurface
+  ) => {
+    setFeasSettings((s) => {
+      if (!s.open) return s;
+      return { ...s, draft: { ...s.draft, [key]: value }, previewError: null };
+    });
+    // Debounce preview request; cancel stale request.
+    if (feasPreviewTimerRef.current) clearTimeout(feasPreviewTimerRef.current);
+    if (feasPreviewAbortRef.current) feasPreviewAbortRef.current.abort();
+
+    feasPreviewTimerRef.current = setTimeout(() => {
+      setFeasSettings((s) => {
+        if (!s.open) return s;
+        const draft = { ...s.draft, [key]: value };
+        const ctrl = new AbortController();
+        feasPreviewAbortRef.current = ctrl;
+        apiJson<{ ok: boolean; data?: DayFeasibility; error?: { message: string } }>(
+          "/api/feasibility/day/preview",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ date: surface.date, now: surface.now, params: draft }),
+            signal: ctrl.signal
+          }
+        ).then((body) => {
+          if (!body.ok || !body.data) throw new Error(body.error?.message ?? "preview 실패");
+          setFeasSettings((cur) => cur.open ? { ...cur, preview: body.data!, previewError: null } : cur);
+        }).catch((err: unknown) => {
+          if (err instanceof Error && err.name === "AbortError") return;
+          setFeasSettings((cur) => cur.open ? { ...cur, preview: null, previewError: (err instanceof Error ? err.message : "preview 실패") } : cur);
+        });
+        return { ...s, draft };
+      });
+    }, 300);
+  }, []);
+
+  const handleApplyFeasSettings = useCallback(async () => {
+    if (!feasSettings.open) return;
+    setFeasSettings((s) => s.open ? { ...s, saving: true, saveError: null } : s);
+    try {
+      const body = await apiJson<{ ok: boolean; error?: { message: string } }>("/api/feasibility/params", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(feasSettings.draft)
+      });
+      if (!body.ok) throw new Error(body.error?.message ?? "저장 실패");
+      setFeasSettings({ open: false });
+      await refresh();
+    } catch (err: unknown) {
+      setFeasSettings((s) => s.open ? { ...s, saving: false, saveError: (err instanceof Error ? err.message : "저장 실패") } : s);
+    }
+  }, [feasSettings, refresh]);
+
+  const handleCloseFeasSettings = useCallback(() => {
+    if (feasPreviewTimerRef.current) clearTimeout(feasPreviewTimerRef.current);
+    if (feasPreviewAbortRef.current) feasPreviewAbortRef.current.abort();
+    setFeasSettings({ open: false });
+  }, []);
 
   const handleResolveConflict = useCallback(async (
     keepEventId: number,
@@ -1122,7 +1240,10 @@ export function Today() {
         {capture.savedMsg && (
           <p className="today-capture-saved" role="status" aria-live="polite">{capture.savedMsg}</p>
         )}
-        <FeasibilityPanel f={surface.feasibility} />
+        <FeasibilityPanel
+          f={surface.feasibility}
+          onAdjust={() => void handleOpenFeasSettings(surface.feasibility.params)}
+        />
         <ul className="today-stack" role="list">
         {surface.cards.map((card, i) => {
           const delay = { animationDelay: `${i * 55}ms` } as React.CSSProperties;
@@ -1395,6 +1516,110 @@ export function Today() {
           onComplete={() => void handleCompleteResolved()}
           openerRef={conflictOpenerRef}
         />
+      )}
+      {feasSettings.open && (
+        <>
+          <div
+            className="sheet-backdrop"
+            onClick={handleCloseFeasSettings}
+            aria-hidden="true"
+          />
+          <div
+            className="sheet sheet--entering"
+            role="dialog"
+            aria-modal="true"
+            aria-label="feasibility 파라미터 조정"
+          >
+            <span className="sheet-handle" aria-hidden="true" />
+            <div className="feas-settings-header">
+              <h2 className="feas-settings-title">파라미터 조정</h2>
+              <button
+                className="sheet-close-btn"
+                onClick={handleCloseFeasSettings}
+                aria-label="닫기"
+              >✕</button>
+            </div>
+            {feasSettings.loadState === "loading" && (
+              <p className="feas-settings-loading">불러오는 중…</p>
+            )}
+            {feasSettings.loadState === "error" && (
+              <p className="feas-settings-err" role="alert">불러오기 실패 — 현재 값으로 조정할게</p>
+            )}
+            {(feasSettings.loadState === "ready" || feasSettings.loadState === "error") && (() => {
+              const { draft, limits, saving, saveError, preview, previewError } = feasSettings;
+              const PARAM_LABELS: Record<keyof UpdateFeasibilityParamsRequest, string> = {
+                energyBudget: "에너지 예산",
+                meetBufferMinutes: "미팅 버퍼",
+                deepBufferMinutes: "집중 버퍼",
+                travelMargin: "이동 여유",
+                maxContinuousMinutes: "최대 연속"
+              };
+              return (
+                <div className="feas-settings-body">
+                  {(Object.keys(PARAM_LABELS) as (keyof UpdateFeasibilityParamsRequest)[]).map((key) => {
+                    const lim = limits[key];
+                    const val = draft[key];
+                    return (
+                      <div key={key} className="feas-param-row">
+                        <label className="feas-param-label" htmlFor={`feas-slider-${key}`}>
+                          {PARAM_LABELS[key]}
+                          <span className="feas-param-unit">{lim.unit}</span>
+                        </label>
+                        <div className="feas-param-control">
+                          <input
+                            id={`feas-slider-${key}`}
+                            type="range"
+                            className="feas-slider"
+                            min={lim.min}
+                            max={lim.max}
+                            step={lim.step}
+                            value={val}
+                            onChange={(e) => handleFeasSliderChange(key, Number(e.target.value), surface)}
+                            disabled={saving}
+                            aria-label={`${PARAM_LABELS[key]} ${val}${lim.unit}`}
+                          />
+                          <span className="feas-param-val">{val}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {previewError && (
+                    <p className="feas-settings-err" role="alert">{previewError}</p>
+                  )}
+                  {preview && (
+                    <div className="feas-preview" aria-label="미리보기 결과">
+                      <span className="feas-preview-label">미리보기</span>
+                      <span className="feas-preview-val">
+                        {preview.energy.loadUnits.toFixed(1)}h / {preview.energy.budgetUnits}h
+                        {preview.energy.deficit && " · 초과"}
+                      </span>
+                    </div>
+                  )}
+                  {saveError && (
+                    <p className="feas-settings-err" role="alert">{saveError}</p>
+                  )}
+                  <div className="feas-settings-actions">
+                    <button
+                      className="feas-settings-cancel-btn"
+                      onClick={handleCloseFeasSettings}
+                      disabled={saving}
+                    >
+                      취소
+                    </button>
+                    <button
+                      className="feas-settings-apply-btn"
+                      onClick={() => void handleApplyFeasSettings()}
+                      disabled={saving}
+                      aria-label="파라미터 저장"
+                    >
+                      {saving ? "저장 중…" : "적용"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        </>
       )}
     </>
   );
