@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Today } from "./Today.js";
-import type { ConflictDecision, EventDetailData, TodaySurface } from "@cairn/shared";
+import type { ConflictDecision, EventDetailData, FeasibilityParamSettingsData, TodaySurface } from "@cairn/shared";
 
 afterEach(() => {
   cleanup();
@@ -1973,5 +1973,126 @@ describe("Today — conflict sheet people guard", () => {
     expect(screen.getByLabelText("미팅 B 이동 처리")).toBeDisabled();
     expect(screen.getByLabelText("미팅 B 취소 처리")).toBeDisabled();
     expect(screen.getByText("아직 계획 구간이라 해소 버튼은 잠가둠")).toBeInTheDocument();
+  });
+});
+
+const BASE_FEAS_SETTINGS: FeasibilityParamSettingsData = {
+  params: { energyBudget: 8, meetBufferMinutes: 15, deepBufferMinutes: 30, travelMargin: 1, maxContinuousMinutes: 600 },
+  defaults: { energyBudget: 8, meetBufferMinutes: 15, deepBufferMinutes: 30, travelMargin: 1, maxContinuousMinutes: 600 },
+  limits: {
+    energyBudget:        { min: 1,   max: 16,  step: 0.5, unit: "h" },
+    meetBufferMinutes:   { min: 0,   max: 120, step: 5,   unit: "min" },
+    deepBufferMinutes:   { min: 0,   max: 180, step: 5,   unit: "min" },
+    travelMargin:        { min: 0.5, max: 3,   step: 0.1, unit: "x" },
+    maxContinuousMinutes:{ min: 60,  max: 960, step: 30,  unit: "min" }
+  }
+};
+
+describe("Today — feasibility settings sheet", () => {
+  function liveSurface(): TodaySurface {
+    return { ...BASE_SURFACE, state: "live", cards: [] };
+  }
+
+  function mockFetchSequence(responses: unknown[]) {
+    let call = 0;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => {
+      const resp = responses[Math.min(call++, responses.length - 1)];
+      return Promise.resolve({ ok: true, redirected: false, url: "", json: () => Promise.resolve(resp) });
+    }));
+  }
+
+  it("renders 조정 button on feasibility panel in live state", async () => {
+    mockFetchSequence([{ ok: true, data: liveSurface() }]);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("feasibility 파라미터 조정")).toBeInTheDocument());
+  });
+
+  it("opening settings fetches params and renders five sliders", async () => {
+    mockFetchSequence([
+      { ok: true, data: liveSurface() },
+      { ok: true, data: BASE_FEAS_SETTINGS }
+    ]);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("feasibility 파라미터 조정")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("feasibility 파라미터 조정"));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "feasibility 파라미터 조정" })).toBeInTheDocument());
+    expect(screen.getByLabelText(/에너지 예산/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/미팅 버퍼/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/집중 버퍼/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/이동 여유/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/최대 연속/)).toBeInTheDocument();
+  });
+
+  it("cancel closes the sheet without PUT", async () => {
+    mockFetchSequence([
+      { ok: true, data: liveSurface() },
+      { ok: true, data: BASE_FEAS_SETTINGS }
+    ]);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("feasibility 파라미터 조정")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("feasibility 파라미터 조정"));
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("취소"));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const fetchMock = vi.mocked(global.fetch);
+    const putCalls = fetchMock.mock.calls.filter((c) => {
+      const init = c[1] as RequestInit | undefined;
+      return init?.method === "PUT";
+    });
+    expect(putCalls).toHaveLength(0);
+  });
+
+  it("apply calls PUT and refreshes Today on success", async () => {
+    let fetchCall = 0;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      fetchCall++;
+      if (fetchCall === 1) return Promise.resolve({ ok: true, redirected: false, url: "", json: () => Promise.resolve({ ok: true, data: liveSurface() }) });
+      if (fetchCall === 2) return Promise.resolve({ ok: true, redirected: false, url: "", json: () => Promise.resolve({ ok: true, data: BASE_FEAS_SETTINGS }) });
+      if (init?.method === "PUT") return Promise.resolve({ ok: true, redirected: false, url: "", json: () => Promise.resolve({ ok: true, data: BASE_FEAS_SETTINGS }) });
+      // refresh today
+      return Promise.resolve({ ok: true, redirected: false, url: "", json: () => Promise.resolve({ ok: true, data: liveSurface() }) });
+    }));
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("feasibility 파라미터 조정")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("feasibility 파라미터 조정"));
+    await waitFor(() => expect(screen.getByLabelText("파라미터 저장")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("파라미터 저장"));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const fetchMock = vi.mocked(global.fetch);
+    const putCalls = fetchMock.mock.calls.filter((c) => {
+      const init = c[1] as RequestInit | undefined;
+      return init?.method === "PUT";
+    });
+    expect(putCalls).toHaveLength(1);
+  });
+
+  it("save failure keeps sheet open and shows error", async () => {
+    let fetchCall = 0;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => {
+      fetchCall++;
+      if (fetchCall === 1) return Promise.resolve({ ok: true, redirected: false, url: "", json: () => Promise.resolve({ ok: true, data: liveSurface() }) });
+      if (fetchCall === 2) return Promise.resolve({ ok: true, redirected: false, url: "", json: () => Promise.resolve({ ok: true, data: BASE_FEAS_SETTINGS }) });
+      return Promise.resolve({ ok: true, redirected: false, url: "", json: () => Promise.resolve({ ok: false, error: { message: "저장 오류" } }) });
+    }));
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("feasibility 파라미터 조정")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("feasibility 파라미터 조정"));
+    await waitFor(() => expect(screen.getByLabelText("파라미터 저장")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("파라미터 저장"));
+    await waitFor(() => expect(screen.getByText("저장 오류")).toBeInTheDocument());
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("backdrop click closes sheet without save", async () => {
+    mockFetchSequence([
+      { ok: true, data: liveSurface() },
+      { ok: true, data: BASE_FEAS_SETTINGS }
+    ]);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("feasibility 파라미터 조정")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("feasibility 파라미터 조정"));
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+    fireEvent.click(document.querySelector(".sheet-backdrop")!);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 });

@@ -1,7 +1,7 @@
 import type { DayFeasibility, FeasibilityParams, Gap } from "@cairn/shared";
 import type { EventRow } from "@cairn/shared";
 
-const DEFAULTS: FeasibilityParams = {
+export const DEFAULTS: FeasibilityParams = {
   energyBudget: 8,
   meetBufferMinutes: 15,
   deepBufferMinutes: 30,
