@@ -18,12 +18,16 @@ const FRICTION_SLIP_THRESHOLD = 0.5;
 const PTS_AVAIL_FREE = 40;
 const PTS_FEAS_WITHIN = 25;
 const PTS_FEAS_DEFICIT = -20;
+const PTS_FEAS_GAP_TIGHT = -10;
+const PTS_FEAS_GAP_IMPOSSIBLE = -20;
+const PTS_FEAS_CONTINUOUS = -10;
 const PTS_PEOPLE_PREFERRED = 20;
 const PTS_PEOPLE_PARTIAL = 10;
 const PTS_PEOPLE_HARD_UNAVAIL = -40;
 const PTS_FRICTION_LOW = 15;
 const PTS_FRICTION_HIGH_WEEKDAY = -15;
 const PTS_FRICTION_HIGH_TYPE = -10;
+const PTS_FRICTION_HIGH_THREAD = -10;
 
 const WEEKDAY_JS: Weekday[] = [
   "sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"
@@ -115,28 +119,36 @@ export function scoreFeasibility(
     const merged = [...dayEvents, tempEvent as unknown as EventRow];
     const feas = computeDayFeasibility(dateStr, nowStr, merged, params);
     const { loadUnits, budgetUnits, deficit } = feas.energy;
-    const loadH = (loadUnits).toFixed(1);
-    const budgetH = (budgetUnits).toFixed(1);
-    if (deficit) {
-      return {
-        lens: "feasibility",
-        label: "체력",
-        impact: "negative",
-        points: PTS_FEAS_DEFICIT,
-        confidence: "observed",
-        reasonCodes: ["energy_over_budget"],
-        evidence: [`예상 load ${loadH}h / 예산 ${budgetH}h — 초과`]
-      };
+    const loadH = loadUnits.toFixed(1);
+    const budgetH = budgetUnits.toFixed(1);
+
+    let points = deficit ? PTS_FEAS_DEFICIT : PTS_FEAS_WITHIN;
+    const reasonCodes: string[] = [deficit ? "energy_over_budget" : "energy_within_budget"];
+    const evidence: string[] = [`예상 load ${loadH}h / 예산 ${budgetH}h${deficit ? " — 초과" : ""}`];
+
+    const worstGapStatus = feas.gaps.reduce<"ok" | "tight" | "impossible">((worst, g) => {
+      if (g.status === "impossible") return "impossible";
+      if (g.status === "tight" && worst !== "impossible") return "tight";
+      return worst;
+    }, "ok");
+    if (worstGapStatus === "impossible") {
+      points += PTS_FEAS_GAP_IMPOSSIBLE;
+      reasonCodes.push("gap_impossible");
+      evidence.push("인접 일정 간격 불가");
+    } else if (worstGapStatus === "tight") {
+      points += PTS_FEAS_GAP_TIGHT;
+      reasonCodes.push("gap_tight");
+      evidence.push("인접 일정 간격 빠듯함");
     }
-    return {
-      lens: "feasibility",
-      label: "체력",
-      impact: "positive",
-      points: PTS_FEAS_WITHIN,
-      confidence: "observed",
-      reasonCodes: ["energy_within_budget"],
-      evidence: [`예상 load ${loadH}h / 예산 ${budgetH}h`]
-    };
+
+    if (feas.continuous?.exceedsMax) {
+      points += PTS_FEAS_CONTINUOUS;
+      reasonCodes.push("continuous_exceeded");
+      evidence.push(`연속 일정 ${Math.round(feas.continuous.spanMinutes)}분 — 최대 초과`);
+    }
+
+    const impact = points < 0 ? "negative" : points > 0 ? "positive" : "neutral";
+    return { lens: "feasibility", label: "체력", impact, points, confidence: "observed", reasonCodes, evidence };
   } catch {
     return {
       lens: "feasibility",
@@ -167,6 +179,8 @@ export function scorePeople(
     };
   }
 
+  const allPersonIds = people.map((p) => p.id);
+
   // Check hard unavailable weekday for any person
   const hardViolators = people.filter((p) =>
     (p.hardConstraints ?? []).some(
@@ -182,7 +196,8 @@ export function scorePeople(
       points: PTS_PEOPLE_HARD_UNAVAIL,
       confidence: "observed",
       reasonCodes: ["person_unavailable_weekday"],
-      evidence: [`${names} — 해당 요일 불가`]
+      evidence: [`${names} — 해당 요일 불가`],
+      personIds: hardViolators.map((p) => p.id)
     };
   }
 
@@ -200,7 +215,8 @@ export function scorePeople(
       points: 0,
       confidence: "cold_start",
       reasonCodes: ["people_no_preference"],
-      evidence: ["참여자 선호 시간 미설정"]
+      evidence: ["참여자 선호 시간 미설정"],
+      personIds: allPersonIds
     };
   }
 
@@ -219,7 +235,8 @@ export function scorePeople(
       points: PTS_PEOPLE_PREFERRED,
       confidence: "observed",
       reasonCodes: ["person_preferred_window"],
-      evidence: ["관련자 선호 요일·시간대와 맞음"]
+      evidence: ["관련자 선호 요일·시간대와 맞음"],
+      personIds: allPersonIds
     };
   }
   if (weekdayMatch || periodMatch) {
@@ -231,7 +248,8 @@ export function scorePeople(
       points: PTS_PEOPLE_PARTIAL,
       confidence: "observed",
       reasonCodes: ["person_preferred_partial"],
-      evidence: [detail]
+      evidence: [detail],
+      personIds: allPersonIds
     };
   }
   return {
@@ -241,7 +259,8 @@ export function scorePeople(
     points: 0,
     confidence: "observed",
     reasonCodes: ["person_outside_preference"],
-    evidence: ["관련자 선호 시간대 밖"]
+    evidence: ["관련자 선호 시간대 밖"],
+    personIds: allPersonIds
   };
 }
 
@@ -269,13 +288,23 @@ export function scoreFriction(
     (a) => a.outcome === "moved" || a.outcome === "cancelled"
   );
 
+  // Thread friction: annotations for same thread
+  const threadRows = threadId !== null
+    ? allAnnotations.filter((a) => a.threadId === threadId)
+    : [];
+  const threadSlipped = threadRows.filter(
+    (a) => a.outcome === "moved" || a.outcome === "cancelled"
+  );
+
   const weekdayHasSample = weekdayRows.length >= FRICTION_SAMPLE_MIN;
   const typeHasSample = typeRows.length >= FRICTION_SAMPLE_MIN;
+  const threadHasSample = threadRows.length >= FRICTION_SAMPLE_MIN;
 
-  if (!weekdayHasSample && !typeHasSample) {
-    const evidenceParts = [];
-    if (!weekdayHasSample) evidenceParts.push(`요일 표본 ${weekdayRows.length}건 (기준 미달)`);
-    if (!typeHasSample && eventType) evidenceParts.push(`유형 표본 ${typeRows.length}건 (기준 미달)`);
+  if (!weekdayHasSample && !typeHasSample && !threadHasSample) {
+    const evidenceParts: string[] = [];
+    evidenceParts.push(`요일 표본 ${weekdayRows.length}건 (기준 미달)`);
+    if (eventType) evidenceParts.push(`유형 표본 ${typeRows.length}건 (기준 미달)`);
+    if (threadId !== null) evidenceParts.push(`스레드 표본 ${threadRows.length}건 (기준 미달)`);
     return {
       lens: "friction",
       label: "마찰",
@@ -283,7 +312,7 @@ export function scoreFriction(
       points: 0,
       confidence: "cold_start",
       reasonCodes: ["friction_low_sample"],
-      evidence: evidenceParts.length > 0 ? evidenceParts : ["과거 표본 부족"]
+      evidence: evidenceParts
     };
   }
 
@@ -313,6 +342,19 @@ export function scoreFriction(
       reasonCodes.push("friction_high_type");
       evidence.push(`유형(${eventType}) 이탈률 ${Math.round(slipRate * 100)}% (${typeSlipped.length}/${typeRows.length}건)`);
     }
+  } else if (eventType) {
+    evidence.push(`유형 표본 ${typeRows.length}건 (기준 미달)`);
+  }
+
+  if (threadHasSample) {
+    const slipRate = threadSlipped.length / threadRows.length;
+    if (slipRate > FRICTION_SLIP_THRESHOLD) {
+      points += PTS_FRICTION_HIGH_THREAD;
+      reasonCodes.push("friction_high_thread");
+      evidence.push(`스레드 이탈률 ${Math.round(slipRate * 100)}% (${threadSlipped.length}/${threadRows.length}건)`);
+    }
+  } else if (threadId !== null) {
+    evidence.push(`스레드 표본 ${threadRows.length}건 (기준 미달)`);
   }
 
   if (reasonCodes.length === 0) {

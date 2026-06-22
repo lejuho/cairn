@@ -17,7 +17,8 @@ export const SlotSuggestionContributionSchema = z.object({
   points: z.number(),
   confidence: SlotSuggestionConfidenceSchema,
   reasonCodes: z.array(z.string()),
-  evidence: z.array(z.string())
+  evidence: z.array(z.string()),
+  personIds: z.array(z.number()).optional()
 }).strict();
 export type SlotSuggestionContribution = z.infer<typeof SlotSuggestionContributionSchema>;
 

@@ -1460,6 +1460,16 @@ export function Today() {
                                   패턴
                                 </a>
                               )}
+                              {contrib.lens === "people" && contrib.impact !== "neutral" &&
+                               contrib.personIds !== undefined && contrib.personIds.length === 1 && (
+                                <a
+                                  className="today-slot-reason-link"
+                                  href={`/people/${contrib.personIds[0]}`}
+                                  aria-label="사람 상세 보기"
+                                >
+                                  프로필
+                                </a>
+                              )}
                             </li>
                           ))}
                         </ul>

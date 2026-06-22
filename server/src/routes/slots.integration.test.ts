@@ -350,6 +350,44 @@ describe("GET /api/events/:id/slot-candidates — enriched fields", () => {
     expect(frictionCont.reasonCodes).toContain("friction_high_weekday");
   });
 
+  it("thread-level friction high slip rate produces friction_high_thread", async () => {
+    // Insert a thread
+    conn.sqlite.prepare("INSERT INTO threads (name) VALUES ('독서')").run();
+    const threadRow = conn.sqlite.prepare("SELECT id FROM threads ORDER BY id DESC LIMIT 1").get() as { id: number };
+    const threadId = threadRow.id;
+
+    // Insert the target event linked to the thread
+    conn.sqlite.prepare(
+      "INSERT INTO events (title, source, self_imposed, status, type, thread_id) VALUES (?, 'cairn', 1, 'planned', 'meeting', ?)"
+    ).run("thread-friction-test", threadId);
+    const evRow = conn.sqlite.prepare("SELECT id FROM events ORDER BY id DESC LIMIT 1").get() as { id: number };
+    const id = evRow.id;
+
+    // Insert 3 historical events tied to the same thread with moved outcome
+    const dates = ["2026-05-01", "2026-05-08", "2026-05-15"];
+    for (const d of dates) {
+      conn.sqlite.prepare(
+        "INSERT INTO events (title, source, self_imposed, status, start, end, thread_id) VALUES ('hist', 'cairn', 1, 'done', ?, ?, ?)"
+      ).run(`${d}T09:00:00+09:00`, `${d}T10:00:00+09:00`, threadId);
+      const histEv = conn.sqlite.prepare("SELECT id FROM events ORDER BY id DESC LIMIT 1").get() as { id: number };
+      conn.sqlite.prepare("INSERT INTO annotations (event_id, outcome) VALUES (?, 'moved')").run(histEv.id);
+    }
+
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/events/${id}/slot-candidates?date=${DATE}&now=${encodeURIComponent(NOW)}&days=1`
+    });
+    expect(res.statusCode).toBe(200);
+    const { data } = res.json();
+    expect(data.candidates.length).toBeGreaterThan(0);
+    const frictionCont = data.candidates[0].contributions.find(
+      (c: { lens: string }) => c.lens === "friction"
+    );
+    expect(frictionCont.confidence).toBe("observed");
+    expect(frictionCont.reasonCodes).toContain("friction_high_thread");
+  });
+
   it("candidate fetch does not write events, params, or annotations", async () => {
     const id = insertUnscheduled(conn, "no-write");
     const app = buildServer(conn.db);

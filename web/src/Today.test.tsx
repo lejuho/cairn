@@ -1145,6 +1145,29 @@ describe("Today — schedule prompt", () => {
     expect(link.getAttribute("href")).toBe("/mirror");
   });
 
+  it("people reason link navigates to /people/:id when single person identified", async () => {
+    const peopleCandidate = {
+      ...SLOT_CANDIDATE,
+      contributions: [
+        ...SLOT_CANDIDATE.contributions.slice(0, 2),
+        { lens: "people", label: "참여자", impact: "negative", points: -40, confidence: "observed", reasonCodes: ["person_unavailable_weekday"], evidence: ["Alice — 해당 요일 불가"], personIds: [7] },
+        SLOT_CANDIDATE.contributions[3]
+      ]
+    };
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+      if ((url as string).includes("slot-candidates")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { event: UNSCHEDULED_EVENT, candidates: [peopleCandidate] } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: surfaceWithPrompt() }) });
+    }));
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("독서 날짜 잡기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("독서 날짜 잡기"));
+    await waitFor(() => expect(screen.getByLabelText("사람 상세 보기")).toBeInTheDocument());
+    const link = screen.getByLabelText("사람 상세 보기");
+    expect(link.getAttribute("href")).toBe("/people/7");
+  });
+
   it("candidate fetch failure keeps card visible with local alert", async () => {
     const fetchSpy = vi.fn().mockImplementation((url: string) => {
       if ((url as string).includes("slot-candidates")) {

@@ -72,6 +72,15 @@ describe("SlotSuggestionContributionSchema", () => {
     const rest = { label: BASE_CONTRIBUTION.label, impact: BASE_CONTRIBUTION.impact, points: BASE_CONTRIBUTION.points, confidence: BASE_CONTRIBUTION.confidence, reasonCodes: BASE_CONTRIBUTION.reasonCodes, evidence: BASE_CONTRIBUTION.evidence };
     expect(SlotSuggestionContributionSchema.safeParse(rest).success).toBe(false);
   });
+
+  it("accepts personIds as optional field without breaking strict rejection", () => {
+    const withPersonIds = { ...BASE_CONTRIBUTION, personIds: [42] };
+    expect(SlotSuggestionContributionSchema.parse(withPersonIds).personIds).toEqual([42]);
+    // personIds absent is still valid
+    expect(SlotSuggestionContributionSchema.parse(BASE_CONTRIBUTION).personIds).toBeUndefined();
+    // unknown field still rejected even when personIds present
+    expect(SlotSuggestionContributionSchema.safeParse({ ...withPersonIds, advice: "x" }).success).toBe(false);
+  });
 });
 
 describe("SlotCandidateSchema", () => {
