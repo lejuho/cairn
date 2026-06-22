@@ -2,7 +2,8 @@ const NAV_LINKS = [
   { href: "/today", label: "Today" },
   { href: "/input", label: "입력" },
   { href: "/threads", label: "스레드" },
-  { href: "/people", label: "사람" }
+  { href: "/people", label: "사람" },
+  { href: "/mirror", label: "거울" }
 ] as const;
 
 export function AppNav({ path }: { path: string }) {
