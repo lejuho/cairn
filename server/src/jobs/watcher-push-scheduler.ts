@@ -11,11 +11,18 @@ export type WatcherSchedulerConfig = {
 
 export type WatcherSchedulerHandle = { stop: () => void };
 
+// Accepts only whole non-negative integer strings (no trailing junk, no sign).
+// "9abc", "0foo", "-5", "" → NaN. "9", "23" → numeric value.
+export function parseWholeInt(value: string | undefined): number {
+  if (value === undefined || !/^\d+$/.test(value)) return NaN;
+  return Number(value);
+}
+
 // Extracted so index.ts can pass typed, pre-read config and tests can inject it.
 export function parseSchedulerConfig(): WatcherSchedulerConfig {
   const enabled = process.env.WATCHER_DAILY_PUSH_ENABLED === "true";
-  const hour = Number.parseInt(process.env.WATCHER_DAILY_PUSH_HOUR ?? "9", 10);
-  const minute = Number.parseInt(process.env.WATCHER_DAILY_PUSH_MINUTE ?? "0", 10);
+  const hour = parseWholeInt(process.env.WATCHER_DAILY_PUSH_HOUR ?? "9");
+  const minute = parseWholeInt(process.env.WATCHER_DAILY_PUSH_MINUTE ?? "0");
   return {
     enabled,
     botToken: process.env.TELEGRAM_BOT_TOKEN,

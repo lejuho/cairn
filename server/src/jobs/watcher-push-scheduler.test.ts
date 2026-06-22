@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   msUntilNextLocalTime,
+  parseWholeInt,
   startWatcherDailyPushScheduler,
   type WatcherSchedulerConfig
 } from "./watcher-push-scheduler.js";
@@ -203,6 +204,56 @@ describe("startWatcherDailyPushScheduler — overlap guard", () => {
     // Stop timers before resolving so interval does not fire again after running resets.
     handle!.stop();
     resolveFirst();
+  });
+});
+
+describe("parseWholeInt", () => {
+  it("parses valid whole integers", () => {
+    expect(parseWholeInt("9")).toBe(9);
+    expect(parseWholeInt("0")).toBe(0);
+    expect(parseWholeInt("23")).toBe(23);
+    expect(parseWholeInt("59")).toBe(59);
+  });
+
+  it("returns NaN for trailing junk strings", () => {
+    expect(parseWholeInt("9abc")).toBeNaN();
+    expect(parseWholeInt("0foo")).toBeNaN();
+  });
+
+  it("returns NaN for negative or signed strings", () => {
+    expect(parseWholeInt("-5")).toBeNaN();
+    expect(parseWholeInt("+9")).toBeNaN();
+  });
+
+  it("returns NaN for empty string and undefined", () => {
+    expect(parseWholeInt("")).toBeNaN();
+    expect(parseWholeInt(undefined)).toBeNaN();
+  });
+});
+
+describe("startWatcherDailyPushScheduler — trailing-junk env strings", () => {
+  it("returns null when hour has trailing junk (9abc)", () => {
+    const logs: string[] = [];
+    const handle = startWatcherDailyPushScheduler(
+      STUB_DB,
+      { ...BASE_CONFIG, hour: parseWholeInt("9abc") },
+      vi.fn(),
+      { logError: (m) => logs.push(m) }
+    );
+    expect(handle).toBeNull();
+    expect(logs[0]).toMatch(/Invalid scheduler time/);
+  });
+
+  it("returns null when minute has trailing junk (0foo)", () => {
+    const logs: string[] = [];
+    const handle = startWatcherDailyPushScheduler(
+      STUB_DB,
+      { ...BASE_CONFIG, minute: parseWholeInt("0foo") },
+      vi.fn(),
+      { logError: (m) => logs.push(m) }
+    );
+    expect(handle).toBeNull();
+    expect(logs[0]).toMatch(/Invalid scheduler time/);
   });
 });
 

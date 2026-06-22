@@ -66,4 +66,3 @@ if (isMain) {
     void shutdown().finally(() => process.exit(0));
   });
 }
-
