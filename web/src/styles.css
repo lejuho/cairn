@@ -2179,7 +2179,7 @@ p {
   padding: 6px 16px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--surface, #f5f5f5);
+  background: var(--surface);
   color: var(--text);
   cursor: pointer;
   font-size: 0.875rem;
@@ -2203,7 +2203,7 @@ p {
 
 .watcher-row-error {
   font-size: 0.85rem;
-  color: var(--cancelled, #c00);
+  color: var(--cancelled);
   margin: 0;
 }
 
