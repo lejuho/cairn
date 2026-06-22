@@ -7,6 +7,7 @@ function row(over: Partial<MirrorSourceRow>): MirrorSourceRow {
     annotationId: 1,
     eventId: 10,
     eventTitle: "E",
+    eventType: null,
     outcome: "moved",
     reasonTags: null,
     reasonText: null,

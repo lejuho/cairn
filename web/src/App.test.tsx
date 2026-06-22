@@ -50,6 +50,13 @@ function stubFetch() {
     if (typeof url === "string" && url.includes("/api/mirror/ledger")) {
       return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: EMPTY_LEDGER }) });
     }
+    if (typeof url === "string" && url.includes("/api/mirror/patterns")) {
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: {
+        range: { from: "2026-05-17", to: "2026-06-16" },
+        totals: { annotations: 0, done: 0, moved: 0, cancelled: 0, late: 0, slipCount: 0 },
+        weekday: [], type: [], thread: [], sampleStatus: "low_sample"
+      } }) });
+    }
     return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
   }));
 }
