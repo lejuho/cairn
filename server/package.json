@@ -13,7 +13,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "gcal:auth": "tsx scripts/gcal-auth.ts",
-    "gcal:sync": "tsx scripts/gcal-sync.ts"
+    "gcal:sync": "tsx scripts/gcal-sync.ts",
+    "watcher:push": "tsx scripts/watcher-daily-push.ts"
   },
   "dependencies": {
     "@cairn/shared": "workspace:*",

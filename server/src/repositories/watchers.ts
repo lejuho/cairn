@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import type { CreateWatcherRequest, WatcherRow } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import { watchers } from "../db/schema.js";
@@ -62,4 +62,28 @@ export function setWatcherArmed(db: CairnDatabase, id: number, armed: boolean): 
     .returning()
     .all();
   return (row as WatcherRow) ?? null;
+}
+
+// Returns armed kind-A rows for the push job. Mirrors findAllWatchersForEvaluation
+// but is a separate function so future changes to each filter stay independent.
+export function findWatchersForPush(db: CairnDatabase): WatcherRow[] {
+  return db
+    .select()
+    .from(watchers)
+    .all()
+    .filter((w) => w.armed === 1 && w.kind === "A") as WatcherRow[];
+}
+
+// Sets last_fired for a set of watcher ids. firedAt is the ISO8601 timestamp
+// of the send instant. No-op when ids is empty.
+export function markWatchersFired(
+  db: CairnDatabase,
+  ids: number[],
+  firedAt: string
+): void {
+  if (ids.length === 0) return;
+  db.update(watchers)
+    .set({ lastFired: firedAt })
+    .where(inArray(watchers.id, ids))
+    .run();
 }

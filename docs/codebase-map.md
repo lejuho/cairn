@@ -199,7 +199,18 @@ External boundaries:
     `TELEGRAM_CHAT_ID`, `TELEGRAM_FORCE_IPV4`, `TELEGRAM_POLL_TIMEOUT_SECONDS`,
     and error backoff/log-throttle knobs.
 - `server/scripts/`
-  - One-shot operational entrypoints such as `gcal:auth` and `gcal:sync`.
+  - One-shot operational entrypoints: `gcal:auth`, `gcal:sync`, `watcher:push`.
+  - `watcher-daily-push.ts` — requires `CAIRN_DB_PATH`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`. Opens DB, runs `runWatcherDailyPush`, exits 0 on success/no-due, exits 1 on delivery failure or missing config.
+- `server/src/jobs/`
+  - `watcher-daily-push.ts` — `runWatcherDailyPush(db, sender, opts?)` job runner. Fetches armed kind-A rows → `selectDueForPush` → sender (once) → `markWatchersFired`. No mutation on sender failure. `markWatchersFired` failure after successful send is logged and does not suppress the sentCount result. `date` defaults to local today; `now` defaults to `new Date().toISOString()`.
+- `server/src/services/watcher-daily-push.ts`
+  - Pure push selector (no DB, no network, no LLM). `selectDueForPush(rows, date, now)` → `{ items: WatcherPushItem[], message: string }`. Applies: armed=1, kind=A, threshold≤date, active snooze, same-date `lastFired` gate. `lastFired` comparison uses `slice(0,10)` against local `date` (consistent because `markWatchersFired` stores YYYY-MM-DD, not UTC ISO). Digest message: Korean header + bullet per item (label, category, threshold, overdue days). `parseRule`/`effectiveThreshold` copied from `watchers.ts` with cross-reference comment.
+- Scheduler env flags (in-process, disabled by default):
+  - `WATCHER_DAILY_PUSH_ENABLED=true` — activates daily push scheduler at server start.
+  - `WATCHER_DAILY_PUSH_HOUR=0-23` — local hour for daily push (default 9).
+  - `WATCHER_DAILY_PUSH_MINUTE=0-59` — local minute (default 0).
+  - Missing `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` when enabled: logs error, scheduler not started, no mutation.
+  - Overlap guard: in-flight run is skipped, not queued. KST (UTC+9, no DST) — `setInterval` 24h drift is a non-issue.
 
 ## Shared Map
 
