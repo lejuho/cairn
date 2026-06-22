@@ -1,6 +1,20 @@
 import { z } from "zod";
 import { WatcherKindSchema } from "./enums.js";
 
+export const WatcherReasonCodeSchema = z.enum(["date_threshold_due"]);
+
+export const WatcherABubbleSchema = z.object({
+  id: z.number(),
+  label: z.string().nullable(),
+  category: z.string().nullable(),
+  kind: z.literal("A"),
+  threshold: z.string(),
+  snoozedUntil: z.string().nullable(),
+  daysOverdue: z.number().int().nonnegative(),
+  reasonCodes: z.array(WatcherReasonCodeSchema),
+  message: z.string()
+}).strict();
+
 export const CreateWatcherRequestSchema = z.object({
   label: z.string().min(1),
   threshold: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD"),
@@ -24,6 +38,8 @@ export const WatcherRowSchema = z.object({
   createdAt: z.string().nullable()
 });
 
+export type WatcherReasonCode = z.infer<typeof WatcherReasonCodeSchema>;
+export type WatcherABubble = z.infer<typeof WatcherABubbleSchema>;
 export type CreateWatcherRequest = z.infer<typeof CreateWatcherRequestSchema>;
 export type PatchWatcherSnoozeRequest = z.infer<typeof PatchWatcherSnoozeRequestSchema>;
 export type WatcherRow = z.infer<typeof WatcherRowSchema>;

@@ -109,6 +109,15 @@ async function fetchEventDetail(id: number): Promise<EventDetailData> {
   return body.data!;
 }
 
+async function snoozeWatcher(id: number, snoozedUntil: string): Promise<void> {
+  const body = await apiJson<{ ok: boolean; error?: { message: string } }>(`/api/watchers/${id}/snooze`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ snoozedUntil })
+  });
+  if (!body.ok) throw new Error(body.error?.message ?? "스누즈 실패");
+}
+
 async function patchStatus(id: number, status: string): Promise<void> {
   const body = await apiJson<{ ok: boolean; error?: { message: string } }>(`/api/events/${id}/status`, {
     method: "PATCH",
@@ -422,6 +431,7 @@ export function Today() {
   const [eventDetail, setEventDetail] = useState<EventDetailState>({ tag: "idle" });
   const [detailNote, setDetailNote] = useState<DetailNoteState>({ text: "", submitting: false, error: null });
   const [conflictSheet, setConflictSheet] = useState<ConflictSheetState>({ open: false });
+  const [watcherSnoozeError, setWatcherSnoozeError] = useState<Record<number, string>>({});
   const savedMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firstInputRef = useRef<HTMLInputElement>(null);
   const conflictOpenerRef = useRef<HTMLElement | null>(null);
@@ -1140,11 +1150,41 @@ export function Today() {
           }
 
           if (card.kind === "watcher") {
+            const w = card.watcher;
+            const snoozeErr = watcherSnoozeError[w.id];
+            const handleSnooze = async () => {
+              const snoozedUntil = new Date(Date.parse(surface.now) + 86_400_000).toISOString();
+              try {
+                await snoozeWatcher(w.id, snoozedUntil);
+                setWatcherSnoozeError((prev) => { const next = { ...prev }; delete next[w.id]; return next; });
+                void refresh();
+              } catch {
+                setWatcherSnoozeError((prev) => ({ ...prev, [w.id]: "스누즈 실패. 다시 시도해봐." }));
+              }
+            };
             return (
               <li key={`watcher-${i}`} className="today-card today-card--watcher" style={delay}>
                 <span className="card-chip">기한</span>
-                <p className="card-title">{card.watcher.label}</p>
-                <p className="card-meta">{card.watcher.threshold}</p>
+                {w.category && <span className="card-chip">{w.category}</span>}
+                <p className="card-title">{w.label}</p>
+                <p className="card-meta">
+                  {w.threshold}
+                  {w.daysOverdue > 0 && ` · ${w.daysOverdue}일 지남`}
+                </p>
+                <p className="card-meta" style={{ opacity: 0.8 }}>{w.message}</p>
+                <button
+                  className="today-action-btn"
+                  onClick={() => void handleSnooze()}
+                  aria-label={`${w.label ?? "watcher"} 내일 다시 보기`}
+                  style={{ marginTop: "8px", minHeight: "44px" }}
+                >
+                  내일 다시 보기
+                </button>
+                {snoozeErr && (
+                  <p className="card-meta" role="alert" style={{ color: "var(--conflict)", marginTop: "4px" }}>
+                    {snoozeErr}
+                  </p>
+                )}
               </li>
             );
           }

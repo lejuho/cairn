@@ -1,4 +1,4 @@
-import type { ConflictPair, DayFeasibility, EventRow, TaskRow, TodaySurface, WatcherRow } from "@cairn/shared";
+import type { ConflictPair, DayFeasibility, EventRow, TaskRow, TodaySurface, WatcherABubble } from "@cairn/shared";
 
 const SCHEDULE_PROMPT_LIMIT = 3;
 
@@ -7,7 +7,7 @@ export function buildTodaySurface(
   now: string,
   dayEvents: EventRow[],
   twoMinuteTasks: TaskRow[],
-  watcherBubbles: WatcherRow[],
+  watcherBubbles: WatcherABubble[],
   needsReviewEvents: EventRow[],
   unscheduledEvents: EventRow[],
   feasibility: DayFeasibility

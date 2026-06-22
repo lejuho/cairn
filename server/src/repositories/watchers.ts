@@ -37,21 +37,12 @@ export function snoozeWatcher(
   return (row as WatcherRow) ?? null;
 }
 
-export function findFiredWatchers(
-  db: CairnDatabase,
-  date: string,
-  now: string
-): WatcherRow[] {
+// Returns armed kind-A rows for the pure evaluator. Date/snooze filtering
+// is deferred to the service so rule parsing stays in one place.
+export function findAllWatchersForEvaluation(db: CairnDatabase): WatcherRow[] {
   return db
     .select()
     .from(watchers)
     .all()
-    .filter(
-      (w) =>
-        w.armed === 1 &&
-        w.kind === "A" &&
-        w.threshold != null &&
-        w.threshold <= date &&
-        (w.snoozedUntil == null || w.snoozedUntil <= now)
-    ) as WatcherRow[];
+    .filter((w) => w.armed === 1 && w.kind === "A") as WatcherRow[];
 }

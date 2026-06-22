@@ -3,10 +3,11 @@ import { TodayQuerySchema } from "@cairn/shared";
 import { findPlannedAndConfirmedByDate, findUnscheduledCairnEvents } from "../repositories/events.js";
 import { readNumericParam } from "../repositories/params.js";
 import { findTwoMinuteTodoTasks } from "../repositories/tasks.js";
-import { findFiredWatchers } from "../repositories/watchers.js";
+import { findAllWatchersForEvaluation } from "../repositories/watchers.js";
 import { buildFeasibilityParams, computeDayFeasibility } from "../services/feasibility.js";
 import { listNeedsReviewEvents } from "../services/needsReview.js";
 import { buildTodaySurface } from "../services/today.js";
+import { evaluateWatcherA } from "../services/watchers.js";
 import type { CairnDatabase } from "../db/index.js";
 
 export function registerTodayRoute(app: FastifyInstance, db: CairnDatabase): void {
@@ -23,7 +24,8 @@ export function registerTodayRoute(app: FastifyInstance, db: CairnDatabase): voi
 
     const dayEvents = findPlannedAndConfirmedByDate(db, date);
     const twoMinuteTasks = findTwoMinuteTodoTasks(db);
-    const watcherBubbles = findFiredWatchers(db, date, now);
+    const watcherRows = findAllWatchersForEvaluation(db);
+    const watcherBubbles = evaluateWatcherA(watcherRows, date, now);
     const needsReviewEvents = listNeedsReviewEvents(db, now);
     const unscheduledEvents = findUnscheduledCairnEvents(db);
 
