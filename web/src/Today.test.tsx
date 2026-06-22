@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Today } from "./Today.js";
 import type { ConflictDecision, EventDetailData, FeasibilityParamSettingsData, TodaySurface } from "@cairn/shared";
@@ -1989,6 +1989,8 @@ const BASE_FEAS_SETTINGS: FeasibilityParamSettingsData = {
 };
 
 describe("Today — feasibility settings sheet", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
   function liveSurface(): TodaySurface {
     return { ...BASE_SURFACE, state: "live", cards: [] };
   }
@@ -2094,5 +2096,130 @@ describe("Today — feasibility settings sheet", () => {
     await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
     fireEvent.click(document.querySelector(".sheet-backdrop")!);
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("slider change sends POST preview with draft params and surface date/now", async () => {
+    const PREVIEW_FEAS = {
+      date: "2026-06-16",
+      now: "2026-06-16T09:00:00.000Z",
+      params: { ...BASE_FEAS_SETTINGS.params, energyBudget: 10 },
+      energy: { loadUnits: 0, budgetUnits: 10, remainingUnits: 10, deficit: false, confidence: "cold_start" },
+      gaps: [],
+      continuous: null
+    };
+    let callCount = 0;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) return Promise.resolve({ ok: true, redirected: false, url: "", json: () => Promise.resolve({ ok: true, data: liveSurface() }) });
+      if (callCount === 2) return Promise.resolve({ ok: true, redirected: false, url: "", json: () => Promise.resolve({ ok: true, data: BASE_FEAS_SETTINGS }) });
+      return Promise.resolve({ ok: true, redirected: false, url: "", json: () => Promise.resolve({ ok: true, data: PREVIEW_FEAS }) });
+    }));
+    render(<Today />);
+    // Wait for initial load and sheet open with real timers
+    await waitFor(() => expect(screen.getByLabelText("feasibility 파라미터 조정")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("feasibility 파라미터 조정"));
+    await waitFor(() => expect(screen.getByLabelText(/에너지 예산/)).toBeInTheDocument());
+    // Switch to fake timers only for the debounce part
+    vi.useFakeTimers();
+    fireEvent.change(screen.getByLabelText(/에너지 예산/), { target: { value: "10" } });
+    await act(async () => { await vi.runAllTimersAsync(); });
+    vi.useRealTimers();
+    const fetchMock = vi.mocked(global.fetch);
+    const previewCall = fetchMock.mock.calls.find((c) => {
+      const init = c[1] as RequestInit | undefined;
+      return init?.method === "POST" && String(c[0]).includes("preview");
+    });
+    expect(previewCall).toBeDefined();
+    const body = JSON.parse(previewCall![1]!.body as string) as { date: string; now: string; params: { energyBudget: number } };
+    expect(body.params.energyBudget).toBe(10);
+    expect(body.date).toBe("2026-06-16");
+    expect(body.now).toBe("2026-06-16T09:00:00.000Z");
+  });
+
+  it("preview result renders inside the sheet", async () => {
+    const PREVIEW_FEAS = {
+      date: "2026-06-16",
+      now: "2026-06-16T09:00:00.000Z",
+      params: { ...BASE_FEAS_SETTINGS.params, energyBudget: 10 },
+      energy: { loadUnits: 2, budgetUnits: 10, remainingUnits: 8, deficit: false, confidence: "cold_start" },
+      gaps: [],
+      continuous: null
+    };
+    let callCount = 0;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) return Promise.resolve({ ok: true, redirected: false, url: "", json: () => Promise.resolve({ ok: true, data: liveSurface() }) });
+      if (callCount === 2) return Promise.resolve({ ok: true, redirected: false, url: "", json: () => Promise.resolve({ ok: true, data: BASE_FEAS_SETTINGS }) });
+      return Promise.resolve({ ok: true, redirected: false, url: "", json: () => Promise.resolve({ ok: true, data: PREVIEW_FEAS }) });
+    }));
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("feasibility 파라미터 조정")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("feasibility 파라미터 조정"));
+    await waitFor(() => expect(screen.getByLabelText(/에너지 예산/)).toBeInTheDocument());
+    vi.useFakeTimers();
+    fireEvent.change(screen.getByLabelText(/에너지 예산/), { target: { value: "10" } });
+    await act(async () => { await vi.runAllTimersAsync(); });
+    vi.useRealTimers();
+    expect(screen.getByLabelText("미리보기 결과")).toBeInTheDocument();
+    expect(screen.getByText(/2\.0h \/ 10h/)).toBeInTheDocument();
+  });
+
+  it("preview failure shows role=alert and keeps sheet open", async () => {
+    let callCount = 0;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) return Promise.resolve({ ok: true, redirected: false, url: "", json: () => Promise.resolve({ ok: true, data: liveSurface() }) });
+      if (callCount === 2) return Promise.resolve({ ok: true, redirected: false, url: "", json: () => Promise.resolve({ ok: true, data: BASE_FEAS_SETTINGS }) });
+      return Promise.resolve({ ok: true, redirected: false, url: "", json: () => Promise.resolve({ ok: false, error: { message: "preview 오류" } }) });
+    }));
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("feasibility 파라미터 조정")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("feasibility 파라미터 조정"));
+    await waitFor(() => expect(screen.getByLabelText(/에너지 예산/)).toBeInTheDocument());
+    vi.useFakeTimers();
+    fireEvent.change(screen.getByLabelText(/에너지 예산/), { target: { value: "10" } });
+    await act(async () => { await vi.runAllTimersAsync(); });
+    vi.useRealTimers();
+    expect(screen.getByRole("alert", { hidden: false })).toBeInTheDocument();
+    expect(screen.getByText("preview 오류")).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("rapid slider changes cancel stale — only last preview POST fires", async () => {
+    let callCount = 0;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) return Promise.resolve({ ok: true, redirected: false, url: "", json: () => Promise.resolve({ ok: true, data: liveSurface() }) });
+      if (callCount === 2) return Promise.resolve({ ok: true, redirected: false, url: "", json: () => Promise.resolve({ ok: true, data: BASE_FEAS_SETTINGS }) });
+      const FEAS = {
+        date: "2026-06-16", now: "2026-06-16T09:00:00.000Z",
+        params: { ...BASE_FEAS_SETTINGS.params },
+        energy: { loadUnits: 0, budgetUnits: 8, remainingUnits: 8, deficit: false, confidence: "cold_start" },
+        gaps: [], continuous: null
+      };
+      return Promise.resolve({ ok: true, redirected: false, url: "", json: () => Promise.resolve({ ok: true, data: FEAS }) });
+    }));
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("feasibility 파라미터 조정")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("feasibility 파라미터 조정"));
+    await waitFor(() => expect(screen.getByLabelText(/에너지 예산/)).toBeInTheDocument());
+    const slider = screen.getByLabelText(/에너지 예산/);
+    vi.useFakeTimers();
+    // First change — debounce timer starts
+    fireEvent.change(slider, { target: { value: "9" } });
+    // Advance 100ms (less than 300ms debounce) then change again — resets timer
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    fireEvent.change(slider, { target: { value: "10" } });
+    // Drain remaining timers + microtasks — only the second timer fires
+    await act(async () => { await vi.runAllTimersAsync(); });
+    vi.useRealTimers();
+    const fetchMock = vi.mocked(global.fetch);
+    const previewCalls = fetchMock.mock.calls.filter((c) => {
+      const init = c[1] as RequestInit | undefined;
+      return init?.method === "POST" && String(c[0]).includes("preview");
+    });
+    expect(previewCalls).toHaveLength(1);
+    const body = JSON.parse(previewCalls[0]![1]!.body as string) as { params: { energyBudget: number } };
+    expect(body.params.energyBudget).toBe(10);
   });
 });
