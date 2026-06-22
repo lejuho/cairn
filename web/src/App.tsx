@@ -8,6 +8,7 @@ import { Thread } from "./Thread.js";
 import { ThreadIndex } from "./ThreadIndex.js";
 import { ThreadNew } from "./ThreadNew.js";
 import { Today } from "./Today.js";
+import { Watchers } from "./Watchers.js";
 
 export function App() {
   const path = useMemo(() => window.location.pathname, []);
@@ -49,6 +50,10 @@ export function App() {
 
   if (path === "/mirror") {
     return <><AppNav path="/mirror" /><MirrorLedger /></>;
+  }
+
+  if (path === "/watch") {
+    return <><AppNav path="/watch" /><Watchers /></>;
   }
 
   if (path.startsWith("/people/")) {

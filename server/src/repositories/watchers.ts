@@ -46,3 +46,20 @@ export function findAllWatchersForEvaluation(db: CairnDatabase): WatcherRow[] {
     .all()
     .filter((w) => w.armed === 1 && w.kind === "A") as WatcherRow[];
 }
+
+// Returns all watcher rows, no filter, ordered by id asc. Deep-view service
+// handles status derivation and sort.
+export function findAllWatchers(db: CairnDatabase): WatcherRow[] {
+  return db.select().from(watchers).orderBy(watchers.id).all() as WatcherRow[];
+}
+
+// Updates only the armed flag. Returns the updated row or null if not found.
+export function setWatcherArmed(db: CairnDatabase, id: number, armed: boolean): WatcherRow | null {
+  const [row] = db
+    .update(watchers)
+    .set({ armed: armed ? 1 : 0 })
+    .where(eq(watchers.id, id))
+    .returning()
+    .all();
+  return (row as WatcherRow) ?? null;
+}

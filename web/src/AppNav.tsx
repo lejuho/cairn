@@ -3,7 +3,8 @@ const NAV_LINKS = [
   { href: "/input", label: "입력" },
   { href: "/threads", label: "스레드" },
   { href: "/people", label: "사람" },
-  { href: "/mirror", label: "거울" }
+  { href: "/mirror", label: "거울" },
+  { href: "/watch", label: "여백" }
 ] as const;
 
 export function AppNav({ path }: { path: string }) {
@@ -19,7 +20,8 @@ export function AppNav({ path }: { path: string }) {
                 path === href ||
                 (href === "/today" && path === "/") ||
                 (href === "/people" && path.startsWith("/people/"))
-                  ? "page" : undefined
+                  ? "page"
+                  : undefined
               }
             >
               {label}

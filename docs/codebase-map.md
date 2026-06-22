@@ -96,6 +96,8 @@ Route layer:
 - [server/src/routes/watchers.ts](/home/pi/cairn/server/src/routes/watchers.ts)
   - `POST /api/watchers` — creates armed kind-A date-threshold watcher (label, threshold, optional category). Rule JSON auto-generated as `{"type":"date_threshold","fireOn":threshold}`.
   - `PATCH /api/watchers/:id/snooze` — sets `snoozedUntil` (RFC3339 with offset). Used by Today snooze action. Returns 404 on missing id.
+  - `GET /api/watchers?date&now` — returns all watchers with derived status (due/quiet/snoozed/disarmed/unsupported). Calls `buildWatcherDeepView`. Returns `{ ok, data: { watchers: WatcherDeepRow[] } }`.
+  - `PATCH /api/watchers/:id/armed` — toggles armed flag. Body: `{ armed: boolean }`. Returns 404 on missing id.
 - [server/src/routes/today.ts](/home/pi/cairn/server/src/routes/today.ts)
   - `GET /api/today`.
   - Deterministic aggregation only. No LLM dependency. Calls `findAllWatchersForEvaluation` + `evaluateWatcherA` to produce derived `WatcherABubble[]` — no raw watcher rows in surface payload.
@@ -155,6 +157,8 @@ Repository/service split:
   - Builds Today card surface and priority order. Receives `WatcherABubble[]` (derived) instead of raw `WatcherRow[]`. Priority: conflict → watcher → next_event → two_minute_task → needs_review → schedule_prompt.
 - [server/src/services/watchers.ts](/home/pi/cairn/server/src/services/watchers.ts)
   - Pure Watcher A evaluator. `evaluateWatcherA(rows, date, now) → WatcherABubble[]`. Parses `rule` JSON fail-open — supports `{"type":"date_threshold","fireOn":"YYYY-MM-DD"}`. Falls back to `threshold` column when rule absent/malformed. Rejects overflow dates via round-trip check (same as `isCalendarDate`). Filters armed=1, kind="A", threshold≤date, snooze absent or ≤now. Computes `daysOverdue = Math.max(0, (date-threshold)/day)`. Message: "오늘 확인할 watcher야" (=0) or "N일 지난 watcher야" (>0). Sorted threshold asc, id asc. No DB access, no LLM.
+- [server/src/services/watcher-deep-view.ts](/home/pi/cairn/server/src/services/watcher-deep-view.ts)
+  - Pure service (no DB). `buildWatcherDeepView(rows, date, now) → WatcherDeepRow[]`. Status derivation: armed===0 → disarmed (unconditional); kind!=="A" → unsupported; malformed rule → unsupported; threshold > date → quiet; active snooze → snoozed; else → due. daysOverdue/daysUntil computed from threshold vs date. Sort: due→snoozed→quiet→disarmed→unsupported; within group threshold asc, id asc. Duplicates `parseRule`/`effectiveThreshold` from `watchers.ts` (cross-reference comment — kept separate to preserve today/deep-view boundary).
 - [server/src/services/decision.ts](/home/pi/cairn/server/src/services/decision.ts)
   - Pure deterministic conflict decision service: detects overlapping planned/confirmed events by epoch ms, computes overlap minutes, urgency (near/planning), actionability (`isResolvable` — strict forward gate: start ≥ now AND start ≤ now+6h), per-event cost extraction, internal score for suggestion ordering (never returned to client). Now accepts optional `eventPeopleContext: Map<number, PersonContextItem[]>` for social cost and guard evaluation. Blocked options excluded from suggestions; one-side-block adds `"required_by_people_constraint"` to unblocked side's reasonCodes. Resolve route re-checks guard in-transaction; returns 409 `PEOPLE_CONSTRAINT_BLOCKED` if blocked. No LLM dependency.
 - [server/src/services/notification-drafts.ts](/home/pi/cairn/server/src/services/notification-drafts.ts)
@@ -211,6 +215,7 @@ Contracts by domain:
   - `FeasibilityParamsSchema`, `DayFeasibilitySchema` (date/now/params/energy/gaps/continuous). Params schemas: `UpdateFeasibilityParamsRequestSchema` (.strict(), range-validated: energyBudget 1–16, meetBuffer 0–120, deepBuffer 0–180, travelMargin 0.5–3, maxContinuous 60–960), `FeasibilityParamLimitSchema`, `FeasibilityParamLimitsSchema`, `FeasibilityParamSettingsDataSchema` (.strict()), `PreviewFeasibilityRequestSchema` (.strict()). All new schemas reject injected `score`/`recommendation` fields.
 - [shared/src/watchers.ts](/home/pi/cairn/shared/src/watchers.ts)
   - Watcher request/response schemas. `WatcherReasonCodeSchema` (enum: `"date_threshold_due"`), `WatcherABubbleSchema` (`.strict()` — id/label/category/kind="A"/threshold/snoozedUntil/daysOverdue/reasonCodes/message; rejects score/advice/hidden fields), `WatcherRowSchema` (raw DB row for create/snooze responses). Types: `WatcherReasonCode`, `WatcherABubble`, `WatcherRow`.
+  - Deep-view schemas (cycle 33): `WatchersQuerySchema` (date YYYY-MM-DD + now ISO8601 with offset), `WatcherDeepStatusSchema` (enum: due/quiet/snoozed/disarmed/unsupported), `WatcherDeepRowSchema` (strict — all fields + status + daysOverdue/daysUntil + message + reasonCodes), `WatcherListResponseDataSchema`, `PatchWatcherArmedRequestSchema` (strict — `{ armed: boolean }`). Types: `WatcherDeepStatus`, `WatcherDeepRow`.
 - [shared/src/today.ts](/home/pi/cairn/shared/src/today.ts)
   - Today query and Today surface contract.
 - [shared/src/capture.ts](/home/pi/cairn/shared/src/capture.ts)
@@ -296,6 +301,12 @@ Entry and routing:
   - Event detail bottom sheet (cycle 16): `selectedEventId` state; tap on `next_event` card or timeline event opens sheet via `GET /api/events/:id`. Shows title, time, thread name, people list, annotations (newest-first), outcome status buttons (done/cancelled/moved/late), note input. Status PATCH calls `PATCH /api/events/:id/status` then closes sheet + refetches. Note submit calls `POST /api/events/:id/annotations` then refetches detail.
   - Quick capture (cycle 12): compact one-line input shown in quiet and live states. Posts `POST /api/capture/flat-event` with `{text, now}`. Refetches Today on success. Shows "날짜 없이 저장됐어" for `raw_stored`/`unscheduled` outcomes (auto-clears after 4 s). Empty submit is client-side rejected.
   - Thread picker (cycle 10): `GET /api/threads` fetched lazily on bottom sheet open. Optional `<select>` shown when threads exist; `threadId` sent as number in `POST /api/tasks` or `POST /api/events`. Degrades gracefully when thread list fetch fails.
+- [web/src/Watchers.tsx](/home/pi/cairn/web/src/Watchers.tsx)
+  - `/watch` screen (cycle 33 — Watcher Deep View A). States: loading (2 skeleton cards), error (retry button), access_session (Access 로그인 다시 열기), quiet (no watchers + create CTA), live (watcher sections by status).
+  - Fetches `GET /api/watchers?date&now` via `apiJson`. Sections: 확인 필요 (due), 스누즈 중 (snoozed), 대기 중 (quiet), 비활성 (disarmed), 지원 안 됨 (unsupported).
+  - Armed toggle: `PATCH /api/watchers/:id/armed` with `{ armed: !current }`, then re-fetches. Failure shows row-level `role="alert"`.
+  - Snooze: `PATCH /api/watchers/:id/snooze` with snoozedUntil = queryNow + 24h; available on due watchers only. Failure shows row-level alert.
+  - Create bottom sheet: label (required), category (optional), threshold date (required). `POST /api/watchers` then re-fetches. Failure keeps sheet open with `role="alert"`. Sheet accessible via backdrop tap or 취소 button.
 - [web/src/PeopleDirectory.tsx](/home/pi/cairn/web/src/PeopleDirectory.tsx)
   - `/people` screen. States: loading, quiet (no people), live (person cards), error, access_error.
   - Quiet: "아직 사람이 없어" + link to /input. Live: card list showing name, relation, frequencyLabel, totalMeets, lastMet. Each card links to `/people/:id`.
