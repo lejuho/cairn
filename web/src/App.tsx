@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { AppNav } from "./AppNav.js";
 import { InputHub } from "./InputHub.js";
+import { MirrorLedger } from "./MirrorLedger.js";
 import { PeopleDirectory } from "./PeopleDirectory.js";
 import { PersonDetail } from "./PersonDetail.js";
 import { Thread } from "./Thread.js";
@@ -44,6 +45,10 @@ export function App() {
 
   if (path === "/people") {
     return <><AppNav path="/people" /><PeopleDirectory /></>;
+  }
+
+  if (path === "/mirror") {
+    return <><AppNav path="/mirror" /><MirrorLedger /></>;
   }
 
   if (path.startsWith("/people/")) {

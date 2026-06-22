@@ -29,6 +29,13 @@ const QUIET_SURFACE = {
 
 const EMPTY_DIRECTORY = { ok: true, data: { people: [] } };
 
+const EMPTY_LEDGER = {
+  range: { from: "2026-05-17", to: "2026-06-16" },
+  summary: { totalChanges: 0, movedCount: 0, cancelledCount: 0, freeCount: 0, paidCount: 0, moneyTotal: 0, socialTotal: 0, effortBreakdown: { none: 0, low: 0, medium: 0, high: 0, unknown: 0 } },
+  entries: [],
+  sampleStatus: "low_sample"
+};
+
 function stubFetch() {
   vi.stubGlobal("fetch", vi.fn((url: string) => {
     if (typeof url === "string" && url.includes("/api/threads")) {
@@ -39,6 +46,9 @@ function stubFetch() {
     }
     if (typeof url === "string" && url.match(/\/api\/people\/\d+\/detail/)) {
       return Promise.resolve({ json: () => Promise.resolve({ ok: false, error: { code: "NOT_FOUND", message: "person not found" } }) });
+    }
+    if (typeof url === "string" && url.includes("/api/mirror/ledger")) {
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: EMPTY_LEDGER }) });
     }
     return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
   }));
@@ -72,7 +82,7 @@ describe("App shell", () => {
 });
 
 describe("App navigation", () => {
-  it("renders all 4 nav links on /today", async () => {
+  it("renders all 5 nav links on /today", async () => {
     window.history.replaceState(null, "", "/today");
     render(<App />);
     expect(screen.getByRole("navigation", { name: "주요 메뉴" })).toBeInTheDocument();
@@ -80,6 +90,7 @@ describe("App navigation", () => {
     expect(screen.getByRole("link", { name: "입력" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "스레드" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "사람" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "거울" })).toBeInTheDocument();
   });
 
   it("sets aria-current=page on Today link when on /today", async () => {
@@ -146,6 +157,15 @@ describe("App navigation", () => {
     await waitFor(() => {
       expect(screen.getByRole("link", { name: "사람" })).toHaveAttribute("aria-current", "page");
     });
+  });
+
+  it("sets aria-current=page on 거울 link when on /mirror", async () => {
+    window.history.replaceState(null, "", "/mirror");
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByRole("link", { name: "거울" })).toHaveAttribute("aria-current", "page");
+    });
+    expect(screen.getByRole("link", { name: "Today" })).not.toHaveAttribute("aria-current");
   });
 
   it("renders /people quiet state when no people", async () => {
