@@ -94,10 +94,11 @@ Route layer:
 - [server/src/routes/tasks.ts](/home/pi/cairn/server/src/routes/tasks.ts)
   - Task creation and status patch APIs.
 - [server/src/routes/watchers.ts](/home/pi/cairn/server/src/routes/watchers.ts)
-  - Watcher creation and snooze APIs.
+  - `POST /api/watchers` — creates armed kind-A date-threshold watcher (label, threshold, optional category). Rule JSON auto-generated as `{"type":"date_threshold","fireOn":threshold}`.
+  - `PATCH /api/watchers/:id/snooze` — sets `snoozedUntil` (RFC3339 with offset). Used by Today snooze action. Returns 404 on missing id.
 - [server/src/routes/today.ts](/home/pi/cairn/server/src/routes/today.ts)
   - `GET /api/today`.
-  - Deterministic aggregation only. No LLM dependency.
+  - Deterministic aggregation only. No LLM dependency. Calls `findAllWatchersForEvaluation` + `evaluateWatcherA` to produce derived `WatcherABubble[]` — no raw watcher rows in surface payload.
 - [server/src/routes/annotations.ts](/home/pi/cairn/server/src/routes/annotations.ts)
   - `POST /api/events/:id/annotations`.
   - Raw annotation first, best-effort LLM parse second.
@@ -147,7 +148,9 @@ Repository/service split:
 - [server/src/services/people-impact.ts](/home/pi/cairn/server/src/services/people-impact.ts)
   - Pure service (no DB). `parseHardConstraints` (fail-open JSON → HardConstraint[]), `parsePreferredWindows` (fail-open JSON → AuthoredPreferredWindows|null), `parseLeadTime` (fail-open JSON → AuthoredLeadTime|null), `toFrequencyBand` (0→cold_start/+0, 1-2→rare/+2, 3-7→established/+1, 8+→frequent/+0), `computeSocialContext` (base + adjustments from people history), `extractWeekday` (literal-date UTC — `isoStart.slice(0,10)+"T00:00:00Z"`), `evaluatePeopleGuard` (kept event weekday vs people's weekday_unavailable constraints; fail-open on malformed JSON).
 - [server/src/services/today.ts](/home/pi/cairn/server/src/services/today.ts)
-  - Builds Today card surface and priority order. Now receives `DayFeasibility` and includes it in `TodaySurface`.
+  - Builds Today card surface and priority order. Receives `WatcherABubble[]` (derived) instead of raw `WatcherRow[]`. Priority: conflict → watcher → next_event → two_minute_task → needs_review → schedule_prompt.
+- [server/src/services/watchers.ts](/home/pi/cairn/server/src/services/watchers.ts)
+  - Pure Watcher A evaluator. `evaluateWatcherA(rows, date, now) → WatcherABubble[]`. Parses `rule` JSON fail-open — supports `{"type":"date_threshold","fireOn":"YYYY-MM-DD"}`. Falls back to `threshold` column when rule absent/malformed. Rejects overflow dates via round-trip check (same as `isCalendarDate`). Filters armed=1, kind="A", threshold≤date, snooze absent or ≤now. Computes `daysOverdue = Math.max(0, (date-threshold)/day)`. Message: "오늘 확인할 watcher야" (=0) or "N일 지난 watcher야" (>0). Sorted threshold asc, id asc. No DB access, no LLM.
 - [server/src/services/decision.ts](/home/pi/cairn/server/src/services/decision.ts)
   - Pure deterministic conflict decision service: detects overlapping planned/confirmed events by epoch ms, computes overlap minutes, urgency (near/planning), actionability (`isResolvable` — strict forward gate: start ≥ now AND start ≤ now+6h), per-event cost extraction, internal score for suggestion ordering (never returned to client). Now accepts optional `eventPeopleContext: Map<number, PersonContextItem[]>` for social cost and guard evaluation. Blocked options excluded from suggestions; one-side-block adds `"required_by_people_constraint"` to unblocked side's reasonCodes. Resolve route re-checks guard in-transaction; returns 409 `PEOPLE_CONSTRAINT_BLOCKED` if blocked. No LLM dependency.
 - [server/src/services/notification-drafts.ts](/home/pi/cairn/server/src/services/notification-drafts.ts)
@@ -196,7 +199,7 @@ Contracts by domain:
 - [shared/src/tasks.ts](/home/pi/cairn/shared/src/tasks.ts)
   - Task row and task mutation schemas.
 - [shared/src/watchers.ts](/home/pi/cairn/shared/src/watchers.ts)
-  - Watcher request/response schemas.
+  - Watcher request/response schemas. `WatcherReasonCodeSchema` (enum: `"date_threshold_due"`), `WatcherABubbleSchema` (`.strict()` — id/label/category/kind="A"/threshold/snoozedUntil/daysOverdue/reasonCodes/message; rejects score/advice/hidden fields), `WatcherRowSchema` (raw DB row for create/snooze responses). Types: `WatcherReasonCode`, `WatcherABubble`, `WatcherRow`.
 - [shared/src/today.ts](/home/pi/cairn/shared/src/today.ts)
   - Today query and Today surface contract.
 - [shared/src/capture.ts](/home/pi/cairn/shared/src/capture.ts)
@@ -275,6 +278,7 @@ Entry and routing:
   - Post-resolve notification draft sheet (cycle 24): on resolve success, validates response body with `ResolveConflictResponseDataSchema` from shared. Validation failure retains conflict sheet with "서버 응답이 예상과 달라" error. On success switches to a resolved bottom sheet (`.bottom-sheet` + `.sheet-backdrop`) showing `{changedEvent.title} — {이동|취소}` and one `NotificationDraftCard` per person. Each card has a "복사" button for `navigator.clipboard.writeText`; fallback to "복사 실패" if clipboard API is undefined or rejects. Main content inert while resolved sheet is open. Focus trap (sentinels + Escape). Opener focus restore: the conflict card opener carries a `data-conflict-opener={pairId}` selector and is captured on click (`conflictOpenerRef`/`conflictOpenerPairRef`); because completing/dismissing refetches Today and remounts the card list, `handleCompleteResolved` re-queries the live opener by that selector (in a `requestAnimationFrame` after `refresh()`). If the opener survives remount (rare — only when the resolved conflict reappears in the refetch), focus returns to it. On the normal path (resolve removes the conflict card), the opener no longer exists and focus falls back to `liveMainRef` (`tabIndex=-1` on `main.today-live`), preventing focus from stranding on a detached node.
   - Timeline events: title rendered as a `<button>` that opens the event detail sheet (cycle 16). Events with `threadId` additionally show an `↗` thread link.
   - Schedule prompt (cycle 13): `schedule_prompt` cards rendered in live stack after `needs_review`. "날짜 잡기" button fetches `GET /api/events/:id/slot-candidates`. Up to 3 candidate buttons shown; tap calls `PATCH /api/events/:id/schedule` then refetches Today. Error state keeps card visible with local message.
+  - Watcher card (cycle 30): renders `WatcherABubble` from derived surface. Shows label, category chip (if set), threshold date, daysOverdue suffix (N일 지남 when >0), message, and "내일 다시 보기" snooze button (minHeight 44px). Snooze target = `surface.now + 86_400_000ms` (uses surface time, not browser clock). Success: calls `PATCH /api/watchers/:id/snooze` then refresh Today (server is source of truth). Failure: shows local error via `role="alert"` next to card; card remains visible. Per-watcher error state tracked in `watcherSnoozeError: Record<number, string>`.
   - Event detail bottom sheet (cycle 16): `selectedEventId` state; tap on `next_event` card or timeline event opens sheet via `GET /api/events/:id`. Shows title, time, thread name, people list, annotations (newest-first), outcome status buttons (done/cancelled/moved/late), note input. Status PATCH calls `PATCH /api/events/:id/status` then closes sheet + refetches. Note submit calls `POST /api/events/:id/annotations` then refetches detail.
   - Quick capture (cycle 12): compact one-line input shown in quiet and live states. Posts `POST /api/capture/flat-event` with `{text, now}`. Refetches Today on success. Shows "날짜 없이 저장됐어" for `raw_stored`/`unscheduled` outcomes (auto-clears after 4 s). Empty submit is client-side rejected.
   - Thread picker (cycle 10): `GET /api/threads` fetched lazily on bottom sheet open. Optional `<select>` shown when threads exist; `threadId` sent as number in `POST /api/tasks` or `POST /api/events`. Degrades gracefully when thread list fetch fails.

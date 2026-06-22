@@ -137,11 +137,12 @@ describe("Today — live state", () => {
     expect(screen.getByText("미팅 A ↔ 미팅 B")).toBeInTheDocument();
   });
 
-  it("renders watcher card", async () => {
+  it("renders watcher card with bubble fields", async () => {
     const watcher = {
       id: 1, label: "여권 갱신", threshold: "2026-06-10",
-      category: null, kind: "A" as const, armed: 1,
-      rule: null, lastFired: null, snoozedUntil: null, createdAt: null
+      category: null, kind: "A" as const, snoozedUntil: null,
+      daysOverdue: 6, reasonCodes: ["date_threshold_due" as const],
+      message: "6일 지난 watcher야"
     };
     mockFetch({
       ...BASE_SURFACE, state: "live",
@@ -153,6 +154,65 @@ describe("Today — live state", () => {
       expect(screen.getByText("여권 갱신")).toBeInTheDocument();
     });
     expect(screen.getByText("기한")).toBeInTheDocument();
+    expect(screen.getByText("6일 지난 watcher야")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /여권 갱신 내일 다시 보기/ })).toBeInTheDocument();
+  });
+
+  it("snooze button calls PATCH and refreshes on success", async () => {
+    const watcher = {
+      id: 7, label: "테스트 watcher", threshold: "2026-06-16",
+      category: null, kind: "A" as const, snoozedUntil: null,
+      daysOverdue: 0, reasonCodes: ["date_threshold_due" as const],
+      message: "오늘 확인할 watcher야"
+    };
+    const liveSurface: TodaySurface = {
+      ...BASE_SURFACE, state: "live",
+      watcherBubbles: [watcher],
+      cards: [{ kind: "watcher", watcher }]
+    };
+    const quietSurface: TodaySurface = { ...BASE_SURFACE, state: "quiet" };
+    let callCount = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, opts?: RequestInit) => {
+      if (typeof url === "string" && url.includes("/api/watchers/7/snooze") && (opts?.method ?? "GET") === "PATCH") {
+        return { ok: true, status: 200, redirected: false, url: "", headers: new Headers({ "content-type": "application/json" }), json: async () => ({ ok: true, data: {} }) };
+      }
+      // First load = live, second load (after snooze) = quiet
+      callCount++;
+      const surface = callCount <= 1 ? liveSurface : quietSurface;
+      return { ok: true, status: 200, redirected: false, url: "", headers: new Headers({ "content-type": "application/json" }), json: async () => ({ ok: true, data: surface }) };
+    }));
+    render(<Today />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /내일 다시 보기/ })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /내일 다시 보기/ }));
+    await waitFor(() => {
+      expect(screen.queryByText("테스트 watcher")).not.toBeInTheDocument();
+    });
+  });
+
+  it("snooze failure shows local error and keeps card visible", async () => {
+    const watcher = {
+      id: 9, label: "실패 watcher", threshold: "2026-06-16",
+      category: null, kind: "A" as const, snoozedUntil: null,
+      daysOverdue: 0, reasonCodes: ["date_threshold_due" as const],
+      message: "오늘 확인할 watcher야"
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: string, opts?: RequestInit) => {
+      if (typeof url === "string" && url.includes("/api/watchers/9/snooze") && (opts?.method ?? "GET") === "PATCH") {
+        return { ok: true, status: 200, redirected: false, url: "", headers: new Headers({ "content-type": "application/json" }), json: async () => ({ ok: false, error: { message: "스누즈 실패" } }) };
+      }
+      return { ok: true, status: 200, redirected: false, url: "", headers: new Headers({ "content-type": "application/json" }), json: async () => ({ ok: true, data: { ...BASE_SURFACE, state: "live", watcherBubbles: [watcher], cards: [{ kind: "watcher", watcher }] } }) };
+    }));
+    render(<Today />);
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /내일 다시 보기/ })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /내일 다시 보기/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+    expect(screen.getByText("실패 watcher")).toBeInTheDocument();
   });
 
   it("renders two_minute_task card with done button", async () => {
