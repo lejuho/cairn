@@ -504,6 +504,73 @@ p {
   color: var(--accent);
 }
 
+.today-slot-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.today-slot-candidate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.today-slot-time {
+  flex: 1;
+}
+
+.today-slot-score-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.today-slot-reasons {
+  list-style: none;
+  padding: 0 4px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.today-slot-reason {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.today-slot-reason--positive { color: var(--text); }
+.today-slot-reason--negative { color: var(--cancelled); }
+
+.today-slot-reason-text {
+  flex: 1;
+}
+
+.today-slot-reason-link {
+  font-size: 0.72rem;
+  padding: 2px 6px;
+  min-height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.today-slot-reason-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 /* Quick capture */
 .today-capture-form {
   display: flex;

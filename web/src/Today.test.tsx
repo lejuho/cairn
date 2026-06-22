@@ -914,7 +914,17 @@ const UNSCHEDULED_EVENT = {
 
 const SLOT_CANDIDATE = {
   start: "2026-06-20T09:00:00+09:00", end: "2026-06-20T10:00:00+09:00",
-  reasons: ["09:00 — 빈 시간"], reasonCodes: ["free_window"]
+  score: 65,
+  rank: 1,
+  scoreLabel: "보통",
+  reasons: ["2026-06-20 09:00–10:00 사이 겹치는 일정 없음", "예상 load 1.0h / 예산 8.0h"],
+  reasonCodes: ["free_window", "energy_within_budget"],
+  contributions: [
+    { lens: "availability", label: "겹침", impact: "positive", points: 40, confidence: "observed", reasonCodes: ["free_window"], evidence: ["2026-06-20 09:00–10:00 사이 겹치는 일정 없음"] },
+    { lens: "feasibility", label: "체력", impact: "positive", points: 25, confidence: "observed", reasonCodes: ["energy_within_budget"], evidence: ["예상 load 1.0h / 예산 8.0h"] },
+    { lens: "people", label: "참여자", impact: "neutral", points: 0, confidence: "cold_start", reasonCodes: ["people_no_data"], evidence: ["연결된 사람 없음"] },
+    { lens: "friction", label: "마찰", impact: "neutral", points: 0, confidence: "cold_start", reasonCodes: ["friction_low_sample"], evidence: ["과거 표본 부족"] }
+  ]
 };
 
 describe("Today — schedule prompt", () => {
@@ -946,7 +956,7 @@ describe("Today — schedule prompt", () => {
     render(<Today />);
     await waitFor(() => expect(screen.getByLabelText("독서 날짜 잡기")).toBeInTheDocument());
     fireEvent.click(screen.getByLabelText("독서 날짜 잡기"));
-    await waitFor(() => expect(screen.getByText(/2026-06-20/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText("2026-06-20 09:00 선택")).toBeInTheDocument());
   });
 
   it("candidate selection calls PATCH and refetches Today", async () => {
@@ -993,7 +1003,7 @@ describe("Today — schedule prompt", () => {
     await waitFor(() => expect(screen.getAllByLabelText("독서 날짜 잡기")[0]).toBeInTheDocument());
     fireEvent.click(screen.getAllByLabelText("독서 날짜 잡기")[0]!);
     await waitFor(() => expect(screen.getAllByText(/2026-06-20/)[0]).toBeInTheDocument());
-    fireEvent.click(screen.getAllByLabelText(/09:00 선택/)[0]!);
+    fireEvent.click(screen.getAllByLabelText(/2026-06-20 09:00 선택/)[0]!);
     await waitFor(() => {
       expect(fetchSpy2).toHaveBeenCalledWith(expect.stringContaining("/schedule"), expect.objectContaining({ method: "PATCH" }));
     });
@@ -1048,6 +1058,129 @@ describe("Today — schedule prompt", () => {
     fireEvent.change(screen.getByLabelText("빠른 입력"), { target: { value: "내일 9시 회의" } });
     fireEvent.click(screen.getByLabelText("빠른 입력 저장"));
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining("flat-event"), expect.objectContaining({ method: "POST" })));
+  });
+
+  it("renders enriched candidate score label and reason evidence", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+      if ((url as string).includes("slot-candidates")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { event: UNSCHEDULED_EVENT, candidates: [SLOT_CANDIDATE] } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: surfaceWithPrompt() }) });
+    }));
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("독서 날짜 잡기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("독서 날짜 잡기"));
+    await waitFor(() => expect(screen.getByLabelText("2026-06-20 09:00 선택")).toBeInTheDocument());
+    expect(screen.getByText("보통")).toBeInTheDocument(); // scoreLabel
+    expect(screen.getByText("2026-06-20 09:00–10:00 사이 겹치는 일정 없음")).toBeInTheDocument();
+    expect(screen.getByText("예상 load 1.0h / 예산 8.0h")).toBeInTheDocument();
+  });
+
+  it("candidate click still calls PATCH /schedule", async () => {
+    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if ((url as string).includes("slot-candidates")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { event: UNSCHEDULED_EVENT, candidates: [SLOT_CANDIDATE] } }) });
+      }
+      if ((url as string).includes("/schedule") && opts?.method === "PATCH") {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { event: UNSCHEDULED_EVENT } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: surfaceWithPrompt() }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("독서 날짜 잡기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("독서 날짜 잡기"));
+    await waitFor(() => expect(screen.getByLabelText("2026-06-20 09:00 선택")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("2026-06-20 09:00 선택"));
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining("/schedule"), expect.objectContaining({ method: "PATCH" }));
+    });
+  });
+
+  it("feasibility reason link opens feasibility settings sheet", async () => {
+    const feasCandidateWithFeasLink = {
+      ...SLOT_CANDIDATE,
+      contributions: [
+        ...SLOT_CANDIDATE.contributions.slice(0, 1),
+        { lens: "feasibility", label: "체력", impact: "negative", points: -20, confidence: "observed", reasonCodes: ["energy_over_budget"], evidence: ["예상 load 9.0h / 예산 8.0h — 초과"] },
+        ...SLOT_CANDIDATE.contributions.slice(2)
+      ]
+    };
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+      if ((url as string).includes("slot-candidates")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { event: UNSCHEDULED_EVENT, candidates: [feasCandidateWithFeasLink] } }) });
+      }
+      if ((url as string).includes("feasibility/params")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: BASE_FEAS_SETTINGS }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: surfaceWithPrompt() }) });
+    }));
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("독서 날짜 잡기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("독서 날짜 잡기"));
+    await waitFor(() => expect(screen.getByLabelText("슬롯 체력 파라미터 조정")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("슬롯 체력 파라미터 조정"));
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+  });
+
+  it("friction reason link points to /mirror", async () => {
+    const frictionCandidate = {
+      ...SLOT_CANDIDATE,
+      contributions: [
+        ...SLOT_CANDIDATE.contributions.slice(0, 3),
+        { lens: "friction", label: "마찰", impact: "negative", points: -15, confidence: "observed", reasonCodes: ["friction_high_weekday"], evidence: ["해당 요일 이탈률 75%"] }
+      ]
+    };
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+      if ((url as string).includes("slot-candidates")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { event: UNSCHEDULED_EVENT, candidates: [frictionCandidate] } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: surfaceWithPrompt() }) });
+    }));
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("독서 날짜 잡기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("독서 날짜 잡기"));
+    await waitFor(() => expect(screen.getByLabelText("Mirror에서 패턴 보기")).toBeInTheDocument());
+    const link = screen.getByLabelText("Mirror에서 패턴 보기");
+    expect(link.getAttribute("href")).toBe("/mirror");
+  });
+
+  it("people reason link navigates to /people/:id when single person identified", async () => {
+    const peopleCandidate = {
+      ...SLOT_CANDIDATE,
+      contributions: [
+        ...SLOT_CANDIDATE.contributions.slice(0, 2),
+        { lens: "people", label: "참여자", impact: "negative", points: -40, confidence: "observed", reasonCodes: ["person_unavailable_weekday"], evidence: ["Alice — 해당 요일 불가"], personIds: [7] },
+        SLOT_CANDIDATE.contributions[3]
+      ]
+    };
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+      if ((url as string).includes("slot-candidates")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { event: UNSCHEDULED_EVENT, candidates: [peopleCandidate] } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: surfaceWithPrompt() }) });
+    }));
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("독서 날짜 잡기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("독서 날짜 잡기"));
+    await waitFor(() => expect(screen.getByLabelText("사람 상세 보기")).toBeInTheDocument());
+    const link = screen.getByLabelText("사람 상세 보기");
+    expect(link.getAttribute("href")).toBe("/people/7");
+  });
+
+  it("candidate fetch failure keeps card visible with local alert", async () => {
+    const fetchSpy = vi.fn().mockImplementation((url: string) => {
+      if ((url as string).includes("slot-candidates")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: false, error: { message: "네트워크 오류" } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: surfaceWithPrompt() }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("독서 날짜 잡기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("독서 날짜 잡기"));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent("네트워크 오류");
   });
 });
 
