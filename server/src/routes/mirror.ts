@@ -5,7 +5,7 @@ import { findAllOutcomeAnnotations, findMovedCancelledAnnotations } from "../rep
 import { readNumericParam } from "../repositories/params.js";
 import { buildMirrorLedger } from "../services/mirror-ledger.js";
 import { buildMirrorPatterns } from "../services/mirror-patterns.js";
-import { buildMirrorEnergyTrends } from "../services/mirror-energy-trends.js";
+import { buildMirrorEnergyTrends, resolveTrendRange } from "../services/mirror-energy-trends.js";
 import type { CairnDatabase } from "../db/index.js";
 
 export function registerMirrorRoutes(app: FastifyInstance, db: CairnDatabase): void {
@@ -54,6 +54,18 @@ export function registerMirrorRoutes(app: FastifyInstance, db: CairnDatabase): v
       });
     }
 
+    const today = serverLocalToday();
+    const resolved = resolveTrendRange(parsed.data.from, parsed.data.to, today);
+    const fromMs = Date.parse(`${resolved.from}T00:00:00Z`);
+    const toMs = Date.parse(`${resolved.to}T00:00:00Z`);
+    const diff = (toMs - fromMs) / 86_400_000;
+    if (diff < 0 || diff > 89) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "VALIDATION_ERROR", message: "range must not exceed 90 days" }
+      });
+    }
+
     const paramOverrides: Record<string, number> = {
       energyBudget: readNumericParam(db, "energy_budget", 8),
       meetBufferMinutes: readNumericParam(db, "meet_buffer", 15),
@@ -65,7 +77,7 @@ export function registerMirrorRoutes(app: FastifyInstance, db: CairnDatabase): v
     const data = buildMirrorEnergyTrends(evts, {
       from: parsed.data.from,
       to: parsed.data.to,
-      today: serverLocalToday(),
+      today,
       paramOverrides
     });
     return reply.send({ ok: true, data });

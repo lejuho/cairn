@@ -122,6 +122,33 @@ describe("GET /api/mirror/energy-trends", () => {
     conn.sqlite.close();
   });
 
+  it("returns 400 on one-sided from far in the past (bypasses schema cap)", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    // schema only checks cap when both present; resolved to=today → diff huge
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/mirror/energy-trends?from=1900-01-01"
+    });
+    expect(res.statusCode).toBe(400);
+    const body = res.json() as { ok: boolean; error: { code: string } };
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    conn.sqlite.close();
+  });
+
+  it("accepts one-sided to (from defaults to to-30d, within cap)", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/mirror/energy-trends?to=2026-01-31"
+    });
+    // from=2026-01-01, to=2026-01-31 → diff=30 ≤ 89
+    expect(res.statusCode).toBe(200);
+    conn.sqlite.close();
+  });
+
   it("uses DB param override for energy_budget", async () => {
     const conn = makeTestDb();
     conn.sqlite.prepare(`INSERT OR REPLACE INTO params (key, value) VALUES ('energy_budget', '1')`).run();

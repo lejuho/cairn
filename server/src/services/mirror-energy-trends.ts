@@ -3,6 +3,18 @@ import { buildFeasibilityParams, computeDayFeasibility } from "./feasibility.js"
 
 const LOW_SAMPLE_THRESHOLD = 3;
 
+export type TrendRange = { from: string; to: string };
+
+export function resolveTrendRange(
+  from: string | undefined,
+  to: string | undefined,
+  today: string
+): TrendRange {
+  const resolvedTo = to ?? today;
+  const resolvedFrom = from ?? minusDays(resolvedTo, 30);
+  return { from: resolvedFrom, to: resolvedTo };
+}
+
 export type MirrorEnergyTrendsOptions = {
   from?: string | undefined;
   to?: string | undefined;
@@ -14,8 +26,7 @@ export function buildMirrorEnergyTrends(
   events: EventRow[],
   opts: MirrorEnergyTrendsOptions
 ): MirrorEnergyTrendData {
-  const to = opts.to ?? opts.today;
-  const from = opts.from ?? minusDays(to, 30);
+  const { from, to } = resolveTrendRange(opts.from, opts.to, opts.today);
   const p = buildFeasibilityParams(opts.paramOverrides ?? {});
 
   // Filter to planned/confirmed events whose date prefix is within [from, to].
