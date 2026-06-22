@@ -168,6 +168,57 @@ export const MirrorPatternsDataSchema = z.object({
 
 export const MirrorPatternsResponseSchema = createApiSuccessSchema(MirrorPatternsDataSchema);
 
+// ── Energy Trend A schemas ────────────────────────────────────────────────────
+
+// 90-day max: diff = (to - from) in full days. Inclusive count = diff + 1 <= 90
+// → diff <= 89. Applies only when both bounds are explicitly provided.
+export const MirrorEnergyTrendQuerySchema = MirrorRangeQuerySchema.refine(
+  (q) => q.from == null || q.to == null || q.from <= q.to,
+  { message: "from must be <= to", path: ["from"] }
+).refine(
+  (q) => {
+    if (q.from == null || q.to == null) return true;
+    const fromMs = Date.parse(`${q.from}T00:00:00Z`);
+    const toMs = Date.parse(`${q.to}T00:00:00Z`);
+    return (toMs - fromMs) / 86_400_000 <= 89;
+  },
+  { message: "range must not exceed 90 days", path: ["from"] }
+);
+
+export const MirrorEnergyTrendDaySchema = z
+  .object({
+    date: z.string(),
+    eventCount: z.number(),
+    loadUnits: z.number(),
+    budgetUnits: z.number(),
+    remainingUnits: z.number(),
+    deficit: z.boolean(),
+    continuousExceeded: z.boolean()
+  })
+  .strict();
+
+export const MirrorEnergyTrendSummarySchema = z
+  .object({
+    days: z.number(),
+    scheduledDays: z.number(),
+    deficitDays: z.number(),
+    averageDailyLoadUnits: z.number(),
+    averageScheduledLoadUnits: z.number(),
+    peakLoadUnits: z.number(),
+    budgetUnits: z.number(),
+    sampleStatus: MirrorSampleStatusSchema
+  })
+  .strict();
+
+export const MirrorEnergyTrendDataSchema = z.object({
+  range: MirrorLedgerRangeSchema,
+  summary: MirrorEnergyTrendSummarySchema,
+  days: z.array(MirrorEnergyTrendDaySchema),
+  sampleStatus: MirrorSampleStatusSchema
+});
+
+export const MirrorEnergyTrendResponseSchema = createApiSuccessSchema(MirrorEnergyTrendDataSchema);
+
 export type MirrorOutcome = z.infer<typeof MirrorOutcomeSchema>;
 export type EffortBucket = z.infer<typeof EffortBucketSchema>;
 export type MirrorSampleStatus = z.infer<typeof MirrorSampleStatusSchema>;
@@ -181,3 +232,7 @@ export type MirrorPatternBucket = z.infer<typeof MirrorPatternBucketSchema>;
 export type MirrorPatternThreadBucket = z.infer<typeof MirrorPatternThreadBucketSchema>;
 export type MirrorPatternsTotals = z.infer<typeof MirrorPatternsTotalsSchema>;
 export type MirrorPatternsData = z.infer<typeof MirrorPatternsDataSchema>;
+export type MirrorEnergyTrendQuery = z.infer<typeof MirrorEnergyTrendQuerySchema>;
+export type MirrorEnergyTrendDay = z.infer<typeof MirrorEnergyTrendDaySchema>;
+export type MirrorEnergyTrendSummary = z.infer<typeof MirrorEnergyTrendSummarySchema>;
+export type MirrorEnergyTrendData = z.infer<typeof MirrorEnergyTrendDataSchema>;

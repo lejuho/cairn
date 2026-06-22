@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import type {
+  MirrorEnergyTrendData,
+  MirrorEnergyTrendDay,
   MirrorLedgerData,
   MirrorLedgerEntry,
   MirrorPatternBucket,
@@ -8,7 +10,7 @@ import type {
 } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
 
-type MirrorData = { ledger: MirrorLedgerData; patterns: MirrorPatternsData };
+type MirrorData = { ledger: MirrorLedgerData; patterns: MirrorPatternsData; energy: MirrorEnergyTrendData };
 
 type ViewState =
   | { tag: "loading" }
@@ -18,13 +20,15 @@ type ViewState =
   | { tag: "access_session_required" };
 
 async function loadMirrorData(): Promise<MirrorData> {
-  const [ledgerBody, patternsBody] = await Promise.all([
+  const [ledgerBody, patternsBody, energyBody] = await Promise.all([
     apiJson<{ ok: boolean; data?: MirrorLedgerData; error?: { message: string } }>("/api/mirror/ledger"),
-    apiJson<{ ok: boolean; data?: MirrorPatternsData; error?: { message: string } }>("/api/mirror/patterns")
+    apiJson<{ ok: boolean; data?: MirrorPatternsData; error?: { message: string } }>("/api/mirror/patterns"),
+    apiJson<{ ok: boolean; data?: MirrorEnergyTrendData; error?: { message: string } }>("/api/mirror/energy-trends")
   ]);
   if (!ledgerBody.ok) throw new Error(ledgerBody.error?.message ?? "알 수 없는 오류");
   if (!patternsBody.ok) throw new Error(patternsBody.error?.message ?? "알 수 없는 오류");
-  return { ledger: ledgerBody.data!, patterns: patternsBody.data! };
+  if (!energyBody.ok) throw new Error(energyBody.error?.message ?? "알 수 없는 오류");
+  return { ledger: ledgerBody.data!, patterns: patternsBody.data!, energy: energyBody.data! };
 }
 
 const OUTCOME_LABEL: Record<MirrorLedgerEntry["outcome"], string> = {
@@ -48,7 +52,9 @@ export function MirrorLedger() {
     loadMirrorData()
       .then((data) => {
         if (cancelled) return;
-        const isEmpty = data.patterns.totals.annotations === 0;
+        const isEmpty =
+          data.patterns.totals.annotations === 0 &&
+          data.energy.summary.scheduledDays === 0;
         setView(isEmpty ? { tag: "quiet", data } : { tag: "live", data });
       })
       .catch((e: unknown) => {
@@ -116,7 +122,7 @@ export function MirrorLedger() {
   }
 
   const { data } = view;
-  const { ledger, patterns } = data;
+  const { ledger, patterns, energy } = data;
   return (
     <main className="app-shell today-live" aria-labelledby="mirror-title">
       <header style={{ width: "min(100%, 480px)", marginBottom: "12px" }}>
@@ -127,6 +133,7 @@ export function MirrorLedger() {
         </p>
       </header>
 
+      <MirrorEnergyTrend energy={energy} />
       <MirrorPatterns patterns={patterns} />
 
       <MirrorSummary data={ledger} />
@@ -148,6 +155,57 @@ export function MirrorLedger() {
         ))}
       </ul>
     </main>
+  );
+}
+
+function MirrorEnergyTrend({ energy }: { energy: MirrorEnergyTrendData }) {
+  const s = energy.summary;
+  if (s.scheduledDays === 0) return null;
+
+  const recentDays = energy.days.slice(0, 7);
+
+  return (
+    <section
+      className="quiet-card warm"
+      aria-label="에너지 추세"
+      data-testid="mirror-energy-trend"
+      style={{ width: "min(100%, 480px)", marginBottom: "12px" }}
+    >
+      <p className="eyebrow" style={{ margin: "0 0 8px" }}>에너지 추세</p>
+
+      {energy.sampleStatus === "low_sample" && (
+        <p className="card-meta" role="note" data-testid="energy-low-sample" style={{ margin: "0 0 8px", opacity: 0.7 }}>
+          표본이 적어 패턴으로 보긴 이르다
+        </p>
+      )}
+
+      <p className="card-meta" style={{ display: "flex", flexWrap: "wrap", gap: "6px", margin: "0 0 8px" }}>
+        <span className="card-chip">예산 초과 {s.deficitDays}일</span>
+        <span className="card-chip">예산 {s.budgetUnits}시간</span>
+        <span className="card-chip">평균 부하 {s.averageScheduledLoadUnits}시간</span>
+        <span className="card-chip">최대 부하 {s.peakLoadUnits}시간</span>
+        <span className="card-chip">일정 있는 날 {s.scheduledDays}일</span>
+      </p>
+
+      {recentDays.length > 0 && (
+        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+          {recentDays.map((d) => (
+            <MirrorEnergyDayRow key={d.date} day={d} budgetUnits={s.budgetUnits} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function MirrorEnergyDayRow({ day, budgetUnits }: { day: MirrorEnergyTrendDay; budgetUnits: number }) {
+  return (
+    <li className="card-meta" style={{ margin: "2px 0", display: "flex", flexWrap: "wrap", gap: "4px", alignItems: "center" }}>
+      <span style={{ minWidth: "90px" }}>{day.date}</span>
+      <span className="card-chip">{day.loadUnits}시간 / {budgetUnits}시간</span>
+      {day.deficit && <span className="card-chip" data-testid={`energy-deficit-${day.date}`}>예산 초과</span>}
+      {day.continuousExceeded && <span className="card-chip">연속 초과</span>}
+    </li>
   );
 }
 

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  MirrorEnergyTrendDataSchema,
+  MirrorEnergyTrendDaySchema,
+  MirrorEnergyTrendQuerySchema,
+  MirrorEnergyTrendSummarySchema,
   MirrorLedgerCostSchema,
   MirrorLedgerDataSchema,
   MirrorLedgerQuerySchema,
@@ -165,6 +169,90 @@ describe("MirrorPatternsQuerySchema", () => {
 
   it("accepts a valid range", () => {
     expect(MirrorPatternsQuerySchema.safeParse({ from: "2026-06-01", to: "2026-06-30" }).success).toBe(true);
+  });
+});
+
+const VALID_TREND_DAY = {
+  date: "2026-06-21",
+  eventCount: 2,
+  loadUnits: 5.5,
+  budgetUnits: 8,
+  remainingUnits: 2.5,
+  deficit: false,
+  continuousExceeded: false
+};
+
+const VALID_TREND_DATA = {
+  range: { from: "2026-06-01", to: "2026-06-30" },
+  summary: {
+    days: 30,
+    scheduledDays: 5,
+    deficitDays: 1,
+    averageDailyLoadUnits: 1.2,
+    averageScheduledLoadUnits: 7.2,
+    peakLoadUnits: 9.5,
+    budgetUnits: 8,
+    sampleStatus: "ok" as const
+  },
+  days: [VALID_TREND_DAY],
+  sampleStatus: "ok" as const
+};
+
+describe("MirrorEnergyTrendDataSchema", () => {
+  it("parses a valid energy trend payload", () => {
+    expect(MirrorEnergyTrendDataSchema.parse(VALID_TREND_DATA)).toEqual(VALID_TREND_DATA);
+  });
+
+  it("rejects an invalid sampleStatus", () => {
+    expect(MirrorEnergyTrendDataSchema.safeParse({ ...VALID_TREND_DATA, sampleStatus: "great" }).success).toBe(false);
+  });
+});
+
+describe("MirrorEnergyTrendDaySchema", () => {
+  it("rejects an injected score field (strict)", () => {
+    expect(MirrorEnergyTrendDaySchema.safeParse({ ...VALID_TREND_DAY, score: 9 }).success).toBe(false);
+  });
+
+  it("rejects a recommendation field (strict)", () => {
+    expect(MirrorEnergyTrendDaySchema.safeParse({ ...VALID_TREND_DAY, recommendation: "줄여야 해" }).success).toBe(false);
+  });
+});
+
+describe("MirrorEnergyTrendSummarySchema", () => {
+  it("rejects an injected score field (strict)", () => {
+    expect(MirrorEnergyTrendSummarySchema.safeParse({ ...VALID_TREND_DATA.summary, score: 1 }).success).toBe(false);
+  });
+});
+
+describe("MirrorEnergyTrendQuerySchema", () => {
+  it("accepts empty query", () => {
+    expect(MirrorEnergyTrendQuerySchema.safeParse({}).success).toBe(true);
+  });
+
+  it("rejects a bad format date", () => {
+    expect(MirrorEnergyTrendQuerySchema.safeParse({ from: "2026/06/01" }).success).toBe(false);
+  });
+
+  it("rejects an impossible date (2026-99-99)", () => {
+    expect(MirrorEnergyTrendQuerySchema.safeParse({ from: "2026-99-99" }).success).toBe(false);
+  });
+
+  it("rejects a reversed range", () => {
+    expect(MirrorEnergyTrendQuerySchema.safeParse({ from: "2026-06-30", to: "2026-06-01" }).success).toBe(false);
+  });
+
+  it("accepts exactly 90 inclusive days (diff=89)", () => {
+    // 2026-01-01 to 2026-03-31: Jan(31)+Feb(28)+Mar(30)=89 diff → 90 inclusive
+    expect(MirrorEnergyTrendQuerySchema.safeParse({ from: "2026-01-01", to: "2026-03-31" }).success).toBe(true);
+  });
+
+  it("rejects 91 inclusive days (diff=90)", () => {
+    // 2026-01-01 to 2026-04-01: Jan(31)+Feb(28)+Mar(31)=90 diff → 91 inclusive
+    expect(MirrorEnergyTrendQuerySchema.safeParse({ from: "2026-01-01", to: "2026-04-01" }).success).toBe(false);
+  });
+
+  it("accepts a valid range within 90 days", () => {
+    expect(MirrorEnergyTrendQuerySchema.safeParse({ from: "2026-06-01", to: "2026-06-30" }).success).toBe(true);
   });
 });
 
