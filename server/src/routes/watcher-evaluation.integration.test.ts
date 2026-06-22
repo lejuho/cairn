@@ -120,6 +120,29 @@ describe("GET /api/today — derived watcher bubbles", () => {
     conn.sqlite.close();
   });
 
+  it("compares snooze as instant when stored offset differs from now param", async () => {
+    // NOW is 09:00Z. Stored snooze 18:00+09:00 == 09:00Z exactly, +1s past →
+    // still snoozed. Naive string compare ("...18:00..." vs "...09:00...") is
+    // coincidentally right here, so use a value that breaks lexicographically:
+    // 09:30+09:00 == 00:30Z (BEFORE now) but its string sorts AFTER NOW.
+    const conn = makeTestDb();
+    insertWatcher(conn, { snoozedUntil: "2026-06-22T09:30:00+09:00" });
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "GET", url: TODAY_URL });
+    // Instant compare: 00:30Z < 09:00Z → expired → surfaces.
+    expect(res.json().data.watcherBubbles).toHaveLength(1);
+    conn.sqlite.close();
+  });
+
+  it("keeps snooze active when stored offset instant is in the future", async () => {
+    const conn = makeTestDb();
+    insertWatcher(conn, { snoozedUntil: "2026-06-22T19:00:00+09:00" }); // 10:00Z
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "GET", url: TODAY_URL });
+    expect(res.json().data.watcherBubbles).toHaveLength(0);
+    conn.sqlite.close();
+  });
+
   it("does not crash when rule is malformed JSON", async () => {
     const conn = makeTestDb();
     insertWatcher(conn, { rule: "not-json", threshold: "2026-06-22" });

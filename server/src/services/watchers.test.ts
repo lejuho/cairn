@@ -64,6 +64,34 @@ describe("evaluateWatcherA", () => {
       );
       expect(result).toHaveLength(1);
     });
+
+    it("compares snooze as instant across differing offsets", () => {
+      // 09:30+09:00 == 00:30Z, which is BEFORE NOW (09:00Z) → expired → surfaces.
+      // A naive lexicographic compare ("2026-06-22T09:30..." > "2026-06-22T09:00...")
+      // would wrongly suppress it.
+      const result = evaluateWatcherA(
+        [row({ snoozedUntil: "2026-06-22T09:30:00+09:00" })],
+        DATE, NOW
+      );
+      expect(result).toHaveLength(1);
+    });
+
+    it("keeps snooze active across differing offsets", () => {
+      // 19:00+09:00 == 10:00Z, which is AFTER NOW (09:00Z) → still snoozed → hidden.
+      const result = evaluateWatcherA(
+        [row({ snoozedUntil: "2026-06-22T19:00:00+09:00" })],
+        DATE, NOW
+      );
+      expect(result).toHaveLength(0);
+    });
+
+    it("surfaces when snoozedUntil is invalid (fail-open)", () => {
+      const result = evaluateWatcherA(
+        [row({ snoozedUntil: "not-a-date" })],
+        DATE, NOW
+      );
+      expect(result).toHaveLength(1);
+    });
   });
 
   describe("rule fallback", () => {

@@ -49,6 +49,11 @@ export function evaluateWatcherA(
 ): WatcherABubble[] {
   const bubbles: WatcherABubble[] = [];
 
+  // `now` is RFC3339-validated at the route; parse once for instant comparison.
+  // If NaN slips through, nowMs is NaN and every `snoozedMs > NaN` is false →
+  // watchers surface (fail-open), never silently suppressed.
+  const nowMs = Date.parse(now);
+
   for (const row of rows) {
     if (row.armed !== 1) continue;
     if (row.kind !== "A") continue;
@@ -64,7 +69,13 @@ export function evaluateWatcherA(
 
     if (threshold > date) continue;
 
-    if (row.snoozedUntil != null && row.snoozedUntil > now) continue;
+    // Compare as instants: lexicographic string compare is unsafe across offsets
+    // ("...00:30Z" vs "...09:00+09:00" are the same instant). Invalid stored
+    // snoozedUntil (NaN) is treated as expired → watcher surfaces (fail-open).
+    if (row.snoozedUntil != null) {
+      const snoozedMs = Date.parse(row.snoozedUntil);
+      if (!Number.isNaN(snoozedMs) && snoozedMs > nowMs) continue;
+    }
 
     const overdue = daysOverdue(date, threshold);
     bubbles.push({
