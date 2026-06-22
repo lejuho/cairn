@@ -143,16 +143,14 @@ export function Watchers() {
         )}
         <p className="watcher-card-message">{w.message}</p>
         <div className="watcher-card-actions">
-          {w.status !== "unsupported" && (
-            <button
-              className="watcher-armed-toggle"
-              aria-pressed={w.armed}
-              aria-label={w.armed ? `${w.label ?? "watcher"} 비활성화` : `${w.label ?? "watcher"} 활성화`}
-              onClick={() => void handleArmedToggle(w.id, w.armed)}
-            >
-              {w.armed ? "활성" : "비활성"}
-            </button>
-          )}
+          <button
+            className="watcher-armed-toggle"
+            aria-pressed={w.armed}
+            aria-label={w.armed ? `${w.label ?? "watcher"} 비활성화` : `${w.label ?? "watcher"} 활성화`}
+            onClick={() => void handleArmedToggle(w.id, w.armed)}
+          >
+            {w.armed ? "활성" : "비활성"}
+          </button>
           {w.status === "due" && (
             <button
               className="watcher-snooze-btn"

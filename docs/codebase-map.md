@@ -266,9 +266,9 @@ Entry and routing:
   - Redirects `/` to `/today`.
   - Renders `AppNav` on all primary routes.
   - Handles simple not-found surface (nav still visible).
-  - Routes: `/today`, `/input`, `/threads`, `/threads/new`, `/threads/:id`, `/people`, `/people/:id`, `/mirror`.
+  - Routes: `/today`, `/input`, `/threads`, `/threads/new`, `/threads/:id`, `/people`, `/people/:id`, `/mirror`, `/watch`.
 - [web/src/AppNav.tsx](/home/pi/cairn/web/src/AppNav.tsx)
-  - Shared top navigation bar. Links: Today (`/today`), 입력 (`/input`), 스레드 (`/threads`), 사람 (`/people`), 거울 (`/mirror`).
+  - Shared top navigation bar. Links: Today (`/today`), 입력 (`/input`), 스레드 (`/threads`), 사람 (`/people`), 거울 (`/mirror`), 여백 (`/watch`).
   - `aria-current="page"` on active link (including `/people/:id` matching 사람 link). Touch targets ≥44px. Reduced-motion safe.
 - [web/src/MirrorLedger.tsx](/home/pi/cairn/web/src/MirrorLedger.tsx)
   - `/mirror` screen (B-temperature reflection surface). Fetches `/api/mirror/ledger`, `/api/mirror/patterns`, and `/api/mirror/energy-trends` in parallel. Five states: loading skeleton, quiet (`아직 기록된 이동/취소 원장이 없어` — when `patterns.totals.annotations===0 && energy.summary.scheduledDays===0`), live (energy trend + pattern section + summary chips + newest-first ledger entries), error (retry), access_session_required (reload). Energy trend section (`MirrorEnergyTrend`): hidden when scheduledDays===0; shows last-7-day rows, summary chips (deficitDays/budgetUnits/averageScheduledLoadUnits/peakLoadUnits/scheduledDays), low-sample note when scheduledDays<3. Pattern section (`MirrorPatterns`): weekday/type/thread buckets with descriptive counts (`{label} 기록 N건 중 이동/취소/지각 M건`), low-sample note per section. Ledger section: entry cards with outcome 이동/취소, split cost chips, reason text/tags, logged date, optional thread link. Descriptive copy only — no advice/moralizing. Semantic tokens only (`--moved`, `.warm`).

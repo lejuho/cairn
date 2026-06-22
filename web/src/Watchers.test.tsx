@@ -84,6 +84,19 @@ describe("Watchers — live state", () => {
     const toggle = screen.getByLabelText("예전 watcher 활성화");
     expect(toggle.getAttribute("aria-pressed")).toBe("false");
   });
+
+  it("unsupported watcher also renders armed toggle", async () => {
+    const WATCHER_UNSUPPORTED: WatcherDeepRow = {
+      id: 9, category: null, label: "구형 watcher", kind: "B", armed: false,
+      threshold: null, snoozedUntil: null, status: "unsupported", daysOverdue: null,
+      daysUntil: null, message: "지원하지 않는 watcher 형식이야", reasonCodes: ["unsupported_kind"]
+    };
+    mockFetch([WATCHER_UNSUPPORTED]);
+    render(<Watchers />);
+    await waitFor(() => expect(screen.getByLabelText("구형 watcher 활성화")).toBeInTheDocument());
+    const toggle = screen.getByLabelText("구형 watcher 활성화");
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+  });
 });
 
 describe("Watchers — create bottom sheet", () => {
