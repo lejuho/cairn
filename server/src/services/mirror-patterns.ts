@@ -1,4 +1,5 @@
 import type { MirrorPatternBucket, MirrorPatternThreadBucket, MirrorPatternsData } from "@cairn/shared";
+import { isCalendarDate } from "@cairn/shared";
 import type { MirrorSourceRow } from "../repositories/mirror.js";
 
 const LOW_SAMPLE_THRESHOLD = 3;
@@ -108,8 +109,11 @@ export function buildMirrorPatterns(rows: MirrorSourceRow[], opts: MirrorPattern
 function weekdayFromStart(start: string | null): string {
   if (start == null) return "unknown";
   const datePart = start.slice(0, 10);
+  // NaN guard alone is insufficient: "2026-02-30" parses without NaN but rolls
+  // to 2026-03-02. Round-trip check rejects overflow dates the same way
+  // isCalendarDate() does in the shared schema layer.
+  if (!isCalendarDate(datePart)) return "unknown";
   const ms = Date.parse(`${datePart}T00:00:00Z`);
-  if (Number.isNaN(ms)) return "unknown";
   return UTC_DAY_TO_KEY[new Date(ms).getUTCDay()] ?? "unknown";
 }
 

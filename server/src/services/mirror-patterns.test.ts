@@ -101,6 +101,18 @@ describe("buildMirrorPatterns", () => {
       expect(data.weekday[0]?.key).toBe("unknown");
     });
 
+    it("puts shape-valid overflow start (2026-02-30) in unknown bucket", () => {
+      const r = row({ eventStart: "2026-02-30T10:00:00Z" });
+      const data = buildMirrorPatterns([r], { today: TODAY });
+      expect(data.weekday[0]?.key).toBe("unknown");
+    });
+
+    it("puts shape-valid overflow start (2026-06-31) in unknown bucket", () => {
+      const r = row({ eventStart: "2026-06-31T10:00:00Z" });
+      const data = buildMirrorPatterns([r], { today: TODAY });
+      expect(data.weekday[0]?.key).toBe("unknown");
+    });
+
     it("preserves Mon→Sun→unknown sort order", () => {
       const rows = [
         row({ eventStart: "2026-06-21T10:00:00Z", annotationId: 1 }), // Sunday
