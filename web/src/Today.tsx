@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ConflictDecision, DayFeasibility, EventDetailData, EventRow, FeasibilityParamLimits, FeasibilityParamSettingsData, FeasibilityParams, NotificationDraft, SlotCandidate, ThreadSummary, TodaySurface, UpdateFeasibilityParamsRequest } from "@cairn/shared";
+import type { ConflictDecision, DayFeasibility, EventDetailData, EventRow, FeasibilityParamLimits, FeasibilityParamSettingsData, FeasibilityParams, NotificationDraft, SlotCandidate, SlotSuggestionContribution, ThreadSummary, TodaySurface, UpdateFeasibilityParamsRequest } from "@cairn/shared";
 import { ResolveConflictResponseDataSchema } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString } from "./dateUtils.js";
 import { apiJson, type AccessSessionError } from "./api.js";
@@ -1428,15 +1428,41 @@ export function Today() {
                 )}
                 {ss.tag === "loaded" && ss.candidates.length > 0 && (
                   <ul className="today-slot-list" role="list">
-                    {ss.candidates.map((c, i) => (
-                      <li key={i}>
+                    {ss.candidates.map((c) => (
+                      <li key={c.start} className="today-slot-item">
                         <button
                           className="today-slot-candidate"
                           onClick={() => void handleSchedule(card.event.id, c.start, c.end)}
-                          aria-label={`${c.start.slice(0, 16)} 선택`}
+                          aria-label={`${c.start.slice(0, 10)} ${c.start.slice(11, 16)} 선택`}
                         >
-                          {c.start.slice(0, 10)} {c.start.slice(11, 16)} – {c.end.slice(11, 16)}
+                          <span className="today-slot-time">
+                            {c.start.slice(0, 10)} {c.start.slice(11, 16)} – {c.end.slice(11, 16)}
+                          </span>
+                          <span className="today-slot-score-label">{c.scoreLabel}</span>
                         </button>
+                        <ul className="today-slot-reasons" role="list" aria-label="추천 이유">
+                          {c.contributions.slice(0, 4).map((contrib: SlotSuggestionContribution) => (
+                            <li key={contrib.lens} className={`today-slot-reason today-slot-reason--${contrib.impact}`}>
+                              <span className="today-slot-reason-text">
+                                {contrib.evidence[0] ?? contrib.label}
+                              </span>
+                              {contrib.lens === "feasibility" && contrib.impact !== "neutral" && (
+                                <button
+                                  className="today-slot-reason-link"
+                                  onClick={() => void handleOpenFeasSettings(surface.feasibility.params)}
+                                  aria-label="슬롯 체력 파라미터 조정"
+                                >
+                                  조정
+                                </button>
+                              )}
+                              {contrib.lens === "friction" && contrib.impact !== "neutral" && (
+                                <a className="today-slot-reason-link" href="/mirror" aria-label="Mirror에서 패턴 보기">
+                                  패턴
+                                </a>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
                       </li>
                     ))}
                   </ul>

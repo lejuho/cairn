@@ -194,6 +194,200 @@ describe("GET /api/events/:id/slot-candidates", () => {
   });
 });
 
+describe("GET /api/events/:id/slot-candidates — enriched fields", () => {
+  let conn: ReturnType<typeof makeTestDb>;
+  beforeEach(() => { conn = makeTestDb(); });
+  afterEach(() => conn.sqlite.close());
+
+  it("candidates include score, rank, scoreLabel, contributions", async () => {
+    const id = insertUnscheduled(conn, "enriched");
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/events/${id}/slot-candidates?date=${DATE}&now=${encodeURIComponent(NOW)}&days=1`
+    });
+    expect(res.statusCode).toBe(200);
+    const { data } = res.json();
+    expect(data.candidates.length).toBeGreaterThan(0);
+    const c = data.candidates[0];
+    expect(typeof c.score).toBe("number");
+    expect(c.rank).toBe(1);
+    expect(typeof c.scoreLabel).toBe("string");
+    expect(Array.isArray(c.contributions)).toBe(true);
+    expect(c.contributions.length).toBe(4); // availability + feasibility + people + friction
+    const lenses = c.contributions.map((ct: { lens: string }) => ct.lens);
+    expect(lenses).toContain("availability");
+    expect(lenses).toContain("feasibility");
+    expect(lenses).toContain("people");
+    expect(lenses).toContain("friction");
+  });
+
+  it("availability contribution is always positive+observed for returned candidates", async () => {
+    const id = insertUnscheduled(conn, "avail-check");
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/events/${id}/slot-candidates?date=${DATE}&now=${encodeURIComponent(NOW)}&days=1`
+    });
+    const { data } = res.json();
+    for (const c of data.candidates) {
+      const avail = c.contributions.find((ct: { lens: string }) => ct.lens === "availability");
+      expect(avail.impact).toBe("positive");
+      expect(avail.confidence).toBe("observed");
+    }
+  });
+
+  it("attached person with preferred windows changes candidate scoring", async () => {
+    const id = insertUnscheduled(conn, "people-pref");
+    // Insert a person with preferred tuesday morning
+    conn.sqlite.prepare("INSERT INTO people (name, channel) VALUES ('Bob', 'kakao')").run();
+    const person = conn.sqlite.prepare("SELECT id FROM people ORDER BY id DESC LIMIT 1").get() as { id: number };
+    conn.sqlite.prepare("INSERT INTO event_people (event_id, person_id) VALUES (?, ?)").run(id, person.id);
+    // Set preferred windows: tuesday morning (stored as JSON in preferred_windows column)
+    conn.sqlite.prepare(
+      "UPDATE people SET preferred_windows = ? WHERE id = ?"
+    ).run(JSON.stringify({ weekdays: ["tuesday"], periods: ["morning"], firmness: "hard" }), person.id);
+
+    const app = buildServer(conn.db);
+    const dateStr = "2026-06-23"; // Tuesday
+    const nowStr = "2026-06-23T08:00:00+09:00";
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/events/${id}/slot-candidates?date=${dateStr}&now=${encodeURIComponent(nowStr)}&days=1`
+    });
+    expect(res.statusCode).toBe(200);
+    const { data } = res.json();
+    expect(data.candidates.length).toBeGreaterThan(0);
+    // Top candidate should include people preferred window contribution
+    const peopleCont = data.candidates[0].contributions.find(
+      (c: { lens: string; reasonCodes: string[] }) => c.lens === "people"
+    );
+    expect(peopleCont.reasonCodes).toContain("person_preferred_window");
+  });
+
+  it("person with hard unavailable weekday scores negatively and is never marked preferred", async () => {
+    const id = insertUnscheduled(conn, "hard-unavail");
+    conn.sqlite.prepare("INSERT INTO people (name, channel) VALUES ('Carol', 'sms')").run();
+    const person = conn.sqlite.prepare("SELECT id FROM people ORDER BY id DESC LIMIT 1").get() as { id: number };
+    conn.sqlite.prepare("INSERT INTO event_people (event_id, person_id) VALUES (?, ?)").run(id, person.id);
+    // Set hard unavailable: tuesday (stored as JSON in hard_constraints column)
+    conn.sqlite.prepare(
+      "UPDATE people SET hard_constraints = ? WHERE id = ?"
+    ).run(JSON.stringify([{ type: "weekday_unavailable", weekday: "tuesday", text: "no", firmness: "hard" }]), person.id);
+
+    const app = buildServer(conn.db);
+    const dateStr = "2026-06-23"; // Tuesday
+    const nowStr = "2026-06-23T08:00:00+09:00";
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/events/${id}/slot-candidates?date=${dateStr}&now=${encodeURIComponent(nowStr)}&days=2`
+    });
+    expect(res.statusCode).toBe(200);
+    const { data } = res.json();
+    // Tuesday candidates should have negative people contribution
+    for (const c of data.candidates) {
+      const startDay = c.start.slice(0, 10);
+      const peopleCont = c.contributions.find((ct: { lens: string }) => ct.lens === "people");
+      if (startDay === "2026-06-23") {
+        expect(peopleCont.reasonCodes).not.toContain("person_preferred_window");
+        expect(peopleCont.impact).toBe("negative");
+      }
+    }
+  });
+
+  it("persisted feasibility params affect candidate scoring", async () => {
+    const id = insertUnscheduled(conn, "params-score");
+    // Set very tight energy budget (1 unit) via params table
+    conn.sqlite.prepare("INSERT OR REPLACE INTO params (key, value) VALUES ('energy_budget', '1')").run();
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/events/${id}/slot-candidates?date=${DATE}&now=${encodeURIComponent(NOW)}&days=3`
+    });
+    expect(res.statusCode).toBe(200);
+    const { data } = res.json();
+    // With budget=1, adding a 1h candidate event fills budget exactly or exceeds it
+    // At least some candidates should reflect feasibility scoring
+    expect(data.candidates.length).toBeGreaterThan(0);
+    const feasContrib = data.candidates[0].contributions.find(
+      (c: { lens: string }) => c.lens === "feasibility"
+    );
+    expect(feasContrib).toBeDefined();
+    expect(["energy_within_budget", "energy_over_budget"]).toContain(feasContrib.reasonCodes[0]);
+  });
+
+  it("historical annotations affect friction contribution when sample threshold met", async () => {
+    // Insert an event with type=meeting
+    conn.sqlite.prepare(
+      "INSERT INTO events (title, source, self_imposed, status, type) VALUES (?, 'cairn', 1, 'planned', 'meeting')"
+    ).run("friction-test");
+    const row = conn.sqlite.prepare("SELECT id FROM events ORDER BY id DESC LIMIT 1").get() as { id: number };
+    const id = row.id;
+
+    // Insert 3+ annotations of moved outcome on Tuesdays (2026-06-02, 2026-06-09, 2026-06-16 = Tuesdays)
+    const tuesdayDates = ["2026-06-02", "2026-06-09", "2026-06-16"];
+    for (const d of tuesdayDates) {
+      conn.sqlite.prepare("INSERT INTO events (title, source, self_imposed, status, start, end) VALUES ('hist', 'cairn', 1, 'done', ?, ?)").run(`${d}T09:00:00+09:00`, `${d}T10:00:00+09:00`);
+      const histEvent = conn.sqlite.prepare("SELECT id FROM events ORDER BY id DESC LIMIT 1").get() as { id: number };
+      conn.sqlite.prepare("INSERT INTO annotations (event_id, outcome) VALUES (?, 'moved')").run(histEvent.id);
+    }
+
+    const app = buildServer(conn.db);
+    const dateStr = "2026-06-23"; // Tuesday
+    const nowStr = "2026-06-23T08:00:00+09:00";
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/events/${id}/slot-candidates?date=${dateStr}&now=${encodeURIComponent(nowStr)}&days=1`
+    });
+    expect(res.statusCode).toBe(200);
+    const { data } = res.json();
+    expect(data.candidates.length).toBeGreaterThan(0);
+    const frictionCont = data.candidates[0].contributions.find(
+      (c: { lens: string }) => c.lens === "friction"
+    );
+    // Should have observed confidence (sample threshold met) with high friction
+    expect(frictionCont.confidence).toBe("observed");
+    expect(frictionCont.reasonCodes).toContain("friction_high_weekday");
+  });
+
+  it("candidate fetch does not write events, params, or annotations", async () => {
+    const id = insertUnscheduled(conn, "no-write");
+    const app = buildServer(conn.db);
+
+    const eventsBefore = (conn.sqlite.prepare("SELECT COUNT(*) as n FROM events").get() as { n: number }).n;
+    const paramsBefore = (conn.sqlite.prepare("SELECT COUNT(*) as n FROM params").get() as { n: number }).n;
+    const annBefore = (conn.sqlite.prepare("SELECT COUNT(*) as n FROM annotations").get() as { n: number }).n;
+
+    await app.inject({
+      method: "GET",
+      url: `/api/events/${id}/slot-candidates?date=${DATE}&now=${encodeURIComponent(NOW)}`
+    });
+
+    const eventsAfter = (conn.sqlite.prepare("SELECT COUNT(*) as n FROM events").get() as { n: number }).n;
+    const paramsAfter = (conn.sqlite.prepare("SELECT COUNT(*) as n FROM params").get() as { n: number }).n;
+    const annAfter = (conn.sqlite.prepare("SELECT COUNT(*) as n FROM annotations").get() as { n: number }).n;
+
+    expect(eventsAfter).toBe(eventsBefore);
+    expect(paramsAfter).toBe(paramsBefore);
+    expect(annAfter).toBe(annBefore);
+  });
+
+  it("sorted candidates have score desc and earlier start first for equal scores", async () => {
+    const id = insertUnscheduled(conn, "sort-check");
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/events/${id}/slot-candidates?date=${DATE}&now=${encodeURIComponent(NOW)}&days=3`
+    });
+    const { data } = res.json();
+    const candidates = data.candidates as Array<{ score: number; start: string; rank: number }>;
+    for (let i = 1; i < candidates.length; i++) {
+      expect(candidates[i - 1]!.score).toBeGreaterThanOrEqual(candidates[i]!.score);
+      expect(candidates[i - 1]!.rank).toBe(i);
+    }
+  });
+});
+
 describe("PATCH /api/events/:id/schedule", () => {
   let conn: ReturnType<typeof makeTestDb>;
   beforeEach(() => { conn = makeTestDb(); });

@@ -1,12 +1,36 @@
 import { z } from "zod";
 import { EventRowSchema } from "./events.js";
 
+export const SlotSuggestionLensSchema = z.enum(["availability", "feasibility", "people", "friction"]);
+export type SlotSuggestionLens = z.infer<typeof SlotSuggestionLensSchema>;
+
+export const SlotSuggestionImpactSchema = z.enum(["positive", "neutral", "negative"]);
+export type SlotSuggestionImpact = z.infer<typeof SlotSuggestionImpactSchema>;
+
+export const SlotSuggestionConfidenceSchema = z.enum(["observed", "cold_start", "unavailable"]);
+export type SlotSuggestionConfidence = z.infer<typeof SlotSuggestionConfidenceSchema>;
+
+export const SlotSuggestionContributionSchema = z.object({
+  lens: SlotSuggestionLensSchema,
+  label: z.string(),
+  impact: SlotSuggestionImpactSchema,
+  points: z.number(),
+  confidence: SlotSuggestionConfidenceSchema,
+  reasonCodes: z.array(z.string()),
+  evidence: z.array(z.string())
+}).strict();
+export type SlotSuggestionContribution = z.infer<typeof SlotSuggestionContributionSchema>;
+
 export const SlotCandidateSchema = z.object({
   start: z.string(),
   end: z.string(),
+  score: z.number().int().min(0),
+  rank: z.number().int().min(1),
+  scoreLabel: z.string(),
   reasons: z.array(z.string()),
-  reasonCodes: z.array(z.string())
-});
+  reasonCodes: z.array(z.string()),
+  contributions: z.array(SlotSuggestionContributionSchema)
+}).strict();
 
 export const SlotCandidatesQuerySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD"),
