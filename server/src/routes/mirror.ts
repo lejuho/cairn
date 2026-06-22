@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
-import { MirrorLedgerQuerySchema } from "@cairn/shared";
-import { findMovedCancelledAnnotations } from "../repositories/mirror.js";
+import { MirrorLedgerQuerySchema, MirrorPatternsQuerySchema } from "@cairn/shared";
+import { findAllOutcomeAnnotations, findMovedCancelledAnnotations } from "../repositories/mirror.js";
 import { buildMirrorLedger } from "../services/mirror-ledger.js";
+import { buildMirrorPatterns } from "../services/mirror-patterns.js";
 import type { CairnDatabase } from "../db/index.js";
 
 export function registerMirrorRoutes(app: FastifyInstance, db: CairnDatabase): void {
@@ -16,6 +17,24 @@ export function registerMirrorRoutes(app: FastifyInstance, db: CairnDatabase): v
 
     const rows = findMovedCancelledAnnotations(db);
     const data = buildMirrorLedger(rows, {
+      from: parsed.data.from,
+      to: parsed.data.to,
+      today: serverLocalToday()
+    });
+    return reply.send({ ok: true, data });
+  });
+
+  app.get("/api/mirror/patterns", async (req, reply) => {
+    const parsed = MirrorPatternsQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "VALIDATION_ERROR", message: parsed.error.message }
+      });
+    }
+
+    const rows = findAllOutcomeAnnotations(db);
+    const data = buildMirrorPatterns(rows, {
       from: parsed.data.from,
       to: parsed.data.to,
       today: serverLocalToday()

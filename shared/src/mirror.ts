@@ -101,11 +101,83 @@ export const MirrorLedgerDataSchema = z.object({
 
 export const MirrorLedgerResponseSchema = createApiSuccessSchema(MirrorLedgerDataSchema);
 
+// ── Pattern A schemas ─────────────────────────────────────────────────────────
+
+// Reusable base: two optional date fields, no from<=to refine.
+// Each consumer (ledger, patterns) adds its own from<=to refine so the contracts
+// stay independent and can be tested in isolation.
+export const MirrorRangeQuerySchema = z.object({
+  from: IsoCalendarDateSchema.optional(),
+  to: IsoCalendarDateSchema.optional()
+});
+
+export const MirrorPatternsQuerySchema = MirrorRangeQuerySchema.refine(
+  (q) => q.from == null || q.to == null || q.from <= q.to,
+  { message: "from must be <= to", path: ["from"] }
+);
+
+export const MirrorPatternOutcomeCountsSchema = z.object({
+  done: z.number(),
+  moved: z.number(),
+  cancelled: z.number(),
+  late: z.number()
+});
+
+export const MirrorPatternBucketSchema = z
+  .object({
+    key: z.string(),
+    label: z.string(),
+    total: z.number(),
+    outcomes: MirrorPatternOutcomeCountsSchema,
+    slipCount: z.number(),
+    slipRatio: z.number(),
+    sampleStatus: MirrorSampleStatusSchema
+  })
+  .strict();
+
+export const MirrorPatternThreadBucketSchema = z
+  .object({
+    key: z.string(),
+    thread: z.object({ id: z.number(), name: z.string() }).nullable(),
+    label: z.string(),
+    total: z.number(),
+    outcomes: MirrorPatternOutcomeCountsSchema,
+    slipCount: z.number(),
+    slipRatio: z.number(),
+    sampleStatus: MirrorSampleStatusSchema
+  })
+  .strict();
+
+export const MirrorPatternsTotalsSchema = z.object({
+  annotations: z.number(),
+  done: z.number(),
+  moved: z.number(),
+  cancelled: z.number(),
+  late: z.number(),
+  slipCount: z.number()
+});
+
+export const MirrorPatternsDataSchema = z.object({
+  range: MirrorLedgerRangeSchema,
+  totals: MirrorPatternsTotalsSchema,
+  weekday: z.array(MirrorPatternBucketSchema),
+  type: z.array(MirrorPatternBucketSchema),
+  thread: z.array(MirrorPatternThreadBucketSchema),
+  sampleStatus: MirrorSampleStatusSchema
+});
+
+export const MirrorPatternsResponseSchema = createApiSuccessSchema(MirrorPatternsDataSchema);
+
 export type MirrorOutcome = z.infer<typeof MirrorOutcomeSchema>;
 export type EffortBucket = z.infer<typeof EffortBucketSchema>;
 export type MirrorSampleStatus = z.infer<typeof MirrorSampleStatusSchema>;
 export type MirrorLedgerQuery = z.infer<typeof MirrorLedgerQuerySchema>;
+export type MirrorPatternsQuery = z.infer<typeof MirrorPatternsQuerySchema>;
 export type MirrorLedgerCost = z.infer<typeof MirrorLedgerCostSchema>;
 export type MirrorLedgerEntry = z.infer<typeof MirrorLedgerEntrySchema>;
 export type MirrorLedgerSummary = z.infer<typeof MirrorLedgerSummarySchema>;
 export type MirrorLedgerData = z.infer<typeof MirrorLedgerDataSchema>;
+export type MirrorPatternBucket = z.infer<typeof MirrorPatternBucketSchema>;
+export type MirrorPatternThreadBucket = z.infer<typeof MirrorPatternThreadBucketSchema>;
+export type MirrorPatternsTotals = z.infer<typeof MirrorPatternsTotalsSchema>;
+export type MirrorPatternsData = z.infer<typeof MirrorPatternsDataSchema>;

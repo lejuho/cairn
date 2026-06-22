@@ -1,20 +1,30 @@
 import { useEffect, useState } from "react";
-import type { MirrorLedgerData, MirrorLedgerEntry } from "@cairn/shared";
+import type {
+  MirrorLedgerData,
+  MirrorLedgerEntry,
+  MirrorPatternBucket,
+  MirrorPatternThreadBucket,
+  MirrorPatternsData
+} from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
+
+type MirrorData = { ledger: MirrorLedgerData; patterns: MirrorPatternsData };
 
 type ViewState =
   | { tag: "loading" }
-  | { tag: "quiet"; data: MirrorLedgerData }
-  | { tag: "live"; data: MirrorLedgerData }
+  | { tag: "quiet"; data: MirrorData }
+  | { tag: "live"; data: MirrorData }
   | { tag: "error"; message: string }
   | { tag: "access_session_required" };
 
-async function loadLedger(): Promise<MirrorLedgerData> {
-  const body = await apiJson<{ ok: boolean; data?: MirrorLedgerData; error?: { message: string } }>(
-    "/api/mirror/ledger"
-  );
-  if (!body.ok) throw new Error(body.error?.message ?? "알 수 없는 오류");
-  return body.data!;
+async function loadMirrorData(): Promise<MirrorData> {
+  const [ledgerBody, patternsBody] = await Promise.all([
+    apiJson<{ ok: boolean; data?: MirrorLedgerData; error?: { message: string } }>("/api/mirror/ledger"),
+    apiJson<{ ok: boolean; data?: MirrorPatternsData; error?: { message: string } }>("/api/mirror/patterns")
+  ]);
+  if (!ledgerBody.ok) throw new Error(ledgerBody.error?.message ?? "알 수 없는 오류");
+  if (!patternsBody.ok) throw new Error(patternsBody.error?.message ?? "알 수 없는 오류");
+  return { ledger: ledgerBody.data!, patterns: patternsBody.data! };
 }
 
 const OUTCOME_LABEL: Record<MirrorLedgerEntry["outcome"], string> = {
@@ -35,10 +45,11 @@ export function MirrorLedger() {
 
   useEffect(() => {
     let cancelled = false;
-    loadLedger()
+    loadMirrorData()
       .then((data) => {
         if (cancelled) return;
-        setView(data.entries.length === 0 ? { tag: "quiet", data } : { tag: "live", data });
+        const isEmpty = data.patterns.totals.annotations === 0;
+        setView(isEmpty ? { tag: "quiet", data } : { tag: "live", data });
       })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -105,19 +116,22 @@ export function MirrorLedger() {
   }
 
   const { data } = view;
+  const { ledger, patterns } = data;
   return (
     <main className="app-shell today-live" aria-labelledby="mirror-title">
       <header style={{ width: "min(100%, 480px)", marginBottom: "12px" }}>
         <p className="eyebrow" style={{ margin: 0 }}>Mirror</p>
         <h1 id="mirror-title" style={{ margin: "4px 0 0" }}>이동·취소 원장</h1>
         <p className="card-meta" style={{ margin: "4px 0 0", opacity: 0.7 }}>
-          {data.range.from} ~ {data.range.to} · 기록된 주석만 비춰
+          {ledger.range.from} ~ {ledger.range.to} · 기록된 주석만 비춰
         </p>
       </header>
 
-      <MirrorSummary data={data} />
+      <MirrorPatterns patterns={patterns} />
 
-      {data.sampleStatus === "low_sample" && (
+      <MirrorSummary data={ledger} />
+
+      {ledger.sampleStatus === "low_sample" && (
         <p
           className="card-meta warm"
           role="note"
@@ -129,11 +143,62 @@ export function MirrorLedger() {
       )}
 
       <ul className="today-stack" role="list" data-testid="mirror-entries" style={{ width: "min(100%, 480px)" }}>
-        {data.entries.map((entry) => (
+        {ledger.entries.map((entry) => (
           <MirrorEntryCard key={entry.annotationId} entry={entry} />
         ))}
       </ul>
     </main>
+  );
+}
+
+function MirrorPatterns({ patterns }: { patterns: MirrorPatternsData }) {
+  return (
+    <section
+      className="quiet-card warm"
+      aria-label="기록 패턴"
+      data-testid="mirror-patterns"
+      style={{ width: "min(100%, 480px)", marginBottom: "12px" }}
+    >
+      <p className="eyebrow" style={{ margin: "0 0 8px" }}>기록 패턴</p>
+
+      {patterns.sampleStatus === "low_sample" && (
+        <p className="card-meta" role="note" data-testid="patterns-low-sample" style={{ margin: "0 0 8px", opacity: 0.7 }}>
+          표본이 적어 패턴으로 보긴 이르다
+        </p>
+      )}
+
+      <PatternGroup label="요일별" buckets={patterns.weekday} />
+      <PatternGroup label="유형별" buckets={patterns.type} />
+      <PatternGroup label="스레드별" buckets={patterns.thread} />
+    </section>
+  );
+}
+
+function PatternGroup({
+  label,
+  buckets
+}: {
+  label: string;
+  buckets: Array<MirrorPatternBucket | MirrorPatternThreadBucket>;
+}) {
+  if (buckets.length === 0) return null;
+  return (
+    <div style={{ marginBottom: "8px" }}>
+      <p className="card-meta" style={{ margin: "0 0 4px", fontWeight: 600 }}>{label}</p>
+      <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+        {buckets.map((b) => (
+          <li key={b.key} className="card-meta" style={{ margin: "2px 0", display: "flex", flexWrap: "wrap", gap: "4px", alignItems: "center" }}>
+            <span style={{ minWidth: "80px" }}>{b.label}</span>
+            <span className="card-chip">
+              {b.label} 기록 {b.total}건 중 이동/취소/지각 {b.slipCount}건
+            </span>
+            {b.sampleStatus === "low_sample" && (
+              <span className="card-chip" style={{ opacity: 0.7 }}>표본 적음</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
