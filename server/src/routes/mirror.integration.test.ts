@@ -163,6 +163,28 @@ describe("GET /api/mirror/ledger", () => {
     conn.sqlite.close();
   });
 
+  it("returns 400 on an impossible calendar date (2026-99-99)", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "GET", url: "/api/mirror/ledger?from=2026-99-99" });
+    expect(res.statusCode).toBe(400);
+    const body = res.json() as { ok: boolean; error: { code: string } };
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    conn.sqlite.close();
+  });
+
+  it("returns 400 on an overflow calendar date (2026-02-30)", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "GET", url: "/api/mirror/ledger?to=2026-02-30" });
+    expect(res.statusCode).toBe(400);
+    const body = res.json() as { ok: boolean; error: { code: string } };
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    conn.sqlite.close();
+  });
+
   it("returns 400 on a reversed range", async () => {
     const conn = makeTestDb();
     const app = buildServer(conn.db);

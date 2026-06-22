@@ -76,6 +76,20 @@ describe("MirrorLedgerQuerySchema", () => {
     expect(MirrorLedgerQuerySchema.safeParse({ from: "2026/06/01" }).success).toBe(false);
   });
 
+  it("rejects an impossible date that passes shape but fails Date.parse", () => {
+    expect(MirrorLedgerQuerySchema.safeParse({ from: "2026-99-99" }).success).toBe(false);
+  });
+
+  it("rejects an overflow date that Date.parse rolls over (2026-02-30)", () => {
+    expect(MirrorLedgerQuerySchema.safeParse({ from: "2026-02-30" }).success).toBe(false);
+    expect(MirrorLedgerQuerySchema.safeParse({ to: "2026-06-31" }).success).toBe(false);
+  });
+
+  it("rejects a non-leap-year Feb 29 but accepts a leap-year one", () => {
+    expect(MirrorLedgerQuerySchema.safeParse({ from: "2026-02-29" }).success).toBe(false);
+    expect(MirrorLedgerQuerySchema.safeParse({ from: "2024-02-29" }).success).toBe(true);
+  });
+
   it("rejects a reversed range", () => {
     expect(MirrorLedgerQuerySchema.safeParse({ from: "2026-06-21", to: "2026-06-01" }).success).toBe(false);
   });

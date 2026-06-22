@@ -12,10 +12,26 @@ export const MirrorSampleStatusSchema = z.enum(MIRROR_SAMPLE_STATUSES);
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+// Regex only checks shape; values like 2026-99-99 or 2026-02-30 still pass it.
+// Date.parse rejects 2026-99-99 (NaN) but silently rolls 2026-02-30 over to
+// 2026-03-02, so a round-trip check is required to reject overflow dates.
+export function isCalendarDate(value: string): boolean {
+  const ms = Date.parse(`${value}T00:00:00Z`);
+  if (Number.isNaN(ms)) {
+    return false;
+  }
+  return new Date(ms).toISOString().startsWith(value);
+}
+
+const IsoCalendarDateSchema = z
+  .string()
+  .regex(DATE_RE, "must be YYYY-MM-DD")
+  .refine(isCalendarDate, "must be a real calendar date");
+
 export const MirrorLedgerQuerySchema = z
   .object({
-    from: z.string().regex(DATE_RE, "from must be YYYY-MM-DD").optional(),
-    to: z.string().regex(DATE_RE, "to must be YYYY-MM-DD").optional()
+    from: IsoCalendarDateSchema.optional(),
+    to: IsoCalendarDateSchema.optional()
   })
   .refine((q) => q.from == null || q.to == null || q.from <= q.to, {
     message: "from must be <= to",
