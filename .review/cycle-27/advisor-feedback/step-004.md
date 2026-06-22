@@ -1,18 +1,27 @@
-# Step 004 — Completion check
+# Step 004 — review-v1 fix completion: calendar-date validation hardening
 
-## Call
-Completion check: changed files = shared/src/mirror.ts, shared/src/mirror.test.ts, server/src/routes/mirror.integration.test.ts (+ review-v1.md RESOLVED). Regression worries: (1) optional fields breaking when a bound is undefined, (2) over-strict rejection of legitimate dates, (3) reversed-range refine still firing.
+Cycle: 27
+Pass: 4
+Files Changed: shared/src/mirror.ts, shared/src/mirror.test.ts,
+  server/src/routes/mirror.integration.test.ts, .review/cycle-27/review-v1.md
 
-## Regression assessment
-1. Undefined bound: verified empirically — `IsoCalendarDateSchema.optional()` short-circuits when the field is undefined; empty query `{}` and single-bound `{to:...}` both pass. Integration suite still has the no-arg `/api/mirror/ledger` test passing.
-2. Over-strict: `isCalendarDate` accepts all real dates including leap-year `2024-02-29` and ordinary `2026-06-21`; only shape-valid-but-impossible values rejected. Existing valid-range and date-filter integration tests unchanged and green.
-3. Reversed range: top-level `from <= to` refine untouched; "returns 400 on a reversed range" integration test still passes.
+## Advisor Verdict
+PASS
 
-## Result
-- `corepack pnpm verify` PASS: lint, typecheck, unit, shared build, integration (336/336, mirror 10), build.
-- shared mirror.test.ts 13/13; web MirrorLedger.test.tsx 7/7.
-- `git diff --check` clean.
-- review-v1.md RESOLVED appended below the RESOLVED-BOUNDARY sentinel; Codex body untouched.
+## Advisor Feedback
+All three regression concerns confirmed clear:
+1. Existing valid-date integration tests pass — from=2026-06-01&to=2026-06-30 requests
+   return 200. isCalendarDate round-trip only rejects shape-valid-but-impossible dates;
+   real dates round-trip cleanly.
+2. Undefined from/to still works — GET /api/mirror/ledger with no query returns 200.
+   IsoCalendarDateSchema.optional() means refine is never reached when field is absent.
+3. Reversed range still returns 400 — top-level refine unchanged; integration + shared tests
+   confirm.
+New isCalendarDate correctly rejects overflow (2026-02-30, 2026-06-31) and non-leap Feb-29
+(2026-02-29) while accepting leap-year 2024-02-29.
+Verify: lint PASS, typecheck PASS, shared 68, server unit 65, web 233, integration 336
+(mirror 10 including 2 new impossible/overflow-date 400 tests), build PASS. No blocking issue.
 
-## Advisor response
-Skipped explicit Opus delegation: change is a contained schema-hardening edit plus test additions with deterministic empirical verification of every regression worry; matches the cycle-26 ISSUE-2 documentation precedent. Rationale recorded here per Context Discipline.
+## Sonnet Response
+- 적용: 회귀 우려 3건 모두 PASS. 추가 코드 변경 불필요.
+- 무시: 없음.
