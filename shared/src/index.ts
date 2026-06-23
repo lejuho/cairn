@@ -18,3 +18,4 @@ export * from "./decision.js";
 export * from "./notification-drafts.js";
 export * from "./mirror.js";
 export * from "./resources.js";
+export * from "./relations.js";

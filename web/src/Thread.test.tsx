@@ -524,6 +524,123 @@ describe("Thread — resource-focus section", () => {
     await waitFor(() => expect(screen.getByTestId("resource-detail")).toBeInTheDocument());
     expect(screen.getByText("확정")).toBeInTheDocument();
   });
+
+  // ── Ego graph (작은 관계) in resource detail ──────────────────────────────
+  const EGO_RESOURCE = {
+    center: { id: "resource:10", type: "resource", targetId: 10, label: "노트북" },
+    nodes: [
+      { id: "resource:10", type: "resource", targetId: 10, label: "노트북" },
+      { id: "event:10", type: "event", targetId: 10, label: "발표 리허설", sublabel: "발표 준비" }
+    ],
+    edges: [
+      { from: "resource:10", to: "event:10", kind: "resource_link", firmness: "hard", reason: "발표 때 필요" }
+    ],
+    truncated: false
+  };
+
+  function mockFetchWithEgo(ego: unknown) {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/api/relations/ego")) return Promise.resolve(makeResponse(ego, url));
+      if (url.includes("promotion-suggestions")) return Promise.resolve(makeResponse({ ok: true, data: { suggestions: [] } }, url));
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: FOCUS_DATA }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: { thread: BASE_THREAD, events: [BASE_EVENT], tasks: [BASE_TASK], progress: { done: 0, total: 2 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP } }, url));
+    }));
+  }
+
+  it("ego graph is not fetched on load (tap-only)", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/api/relations/ego")) return Promise.resolve(makeResponse({ ok: true, data: EGO_RESOURCE }, url));
+      if (url.includes("promotion-suggestions")) return Promise.resolve(makeResponse({ ok: true, data: { suggestions: [] } }, url));
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: FOCUS_DATA }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: { thread: BASE_THREAD, events: [BASE_EVENT], tasks: [BASE_TASK], progress: { done: 0, total: 2 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP } }, url));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "노트북" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "노트북" }));
+    await waitFor(() => expect(screen.getByTestId("resource-detail")).toBeInTheDocument());
+    expect(fetchMock.mock.calls.some((c: unknown[]) => (c[0] as string).includes("/api/relations/ego"))).toBe(false);
+    expect(screen.getByTestId("ego-open-btn")).toBeInTheDocument();
+  });
+
+  it("loads ego sheet on '작은 관계 보기' tap", async () => {
+    mockFetchWithEgo({ ok: true, data: EGO_RESOURCE });
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "노트북" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "노트북" }));
+    await waitFor(() => expect(screen.getByTestId("ego-open-btn")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("ego-open-btn"));
+    await waitFor(() => expect(screen.getByTestId("ego-sheet")).toBeInTheDocument());
+    // Bottom-sheet dialog semantics (ISSUE-2)
+    const dialog = screen.getByRole("dialog", { name: "작은 관계 보기" });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    const nodes = screen.getAllByTestId("ego-node");
+    expect(nodes).toHaveLength(1); // center excluded
+    expect(nodes[0]!).toHaveTextContent("발표 리허설");
+    // edge row carries firmness + reason both visible (ISSUE-3)
+    const edges = screen.getAllByTestId("ego-edge");
+    expect(edges).toHaveLength(1);
+    expect(edges[0]!).toHaveTextContent("노트북");
+    expect(edges[0]!).toHaveTextContent("발표 리허설");
+    expect(edges[0]!).toHaveTextContent("리소스 연결");
+    expect(edges[0]!).toHaveTextContent("hard");
+    expect(screen.getByTestId("ego-edge-reason")).toHaveTextContent("발표 때 필요");
+  });
+
+  it("renders non-center thread_link edge in the edge list (ISSUE-5)", async () => {
+    const egoWithThreadLink = {
+      center: { id: "resource:10", type: "resource", targetId: 10, label: "공용 자료" },
+      nodes: [
+        { id: "resource:10", type: "resource", targetId: 10, label: "공용 자료" },
+        { id: "thread:1", type: "thread", targetId: 1, label: "발표 준비", href: "/threads/1" },
+        { id: "thread:2", type: "thread", targetId: 2, label: "출장 준비", href: "/threads/2" }
+      ],
+      edges: [
+        { from: "resource:10", to: "thread:1", kind: "resource_link", firmness: "soft" },
+        { from: "resource:10", to: "thread:2", kind: "resource_link", firmness: "soft" },
+        { from: "thread:1", to: "thread:2", kind: "thread_link", firmness: "soft", relationKind: "feeds" }
+      ],
+      truncated: false
+    };
+    mockFetchWithEgo({ ok: true, data: egoWithThreadLink });
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "노트북" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "노트북" }));
+    await waitFor(() => expect(screen.getByTestId("ego-open-btn")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("ego-open-btn"));
+    await waitFor(() => expect(screen.getByTestId("ego-sheet")).toBeInTheDocument());
+    const edges = screen.getAllByTestId("ego-edge");
+    expect(edges).toHaveLength(3);
+    // The non-center thread→thread edge must be visible with kind + relationKind + firmness.
+    const tlEdge = edges.find((e) => e.textContent?.includes("스레드 연결"));
+    expect(tlEdge).toBeDefined();
+    expect(tlEdge!).toHaveTextContent("발표 준비");
+    expect(tlEdge!).toHaveTextContent("출장 준비");
+    expect(tlEdge!).toHaveTextContent("연결"); // relationKind feeds → 연결
+    expect(tlEdge!).toHaveTextContent("soft");
+  });
+
+  it("Escape closes the ego sheet (ISSUE-2 keyboard)", async () => {
+    mockFetchWithEgo({ ok: true, data: EGO_RESOURCE });
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "노트북" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "노트북" }));
+    await waitFor(() => expect(screen.getByTestId("ego-open-btn")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("ego-open-btn"));
+    await waitFor(() => expect(screen.getByTestId("ego-sheet")).toBeInTheDocument());
+    fireEvent.keyDown(screen.getByTestId("ego-sheet").parentElement!, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("ego-sheet")).not.toBeInTheDocument());
+  });
+
+  it("ego sheet shows error copy when fetch fails", async () => {
+    mockFetchWithEgo({ ok: false, error: { message: "boom" } });
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "노트북" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "노트북" }));
+    await waitFor(() => expect(screen.getByTestId("ego-open-btn")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("ego-open-btn"));
+    await waitFor(() => expect(screen.getByText("관계 정보를 불러올 수 없습니다.")).toBeInTheDocument());
+  });
 });
 
 describe("Thread — promotion suggestions panel", () => {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ApprovePromotionRequest, PromotionSuggestion, ThreadDetail, ThreadLinkKind, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadRollup, ThreadRow, ThreadSummary } from "@cairn/shared";
+import type { ApprovePromotionRequest, EgoGraphData, PromotionSuggestion, ThreadDetail, ThreadLinkKind, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadRollup, ThreadRow, ThreadSummary } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
+import { EgoSheet, loadEgoGraph } from "./EgoSheet.js";
 
 type ViewState =
   | { tag: "loading" }
@@ -749,8 +750,27 @@ function PromotionSuggestionsPanel({
   );
 }
 
+type EgoSheetState =
+  | { tag: "closed" }
+  | { tag: "loading" }
+  | { tag: "open"; graph: EgoGraphData }
+  | { tag: "error"; message: string };
+
 function ResourceFocusDetail({ item }: { item: ThreadResourceFocusItem | null }) {
+  const [egoState, setEgoState] = useState<EgoSheetState>({ tag: "closed" });
+
   if (!item) return null;
+
+  async function handleOpenEgo() {
+    setEgoState({ tag: "loading" });
+    const graph = await loadEgoGraph("resource", item!.resource.id);
+    if (graph) {
+      setEgoState({ tag: "open", graph });
+    } else {
+      setEgoState({ tag: "error", message: "관계 정보를 불러올 수 없습니다." });
+    }
+  }
+
   return (
     <div className="resource-detail" data-testid="resource-detail">
       <p className="card-meta" style={{ marginBottom: "4px" }}>
@@ -771,6 +791,20 @@ function ResourceFocusDetail({ item }: { item: ThreadResourceFocusItem | null })
           </li>
         ))}
       </ul>
+      <div style={{ marginTop: "8px" }}>
+        <button
+          className="btn-secondary"
+          onClick={handleOpenEgo}
+          data-testid="ego-open-btn"
+          disabled={egoState.tag === "loading"}
+        >
+          {egoState.tag === "loading" ? "불러오는 중…" : "작은 관계 보기"}
+        </button>
+        {egoState.tag === "error" && <span className="card-meta" style={{ color: "var(--color-error)", marginLeft: "8px" }}>{egoState.message}</span>}
+        {egoState.tag === "open" && (
+          <EgoSheet graph={egoState.graph} onClose={() => setEgoState({ tag: "closed" })} />
+        )}
+      </div>
     </div>
   );
 }

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import type { AuthoredPreferredWindows, EventRow, PersonDirectoryRow, PersonRow, PreferredPeriod, Weekday } from "@cairn/shared";
+import type { AuthoredPreferredWindows, EgoGraphData, EventRow, PersonDirectoryRow, PersonRow, PreferredPeriod, Weekday } from "@cairn/shared";
 import { apiJson } from "./api.js";
 import type { AccessSessionError } from "./api.js";
+import { EgoSheet, loadEgoGraph } from "./EgoSheet.js";
 import { formatLastMet } from "./lastMet.js";
 
 type ViewState =
@@ -80,8 +81,15 @@ function buildInitialSheet(person: PersonRow): Omit<SheetState, "open" | "saving
   };
 }
 
+type PersonEgoState =
+  | { tag: "closed" }
+  | { tag: "loading" }
+  | { tag: "open"; graph: EgoGraphData }
+  | { tag: "error" };
+
 export function PersonDetail({ id }: { id: number }) {
   const [view, setView] = useState<ViewState>({ tag: "loading" });
+  const [egoState, setEgoState] = useState<PersonEgoState>({ tag: "closed" });
   const [sheet, setSheet] = useState<SheetState>({
     open: false,
     preferredWeekdays: [],
@@ -286,7 +294,7 @@ export function PersonDetail({ id }: { id: number }) {
   return (
     <main className="app-shell" aria-label="사람 상세" data-testid="person-live">
       {/* Page content made inert while the sheet is open (ISSUE-5). */}
-      <div inert={sheet.open || undefined} data-testid="page-content">
+      <div inert={sheet.open || egoState.tag === "open" || undefined} data-testid="page-content">
       <a className="back-link" href="/people">← 사람 목록</a>
       <header className="person-detail-header">
         <h1 className="person-detail-name">{person.name}</h1>
@@ -303,6 +311,25 @@ export function PersonDetail({ id }: { id: number }) {
           <div><dt>마지막 만남</dt><dd>{formatLastMet(person.lastMet)}</dd></div>
           <div><dt>빈도</dt><dd>{frequencyLabel(person.frequencyBand)}</dd></div>
         </dl>
+      </section>
+
+      <section className="person-detail-ego" aria-label="작은 관계">
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <h2 style={{ margin: 0 }}>작은 관계</h2>
+          <button
+            className="action-btn action-btn--sm"
+            data-testid="person-ego-btn"
+            disabled={egoState.tag === "loading"}
+            onClick={async () => {
+              setEgoState({ tag: "loading" });
+              const graph = await loadEgoGraph("person", id);
+              setEgoState(graph ? { tag: "open", graph } : { tag: "error" });
+            }}
+          >
+            {egoState.tag === "loading" ? "불러오는 중…" : "보기"}
+          </button>
+          {egoState.tag === "error" && <span className="card-meta" style={{ color: "var(--color-error)" }}>불러오기 실패</span>}
+        </div>
       </section>
 
       <section className="person-detail-profile" aria-label="취급 프로필">
@@ -365,6 +392,10 @@ export function PersonDetail({ id }: { id: number }) {
         )}
       </section>
       </div>{/* end inert page-content wrapper */}
+
+      {egoState.tag === "open" && (
+        <EgoSheet graph={egoState.graph} onClose={() => setEgoState({ tag: "closed" })} />
+      )}
 
       {sheet.open && (
         <div
