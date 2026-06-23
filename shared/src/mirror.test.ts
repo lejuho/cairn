@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   MirrorAutomationNeedItemSchema,
+  MirrorDiaryDataSchema,
+  MirrorDiaryEntrySchema,
+  MirrorDiaryQuerySchema,
   MirrorEnergyTrendDataSchema,
   MirrorEnergyTrendDaySchema,
   MirrorEnergyTrendQuerySchema,
@@ -325,5 +328,95 @@ describe("MirrorAutomationNeedItemSchema", () => {
       MirrorAutomationNeedItemSchema.safeParse({ ...VALID_AUTOMATION_NEED_ITEM, recommendation: "자동화하세요" })
         .success
     ).toBe(false);
+  });
+});
+
+const VALID_DIARY_ENTRY = {
+  annotationId: 1,
+  eventId: 10,
+  eventTitle: "팀 회의",
+  eventStart: "2026-06-21T10:00:00+09:00",
+  thread: { id: 1, name: "프로젝트" },
+  outcome: "moved",
+  reasonText: "장소 변경",
+  reasonTags: ["conflict_resolution"],
+  loggedAt: "2026-06-21 09:00:00",
+  depth: "semi_auto" as const,
+  contextLabel: "팀 회의 / 이동"
+};
+
+const VALID_DIARY_DATA = {
+  range: { from: "2026-06-01", to: "2026-06-21" },
+  days: [
+    {
+      date: "2026-06-21",
+      headline: "장소 변경",
+      entries: [VALID_DIARY_ENTRY]
+    }
+  ],
+  sampleStatus: "ok" as const
+};
+
+describe("MirrorDiaryEntrySchema", () => {
+  it("accepts a valid entry with thread", () => {
+    expect(MirrorDiaryEntrySchema.safeParse(VALID_DIARY_ENTRY).success).toBe(true);
+  });
+
+  it("accepts a null thread and null eventStart", () => {
+    expect(
+      MirrorDiaryEntrySchema.safeParse({ ...VALID_DIARY_ENTRY, thread: null, eventStart: null }).success
+    ).toBe(true);
+  });
+
+  it("rejects an invalid depth", () => {
+    expect(MirrorDiaryEntrySchema.safeParse({ ...VALID_DIARY_ENTRY, depth: "manual" }).success).toBe(false);
+  });
+
+  it("rejects an injected score field (strict)", () => {
+    expect(MirrorDiaryEntrySchema.safeParse({ ...VALID_DIARY_ENTRY, score: 9 }).success).toBe(false);
+  });
+
+  it("rejects an injected recommendation field (strict)", () => {
+    expect(MirrorDiaryEntrySchema.safeParse({ ...VALID_DIARY_ENTRY, recommendation: "더 잘해" }).success).toBe(false);
+  });
+
+  it("rejects an injected advice field (strict)", () => {
+    expect(MirrorDiaryEntrySchema.safeParse({ ...VALID_DIARY_ENTRY, advice: "노력해" }).success).toBe(false);
+  });
+});
+
+describe("MirrorDiaryDataSchema", () => {
+  it("accepts a valid diary payload", () => {
+    expect(MirrorDiaryDataSchema.safeParse(VALID_DIARY_DATA).success).toBe(true);
+  });
+
+  it("accepts empty days array", () => {
+    expect(MirrorDiaryDataSchema.safeParse({ ...VALID_DIARY_DATA, days: [] }).success).toBe(true);
+  });
+
+  it("rejects an invalid sampleStatus", () => {
+    expect(MirrorDiaryDataSchema.safeParse({ ...VALID_DIARY_DATA, sampleStatus: "great" }).success).toBe(false);
+  });
+});
+
+describe("MirrorDiaryQuerySchema", () => {
+  it("accepts empty query", () => {
+    expect(MirrorDiaryQuerySchema.safeParse({}).success).toBe(true);
+  });
+
+  it("rejects an overflow date (2026-02-30)", () => {
+    expect(MirrorDiaryQuerySchema.safeParse({ from: "2026-02-30" }).success).toBe(false);
+  });
+
+  it("rejects a reversed range", () => {
+    expect(MirrorDiaryQuerySchema.safeParse({ from: "2026-06-30", to: "2026-06-01" }).success).toBe(false);
+  });
+
+  it("accepts exactly 90 inclusive days (diff=89)", () => {
+    expect(MirrorDiaryQuerySchema.safeParse({ from: "2026-01-01", to: "2026-03-31" }).success).toBe(true);
+  });
+
+  it("rejects 91 inclusive days (diff=90)", () => {
+    expect(MirrorDiaryQuerySchema.safeParse({ from: "2026-01-01", to: "2026-04-01" }).success).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { MirrorAutomationNeedsQuerySchema, MirrorEnergyTrendQuerySchema, MirrorLedgerQuerySchema, MirrorPatternsQuerySchema } from "@cairn/shared";
+import { MirrorAutomationNeedsQuerySchema, MirrorDiaryQuerySchema, MirrorEnergyTrendQuerySchema, MirrorLedgerQuerySchema, MirrorPatternsQuerySchema } from "@cairn/shared";
 import { findPlannedAndConfirmedAll } from "../repositories/events.js";
 import { findAllOutcomeAnnotations, findMovedCancelledAnnotations } from "../repositories/mirror.js";
 import { readNumericParam } from "../repositories/params.js";
@@ -8,6 +8,7 @@ import { buildMirrorLedger } from "../services/mirror-ledger.js";
 import { buildMirrorPatterns } from "../services/mirror-patterns.js";
 import { buildMirrorEnergyTrends, resolveTrendRange } from "../services/mirror-energy-trends.js";
 import { buildAutomationNeeds } from "../services/mirror-automation-needs.js";
+import { buildMirrorDiary } from "../services/mirror-diary.js";
 import type { CairnDatabase } from "../db/index.js";
 
 export function registerMirrorRoutes(app: FastifyInstance, db: CairnDatabase): void {
@@ -103,6 +104,23 @@ export function registerMirrorRoutes(app: FastifyInstance, db: CairnDatabase): v
     const logRows = findWatcherLogsInRange(db, manualBIds, from, to);
 
     const data = buildAutomationNeeds(watcherRows, logRows, { from, to });
+    return reply.send({ ok: true, data });
+  });
+
+  app.get("/api/mirror/diary", async (req, reply) => {
+    const parsed = MirrorDiaryQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "VALIDATION_ERROR", message: parsed.error.message }
+      });
+    }
+    const today = serverLocalToday();
+    const from = parsed.data.from ?? dateSubtractDays(today, 29);
+    const to = parsed.data.to ?? today;
+
+    const rows = findAllOutcomeAnnotations(db);
+    const data = buildMirrorDiary(rows, { from, to });
     return reply.send({ ok: true, data });
   });
 }

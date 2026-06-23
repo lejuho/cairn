@@ -279,3 +279,62 @@ export type MirrorAutomationNeedsQuery = z.infer<typeof MirrorAutomationNeedsQue
 export type AutomationNeedLevel = z.infer<typeof AutomationNeedLevelSchema>;
 export type MirrorAutomationNeedItem = z.infer<typeof MirrorAutomationNeedItemSchema>;
 export type MirrorAutomationNeedsData = z.infer<typeof MirrorAutomationNeedsDataSchema>;
+
+// ── Diary schemas ─────────────────────────────────────────────────────────────
+
+export const MirrorDiaryQuerySchema = MirrorRangeQuerySchema.refine(
+  (q) => q.from == null || q.to == null || q.from <= q.to,
+  { message: "from must be <= to", path: ["from"] }
+).refine(
+  (q) => {
+    if (q.from == null || q.to == null) return true;
+    const fromMs = Date.parse(`${q.from}T00:00:00Z`);
+    const toMs = Date.parse(`${q.to}T00:00:00Z`);
+    return (toMs - fromMs) / 86_400_000 <= 89;
+  },
+  { message: "range must not exceed 90 days", path: ["from"] }
+);
+
+export const MIRROR_DIARY_DEPTHS = ["automatic", "semi_auto"] as const;
+export const MirrorDiaryDepthSchema = z.enum(MIRROR_DIARY_DEPTHS);
+
+export const MirrorDiaryEntrySchema = z
+  .object({
+    annotationId: z.number().int().positive(),
+    eventId: z.number().int().positive(),
+    eventTitle: z.string(),
+    eventStart: z.string().nullable(),
+    thread: z.object({ id: z.number(), name: z.string() }).nullable(),
+    outcome: z.string(),
+    reasonText: z.string().nullable(),
+    reasonTags: z.array(z.string()),
+    loggedAt: z.string(),
+    depth: MirrorDiaryDepthSchema,
+    contextLabel: z.string()
+  })
+  .strict();
+
+export const MirrorDiaryDaySchema = z
+  .object({
+    date: z.string(),
+    headline: z.string().nullable(),
+    entries: z.array(MirrorDiaryEntrySchema)
+  })
+  .strict();
+
+export const MirrorDiaryDataSchema = z.object({
+  range: MirrorLedgerRangeSchema,
+  days: z.array(MirrorDiaryDaySchema),
+  sampleStatus: MirrorSampleStatusSchema
+});
+
+export const MirrorDiaryResponseSchema = z.object({
+  ok: z.literal(true),
+  data: MirrorDiaryDataSchema
+});
+
+export type MirrorDiaryQuery = z.infer<typeof MirrorDiaryQuerySchema>;
+export type MirrorDiaryDepth = z.infer<typeof MirrorDiaryDepthSchema>;
+export type MirrorDiaryEntry = z.infer<typeof MirrorDiaryEntrySchema>;
+export type MirrorDiaryDay = z.infer<typeof MirrorDiaryDaySchema>;
+export type MirrorDiaryData = z.infer<typeof MirrorDiaryDataSchema>;

@@ -1,6 +1,6 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { MirrorAutomationNeedsData, MirrorEnergyTrendData, MirrorLedgerData, MirrorPatternsData } from "@cairn/shared";
+import type { MirrorAutomationNeedsData, MirrorDiaryData, MirrorEnergyTrendData, MirrorLedgerData, MirrorPatternsData } from "@cairn/shared";
 import { MirrorLedger } from "./MirrorLedger.js";
 
 afterEach(() => {
@@ -140,11 +140,44 @@ const WATCH_AUTOMATION: MirrorAutomationNeedsData = {
   sampleStatus: "ok"
 };
 
+const EMPTY_DIARY: MirrorDiaryData = {
+  range: { from: "2026-05-23", to: "2026-06-22" },
+  days: [],
+  sampleStatus: "low_sample"
+};
+
+const DIARY_WITH_ENTRY: MirrorDiaryData = {
+  range: { from: "2026-05-23", to: "2026-06-22" },
+  days: [
+    {
+      date: "2026-06-21",
+      headline: "회의 장소 변경",
+      entries: [
+        {
+          annotationId: 1,
+          eventId: 10,
+          eventTitle: "팀 회의",
+          eventStart: "2026-06-21T10:00:00+09:00",
+          thread: { id: 1, name: "프로젝트" },
+          outcome: "moved",
+          reasonText: "회의 장소 변경",
+          reasonTags: [],
+          loggedAt: "2026-06-21 09:00:00",
+          depth: "semi_auto",
+          contextLabel: "팀 회의 / 이동"
+        }
+      ]
+    }
+  ],
+  sampleStatus: "ok"
+};
+
 function stubFetch(
   ledgerData: MirrorLedgerData,
   patternsData: MirrorPatternsData = EMPTY_PATTERNS,
   energyData: MirrorEnergyTrendData = EMPTY_ENERGY,
-  automationData: MirrorAutomationNeedsData = EMPTY_AUTOMATION
+  automationData: MirrorAutomationNeedsData = EMPTY_AUTOMATION,
+  diaryData: MirrorDiaryData = EMPTY_DIARY
 ) {
   vi.stubGlobal(
     "fetch",
@@ -157,6 +190,9 @@ function stubFetch(
       }
       if (url.includes("/api/mirror/automation-needs")) {
         return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: automationData }) });
+      }
+      if (url.includes("/api/mirror/diary")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: diaryData }) });
       }
       return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: ledgerData }) });
     })
@@ -408,5 +444,84 @@ describe("MirrorLedger — error states", () => {
       expect(screen.getByRole("heading", { name: "로그인이 필요해" })).toBeInTheDocument();
     });
     expect(screen.getByRole("button", { name: "새로 고침" })).toBeInTheDocument();
+  });
+});
+
+describe("MirrorLedger — diary section", () => {
+  it("renders diary entry with event title, outcome, reasonText, depth", async () => {
+    stubFetch(ledger({ entries: [] }), EMPTY_PATTERNS, EMPTY_ENERGY, WATCH_AUTOMATION, DIARY_WITH_ENTRY);
+    render(<MirrorLedger />);
+    await waitFor(() => expect(screen.getByTestId("mirror-diary")).toBeInTheDocument());
+    expect(screen.getByText("팀 회의")).toBeInTheDocument();
+    expect(screen.getByText("회의 장소 변경")).toBeInTheDocument();
+    expect(screen.getByText("직접 기록")).toBeInTheDocument();
+    expect(screen.getByText("이동")).toBeInTheDocument();
+  });
+
+  it("diary-only data enters live state, not quiet masking", async () => {
+    stubFetch(ledger({ entries: [] }), EMPTY_PATTERNS, EMPTY_ENERGY, EMPTY_AUTOMATION, DIARY_WITH_ENTRY);
+    render(<MirrorLedger />);
+    await waitFor(() => expect(screen.getByTestId("mirror-diary")).toBeInTheDocument());
+    expect(screen.queryByTestId("mirror-quiet")).not.toBeInTheDocument();
+  });
+
+  it("diary renders thread link when entry has thread", async () => {
+    stubFetch(ledger({ entries: [] }), EMPTY_PATTERNS, EMPTY_ENERGY, WATCH_AUTOMATION, DIARY_WITH_ENTRY);
+    render(<MirrorLedger />);
+    await waitFor(() => expect(screen.getByTestId("mirror-diary")).toBeInTheDocument());
+    const threadLink = screen.getByRole("link", { name: "프로젝트" });
+    expect(threadLink).toHaveAttribute("href", "/threads/1");
+  });
+
+  it("diary fetch failure does not fail the whole Mirror screen", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url.includes("/api/mirror/diary")) {
+          return Promise.reject(new Error("diary network fail"));
+        }
+        if (url.includes("/api/mirror/patterns")) {
+          return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: LIVE_PATTERNS }) });
+        }
+        if (url.includes("/api/mirror/energy-trends")) {
+          return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: LIVE_ENERGY }) });
+        }
+        if (url.includes("/api/mirror/automation-needs")) {
+          return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: EMPTY_AUTOMATION }) });
+        }
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: ledger({ entries: [] }) }) });
+      })
+    );
+    render(<MirrorLedger />);
+    await waitFor(() => expect(screen.getByTestId("mirror-energy-trend")).toBeInTheDocument());
+    expect(screen.queryByTestId("mirror-diary")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "불러오지 못했어" })).not.toBeInTheDocument();
+  });
+
+  it("existing ledger/pattern/energy sections still render alongside diary", async () => {
+    const liveLedger = ledger({
+      summary: { ...BASE_SUMMARY, totalChanges: 1, movedCount: 1, freeCount: 1, effortBreakdown: { none: 1, low: 0, medium: 0, high: 0, unknown: 0 } },
+      sampleStatus: "ok",
+      entries: [
+        {
+          annotationId: 99,
+          eventId: 5,
+          eventTitle: "점심 약속",
+          thread: null,
+          outcome: "moved",
+          reasonText: null,
+          reasonTags: [],
+          loggedAt: "2026-06-21 12:00:00",
+          eventStart: null,
+          cost: { money: 0, social: 0, effort: "none", window: null, hasAnyCost: false }
+        }
+      ]
+    });
+    stubFetch(liveLedger, LIVE_PATTERNS, LIVE_ENERGY, EMPTY_AUTOMATION, DIARY_WITH_ENTRY);
+    render(<MirrorLedger />);
+    await waitFor(() => expect(screen.getByTestId("mirror-entries")).toBeInTheDocument());
+    expect(screen.getByTestId("mirror-diary")).toBeInTheDocument();
+    expect(screen.getByTestId("mirror-patterns")).toBeInTheDocument();
+    expect(screen.getByTestId("mirror-energy-trend")).toBeInTheDocument();
   });
 });
