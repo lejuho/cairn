@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import type {
   MirrorAutomationNeedsData,
   MirrorAutomationNeedItem,
+  MirrorDiaryData,
+  MirrorDiaryDay,
+  MirrorDiaryEntry,
   MirrorEnergyTrendData,
   MirrorEnergyTrendDay,
   MirrorLedgerData,
@@ -12,7 +15,13 @@ import type {
 } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
 
-type MirrorData = { ledger: MirrorLedgerData; patterns: MirrorPatternsData; energy: MirrorEnergyTrendData; automationNeeds: MirrorAutomationNeedsData | null };
+type MirrorData = {
+  ledger: MirrorLedgerData;
+  patterns: MirrorPatternsData;
+  energy: MirrorEnergyTrendData;
+  automationNeeds: MirrorAutomationNeedsData | null;
+  diary: MirrorDiaryData | null;
+};
 
 type ViewState =
   | { tag: "loading" }
@@ -22,11 +31,12 @@ type ViewState =
   | { tag: "access_session_required" };
 
 async function loadMirrorData(): Promise<MirrorData> {
-  const [ledgerBody, patternsBody, energyBody, automationBody] = await Promise.all([
+  const [ledgerBody, patternsBody, energyBody, automationBody, diaryBody] = await Promise.all([
     apiJson<{ ok: boolean; data?: MirrorLedgerData; error?: { message: string } }>("/api/mirror/ledger"),
     apiJson<{ ok: boolean; data?: MirrorPatternsData; error?: { message: string } }>("/api/mirror/patterns"),
     apiJson<{ ok: boolean; data?: MirrorEnergyTrendData; error?: { message: string } }>("/api/mirror/energy-trends"),
-    apiJson<{ ok: boolean; data?: MirrorAutomationNeedsData; error?: { message: string } }>("/api/mirror/automation-needs").catch(() => ({ ok: false as const, data: undefined }))
+    apiJson<{ ok: boolean; data?: MirrorAutomationNeedsData; error?: { message: string } }>("/api/mirror/automation-needs").catch(() => ({ ok: false as const, data: undefined })),
+    apiJson<{ ok: boolean; data?: MirrorDiaryData; error?: { message: string } }>("/api/mirror/diary").catch(() => ({ ok: false as const, data: undefined }))
   ]);
   if (!ledgerBody.ok) throw new Error(ledgerBody.error?.message ?? "알 수 없는 오류");
   if (!patternsBody.ok) throw new Error(patternsBody.error?.message ?? "알 수 없는 오류");
@@ -37,6 +47,9 @@ async function loadMirrorData(): Promise<MirrorData> {
     energy: energyBody.data!,
     automationNeeds: (automationBody.ok && Array.isArray((automationBody.data as MirrorAutomationNeedsData | undefined)?.items))
       ? (automationBody.data as MirrorAutomationNeedsData)
+      : null,
+    diary: (diaryBody.ok && Array.isArray((diaryBody.data as MirrorDiaryData | undefined)?.days))
+      ? (diaryBody.data as MirrorDiaryData)
       : null
   };
 }
@@ -65,10 +78,12 @@ export function MirrorLedger() {
         const hasActionableAutomation = data.automationNeeds?.items.some(
           (i) => i.level !== "quiet"
         ) ?? false;
+        const hasDiaryEntries = (data.diary?.days.reduce((s, d) => s + d.entries.length, 0) ?? 0) > 0;
         const isEmpty =
           data.patterns.totals.annotations === 0 &&
           data.energy.summary.scheduledDays === 0 &&
-          !hasActionableAutomation;
+          !hasActionableAutomation &&
+          !hasDiaryEntries;
         setView(isEmpty ? { tag: "quiet", data } : { tag: "live", data });
       })
       .catch((e: unknown) => {
@@ -123,7 +138,7 @@ export function MirrorLedger() {
   }
 
   if (view.tag === "quiet") {
-    const { automationNeeds } = view.data;
+    const { automationNeeds, diary } = view.data;
     return (
       <main className="app-shell" aria-labelledby="mirror-title" data-testid="mirror-quiet">
         <section className="quiet-card warm">
@@ -135,12 +150,15 @@ export function MirrorLedger() {
         {automationNeeds && automationNeeds.items.length > 0 && (
           <MirrorAutomationNeeds data={automationNeeds} />
         )}
+        {diary && diary.days.length > 0 && (
+          <MirrorDiary data={diary} />
+        )}
       </main>
     );
   }
 
   const { data } = view;
-  const { ledger, patterns, energy, automationNeeds } = data;
+  const { ledger, patterns, energy, automationNeeds, diary } = data;
   return (
     <main className="app-shell today-live" aria-labelledby="mirror-title">
       <header style={{ width: "min(100%, 480px)", marginBottom: "12px" }}>
@@ -155,6 +173,9 @@ export function MirrorLedger() {
       <MirrorPatterns patterns={patterns} />
       {automationNeeds && automationNeeds.items.length > 0 && (
         <MirrorAutomationNeeds data={automationNeeds} />
+      )}
+      {diary && diary.days.length > 0 && (
+        <MirrorDiary data={diary} />
       )}
 
       <MirrorSummary data={ledger} />
@@ -350,6 +371,78 @@ function MirrorAutomationNeedCard({ item }: { item: MirrorAutomationNeedItem }) 
           {item.reasons.map((r, i) => <li key={i}>{r}</li>)}
         </ul>
       )}
+    </li>
+  );
+}
+
+const DEPTH_LABEL: Record<string, string> = {
+  semi_auto: "직접 기록",
+  automatic: "자동 기록"
+};
+
+const DIARY_OUTCOME_LABEL: Record<string, string> = {
+  moved: "이동",
+  cancelled: "취소",
+  done: "완료",
+  late: "지각"
+};
+
+function MirrorDiary({ data }: { data: MirrorDiaryData }) {
+  return (
+    <section
+      data-testid="mirror-diary"
+      style={{ width: "min(100%, 480px)", marginBottom: "16px" }}
+      aria-labelledby="diary-heading"
+    >
+      <h2 id="diary-heading" className="watcher-section-heading" style={{ margin: "0 0 8px", fontFamily: "var(--font-serif, serif)" }}>
+        돌아보기
+      </h2>
+      <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "12px" }}>
+        {data.days.map((day) => (
+          <MirrorDiaryDayGroup key={day.date} day={day} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function MirrorDiaryDayGroup({ day }: { day: MirrorDiaryDay }) {
+  return (
+    <li>
+      <p className="card-meta" style={{ margin: "0 0 4px", fontWeight: 600, opacity: 0.75 }}>
+        {day.date}
+        {day.headline && (
+          <span style={{ fontWeight: 400, marginLeft: "6px", opacity: 0.85 }}>— {day.headline}</span>
+        )}
+      </p>
+      <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "8px" }}>
+        {day.entries.map((entry) => (
+          <MirrorDiaryEntryCard key={entry.annotationId} entry={entry} />
+        ))}
+      </ul>
+    </li>
+  );
+}
+
+function MirrorDiaryEntryCard({ entry }: { entry: MirrorDiaryEntry }) {
+  return (
+    <li className="today-card diary-entry" data-testid="mirror-diary-entry">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span className="card-title">{entry.eventTitle}</span>
+        <span className="card-chip">{DIARY_OUTCOME_LABEL[entry.outcome] ?? entry.outcome}</span>
+      </div>
+      {entry.reasonText && (
+        <p className="card-meta" style={{ margin: "4px 0 0", opacity: 0.8 }}>{entry.reasonText}</p>
+      )}
+      <p className="card-meta" style={{ margin: "4px 0 0", display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
+        <span className="card-chip diary-depth">{DEPTH_LABEL[entry.depth] ?? entry.depth}</span>
+        {entry.thread && (
+          <a href={`/threads/${entry.thread.id}`} className="thread-index-link" style={{ minHeight: "44px", display: "inline-flex", alignItems: "center" }}>
+            {entry.thread.name}
+          </a>
+        )}
+        <span style={{ opacity: 0.55 }}>{entry.loggedAt.slice(0, 10)}</span>
+      </p>
     </li>
   );
 }
