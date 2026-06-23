@@ -6,7 +6,9 @@ import {
 } from "@cairn/shared";
 import { readNumericParam } from "../repositories/params.js";
 import { findPlannedAndConfirmedByDate } from "../repositories/events.js";
+import { findThreadLinksAmong } from "../repositories/threads.js";
 import { buildFeasibilityParams, computeDayFeasibility } from "../services/feasibility.js";
+import { dayThreadIds } from "../services/feasibility.js";
 import {
   readFeasibilityParamSettings,
   writeFeasibilityParams
@@ -34,7 +36,8 @@ export function registerFeasibilityRoutes(app: FastifyInstance, db: CairnDatabas
     };
     const p = buildFeasibilityParams(paramOverrides);
     const events = findPlannedAndConfirmedByDate(db, date);
-    const feasibility = computeDayFeasibility(date, now, events, p);
+    const relations = findThreadLinksAmong(db, dayThreadIds(events, date));
+    const feasibility = computeDayFeasibility(date, now, events, p, relations);
 
     return reply.send({ ok: true, data: feasibility });
   });
@@ -66,9 +69,10 @@ export function registerFeasibilityRoutes(app: FastifyInstance, db: CairnDatabas
       });
     }
     const { date, now, params: reqParams } = parsed.data;
-    // Use supplied params directly — no DB read, no write.
+    // Use supplied params directly — no param write. thread_links is a read.
     const events = findPlannedAndConfirmedByDate(db, date);
-    const feasibility = computeDayFeasibility(date, now, events, reqParams);
+    const relations = findThreadLinksAmong(db, dayThreadIds(events, date));
+    const feasibility = computeDayFeasibility(date, now, events, reqParams, relations);
     return reply.send({ ok: true, data: feasibility });
   });
 }

@@ -1,5 +1,6 @@
 import type { DayFeasibility, FeasibilityParams, Gap } from "@cairn/shared";
 import type { EventRow } from "@cairn/shared";
+import { computeTransitionCosts, type ThreadLinkRow } from "./context-switch.js";
 
 export const DEFAULTS: FeasibilityParams = {
   energyBudget: 8,
@@ -25,7 +26,11 @@ export function computeDayFeasibility(
   date: string,
   now: string,
   events: EventRow[],
-  p: FeasibilityParams
+  p: FeasibilityParams,
+  // thread_links among the day's threads. Optional: callers that only read
+  // energy/continuous (slotCandidates, mirror-energy-trends) omit it, yielding
+  // an explanatory transitionCosts array they ignore. Routes pass real rows.
+  relations: ThreadLinkRow[] = []
 ): DayFeasibility {
   // Only scheduled planned/confirmed events with both start and end on this date
   const scheduled = events
@@ -40,8 +45,28 @@ export function computeDayFeasibility(
   const energy = computeEnergy(scheduled, p);
   const gaps = computeGaps(scheduled, now, p);
   const continuous = computeContinuous(scheduled, p);
+  const transitionCosts = computeTransitionCosts(scheduled, relations);
 
-  return { date, now, params: p, energy, gaps, continuous };
+  return { date, now, params: p, energy, gaps, continuous, transitionCosts };
+}
+
+// Distinct positive thread ids among the day's scheduled planned/confirmed
+// events. Mirrors the `scheduled` filter so routes load exactly the relations
+// the service will consider.
+export function dayThreadIds(events: EventRow[], date: string): number[] {
+  const ids = new Set<number>();
+  for (const e of events) {
+    if (
+      (e.status === "planned" || e.status === "confirmed") &&
+      e.start != null &&
+      e.end != null &&
+      e.start.startsWith(date) &&
+      e.threadId != null
+    ) {
+      ids.add(e.threadId);
+    }
+  }
+  return [...ids];
 }
 
 function computeEnergy(scheduled: EventRow[], p: FeasibilityParams) {

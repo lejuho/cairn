@@ -1349,6 +1349,57 @@ p {
   color: var(--text);
 }
 
+.feas-transitions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.feas-transitions-head {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--faint);
+  margin: 0;
+}
+
+.feas-transition-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.feas-transition {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border-left: 3px solid var(--border);
+  background: color-mix(in srgb, var(--border), transparent 88%);
+  color: var(--text);
+}
+
+/* high = different/unrelated context; low = context shared; unknown = neutral uncertainty */
+.feas-transition--high {
+  border-left-color: var(--moved);
+  background: color-mix(in srgb, var(--moved), transparent 88%);
+}
+
+.feas-transition--low {
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--accent), transparent 90%);
+}
+
+.feas-transition-cost {
+  font-weight: 600;
+}
+
 .feas-adjust-btn {
   align-self: flex-start;
   margin-top: 4px;

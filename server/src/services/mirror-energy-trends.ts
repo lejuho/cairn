@@ -43,6 +43,7 @@ export function buildMirrorEnergyTrends(
   for (const date of dates) {
     // Deterministic now: start of the day in UTC. Gap near-horizon mode is
     // a side effect of computeDayFeasibility; we only use energy + continuous.
+    // relations omitted: transitionCosts unused on this trend path.
     const feas = computeDayFeasibility(date, `${date}T00:00:00Z`, rangeEvents, p);
     const { energy, continuous } = feas;
 

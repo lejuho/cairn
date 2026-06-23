@@ -117,6 +117,7 @@ export function scoreFeasibility(
       updatedAt: null
     };
     const merged = [...dayEvents, tempEvent as unknown as EventRow];
+    // relations omitted: this path reads only energy; transitionCosts unused.
     const feas = computeDayFeasibility(dateStr, nowStr, merged, params);
     const { loadUnits, budgetUnits, deficit } = feas.energy;
     const loadH = loadUnits.toFixed(1);

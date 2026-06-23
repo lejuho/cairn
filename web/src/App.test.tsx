@@ -23,7 +23,7 @@ const QUIET_SURFACE = {
     date: "2026-06-16", now: "2026-06-16T09:00:00.000Z",
     params: { energyBudget: 8, meetBufferMinutes: 15, deepBufferMinutes: 30, travelMargin: 1, maxContinuousMinutes: 600 },
     energy: { loadUnits: 0, budgetUnits: 8, remainingUnits: 8, deficit: false, confidence: "cold_start" as const },
-    gaps: [], continuous: null
+    gaps: [], continuous: null, transitionCosts: []
   }
 };
 

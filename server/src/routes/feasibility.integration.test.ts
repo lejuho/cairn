@@ -341,3 +341,155 @@ describe("GET /api/feasibility/day — edge cases", () => {
     expect(feasibility.gaps).toBeDefined();
   });
 });
+
+// ── transition costs (FR-FEAS-08) ──────────────────────────────────────────────
+
+function insertThread(conn: SqliteConnection, name: string): number {
+  const r = conn.sqlite.prepare("INSERT INTO threads (name) VALUES (?)").run(name);
+  return Number(r.lastInsertRowid);
+}
+
+function insertEventWithThread(
+  conn: SqliteConnection,
+  threadId: number | null,
+  start: string,
+  end: string
+): number {
+  const r = conn.sqlite
+    .prepare("INSERT INTO events (thread_id, title, start, end, source, self_imposed, status) VALUES (?, 'E', ?, ?, 'cairn', 1, 'planned')")
+    .run(threadId, start, end);
+  return Number(r.lastInsertRowid);
+}
+
+function insertThreadLink(conn: SqliteConnection, fromThread: number, toThread: number, kind: string, firmness = "soft"): void {
+  conn.sqlite
+    .prepare("INSERT INTO thread_links (from_thread, to_thread, kind, firmness) VALUES (?, ?, ?, ?)")
+    .run(fromThread, toThread, kind, firmness);
+}
+
+const S1 = "2026-06-20T09:00:00+09:00";
+const E1 = "2026-06-20T10:00:00+09:00";
+const S2 = "2026-06-20T10:30:00+09:00";
+const E2 = "2026-06-20T11:30:00+09:00";
+
+describe("GET /api/feasibility/day — transition costs", () => {
+  it("always returns a transitionCosts array", async () => {
+    const conn = makeTestDb();
+    const res = await get(conn);
+    expect(Array.isArray(res.json().data.transitionCosts)).toBe(true);
+    expect(res.json().data.transitionCosts).toHaveLength(0);
+  });
+
+  it("same-thread consecutive events → none", async () => {
+    const conn = makeTestDb();
+    const t = insertThread(conn, "T");
+    insertEventWithThread(conn, t, S1, E1);
+    insertEventWithThread(conn, t, S2, E2);
+    const tc = (await get(conn)).json().data.transitionCosts;
+    expect(tc).toHaveLength(1);
+    expect(tc[0].relation).toBe("same_thread");
+    expect(tc[0].costLevel).toBe("none");
+  });
+
+  it("contains thread_link → low context_link using real DB rows", async () => {
+    const conn = makeTestDb();
+    const t1 = insertThread(conn, "A");
+    const t2 = insertThread(conn, "B");
+    insertEventWithThread(conn, t1, S1, E1);
+    insertEventWithThread(conn, t2, S2, E2);
+    insertThreadLink(conn, t1, t2, "contains", "hard");
+    const tc = (await get(conn)).json().data.transitionCosts;
+    expect(tc).toHaveLength(1);
+    expect(tc[0].relation).toBe("context_link");
+    expect(tc[0].costLevel).toBe("low");
+    expect(tc[0].relationKind).toBe("contains");
+    expect(tc[0].firmness).toBe("hard");
+  });
+
+  it("blocks link → high non_context_link", async () => {
+    const conn = makeTestDb();
+    const t1 = insertThread(conn, "A");
+    const t2 = insertThread(conn, "B");
+    insertEventWithThread(conn, t1, S1, E1);
+    insertEventWithThread(conn, t2, S2, E2);
+    insertThreadLink(conn, t1, t2, "blocks");
+    const tc = (await get(conn)).json().data.transitionCosts;
+    expect(tc[0].relation).toBe("non_context_link");
+    expect(tc[0].costLevel).toBe("high");
+  });
+
+  it("unlinked threads → high unrelated", async () => {
+    const conn = makeTestDb();
+    const t1 = insertThread(conn, "A");
+    const t2 = insertThread(conn, "B");
+    insertEventWithThread(conn, t1, S1, E1);
+    insertEventWithThread(conn, t2, S2, E2);
+    const tc = (await get(conn)).json().data.transitionCosts;
+    expect(tc[0].relation).toBe("unrelated");
+    expect(tc[0].costLevel).toBe("high");
+  });
+
+  it("missing thread id → unknown", async () => {
+    const conn = makeTestDb();
+    const t1 = insertThread(conn, "A");
+    insertEventWithThread(conn, t1, S1, E1);
+    insertEventWithThread(conn, null, S2, E2);
+    const tc = (await get(conn)).json().data.transitionCosts;
+    expect(tc[0].relation).toBe("missing_thread");
+    expect(tc[0].costLevel).toBe("unknown");
+  });
+
+  it("feeds wins over blocks between same two threads (deterministic)", async () => {
+    const conn = makeTestDb();
+    const t1 = insertThread(conn, "A");
+    const t2 = insertThread(conn, "B");
+    insertEventWithThread(conn, t1, S1, E1);
+    insertEventWithThread(conn, t2, S2, E2);
+    insertThreadLink(conn, t1, t2, "blocks", "hard");
+    insertThreadLink(conn, t2, t1, "feeds", "soft");
+    const tc = (await get(conn)).json().data.transitionCosts;
+    expect(tc[0].costLevel).toBe("low");
+    expect(tc[0].relationKind).toBe("feeds");
+  });
+
+  it("GET /api/today exposes the same transitionCosts under data.feasibility", async () => {
+    const conn = makeTestDb();
+    const t1 = insertThread(conn, "A");
+    const t2 = insertThread(conn, "B");
+    insertEventWithThread(conn, t1, S1, E1);
+    insertEventWithThread(conn, t2, S2, E2);
+    insertThreadLink(conn, t1, t2, "feeds");
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "GET", url: `/api/today?date=${DATE}&now=${encodeURIComponent(NOW_MORNING)}` });
+    const tc = res.json().data.feasibility.transitionCosts;
+    expect(tc).toHaveLength(1);
+    expect(tc[0].costLevel).toBe("low");
+  });
+
+  it("POST preview returns transition costs and does not change row counts", async () => {
+    const conn = makeTestDb();
+    const t1 = insertThread(conn, "A");
+    const t2 = insertThread(conn, "B");
+    insertEventWithThread(conn, t1, S1, E1);
+    insertEventWithThread(conn, t2, S2, E2);
+    insertThreadLink(conn, t1, t2, "contains");
+    const eventsBefore = conn.sqlite.prepare("SELECT count(*) c FROM events").get() as { c: number };
+    const linksBefore = conn.sqlite.prepare("SELECT count(*) c FROM thread_links").get() as { c: number };
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/feasibility/day/preview",
+      payload: {
+        date: DATE,
+        now: NOW_MORNING,
+        params: { energyBudget: 6, meetBufferMinutes: 10, deepBufferMinutes: 20, travelMargin: 1, maxContinuousMinutes: 500 }
+      }
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.transitionCosts[0].costLevel).toBe("low");
+    const eventsAfter = conn.sqlite.prepare("SELECT count(*) c FROM events").get() as { c: number };
+    const linksAfter = conn.sqlite.prepare("SELECT count(*) c FROM thread_links").get() as { c: number };
+    expect(eventsAfter.c).toBe(eventsBefore.c);
+    expect(linksAfter.c).toBe(linksBefore.c);
+  });
+});

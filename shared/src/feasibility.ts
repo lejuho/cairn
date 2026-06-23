@@ -37,13 +37,45 @@ export const ContinuousSchema = z.object({
   exceedsMax: z.boolean()
 });
 
+export const TransitionRelationSchema = z.enum([
+  "same_thread",
+  "context_link",
+  "non_context_link",
+  "unrelated",
+  "missing_thread"
+]);
+export const TransitionCostLevelSchema = z.enum(["none", "low", "high", "unknown"]);
+export const TransitionRelationKindSchema = z.enum([
+  "contains",
+  "blocks",
+  "feeds",
+  "competes",
+  "shares"
+]);
+export const TransitionFirmnessSchema = z.enum(["hard", "soft"]);
+
+export const TransitionCostSchema = z
+  .object({
+    fromEventId: z.number().int().positive(),
+    toEventId: z.number().int().positive(),
+    fromThreadId: z.number().int().positive().nullable(),
+    toThreadId: z.number().int().positive().nullable(),
+    relation: TransitionRelationSchema,
+    relationKind: TransitionRelationKindSchema.optional(),
+    firmness: TransitionFirmnessSchema.optional(),
+    costLevel: TransitionCostLevelSchema,
+    reasonCodes: z.array(z.string())
+  })
+  .strict();
+
 export const DayFeasibilitySchema = z.object({
   date: z.string(),
   now: z.string(),
   params: FeasibilityParamsSchema,
   energy: EnergySchema,
   gaps: z.array(GapSchema),
-  continuous: ContinuousSchema.nullable()
+  continuous: ContinuousSchema.nullable(),
+  transitionCosts: z.array(TransitionCostSchema)
 });
 
 export type FeasibilityQuery = z.infer<typeof FeasibilityQuerySchema>;
@@ -53,6 +85,11 @@ export type GapStatus = z.infer<typeof GapStatusSchema>;
 export type GapMode = z.infer<typeof GapModeSchema>;
 export type Gap = z.infer<typeof GapSchema>;
 export type Continuous = z.infer<typeof ContinuousSchema>;
+export type TransitionRelation = z.infer<typeof TransitionRelationSchema>;
+export type TransitionCostLevel = z.infer<typeof TransitionCostLevelSchema>;
+export type TransitionRelationKind = z.infer<typeof TransitionRelationKindSchema>;
+export type TransitionFirmness = z.infer<typeof TransitionFirmnessSchema>;
+export type TransitionCost = z.infer<typeof TransitionCostSchema>;
 export type DayFeasibility = z.infer<typeof DayFeasibilitySchema>;
 
 // Full replacement body — all five keys required, ranges enforced.

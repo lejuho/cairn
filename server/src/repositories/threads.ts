@@ -1,5 +1,5 @@
 import { alias } from "drizzle-orm/sqlite-core";
-import { asc, desc, eq, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 import type {
   CreateThreadRequest,
   EventRow,
@@ -10,6 +10,7 @@ import type {
   ThreadRow
 } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
+import type { ThreadLinkRow as TransitionLinkRow } from "../services/context-switch.js";
 import { events, tasks, threadLinks, threads } from "../db/schema.js";
 
 export function createThread(db: CairnDatabase, input: CreateThreadRequest): ThreadRow {
@@ -47,6 +48,33 @@ export function findThreadsByIds(db: CairnDatabase, ids: number[]): ThreadRow[] 
     .from(threads)
     .all()
     .filter((r) => ids.includes(r.id)) as ThreadRow[];
+}
+
+// Read-only: thread_links where BOTH endpoints are in `threadIds` (intra-day
+// scope only, no global traversal). Used by the context-switch service.
+export function findThreadLinksAmong(db: CairnDatabase, threadIds: number[]): TransitionLinkRow[] {
+  if (threadIds.length < 2) return [];
+  return db
+    .select({
+      id: threadLinks.id,
+      fromThread: threadLinks.fromThread,
+      toThread: threadLinks.toThread,
+      kind: threadLinks.kind,
+      firmness: threadLinks.firmness
+    })
+    .from(threadLinks)
+    .where(and(inArray(threadLinks.fromThread, threadIds), inArray(threadLinks.toThread, threadIds)))
+    .all()
+    .flatMap((r) => {
+      if (r.fromThread == null || r.toThread == null || r.kind == null || r.firmness == null) return [];
+      return [{
+        id: r.id,
+        fromThread: r.fromThread,
+        toThread: r.toThread,
+        kind: r.kind as TransitionLinkRow["kind"],
+        firmness: r.firmness as TransitionLinkRow["firmness"]
+      }];
+    });
 }
 
 export function findEventsByThreadId(db: CairnDatabase, threadId: number): EventRow[] {
