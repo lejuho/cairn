@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ThreadDetail, ThreadLinkKind, ThreadRollup, ThreadRow, ThreadSummary } from "@cairn/shared";
+import type { ThreadDetail, ThreadLinkKind, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadRollup, ThreadRow, ThreadSummary } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
 
 type ViewState =
@@ -27,18 +27,30 @@ async function loadThread(id: number): Promise<ThreadDetail> {
   return body.data!;
 }
 
+async function loadResourceFocus(id: number): Promise<ThreadResourceFocusData | null> {
+  try {
+    const body = await apiJson<{ ok: boolean; data?: ThreadResourceFocusData }>(`/api/threads/${id}/resource-focus`);
+    return body.ok ? (body.data ?? null) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function Thread({ id }: { id: number }) {
   const [view, setView] = useState<ViewState>({ tag: "loading" });
   const [linkSheet, setLinkSheet] = useState<LinkSheetState>({ tag: "closed" });
+  const [focus, setFocus] = useState<ThreadResourceFocusData | null>(null);
+  const [activeResourceId, setActiveResourceId] = useState<number | null>(null);
   const addBtnRef = useRef<HTMLButtonElement>(null);
   const sheetCloseRef = useRef<HTMLButtonElement>(null);
   const sheetBackdropRef = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(() => {
     setView({ tag: "loading" });
-    loadThread(id)
-      .then((detail) => {
+    Promise.all([loadThread(id), loadResourceFocus(id)])
+      .then(([detail, focusData]) => {
         setView({ tag: "live", detail });
+        setFocus(focusData);
       })
       .catch((e: unknown) => {
         const err = e as Partial<AccessSessionError>;
@@ -53,10 +65,11 @@ export function Thread({ id }: { id: number }) {
   useEffect(() => {
     let cancelled = false;
     setView({ tag: "loading" });
-    loadThread(id)
-      .then((detail) => {
+    Promise.all([loadThread(id), loadResourceFocus(id)])
+      .then(([detail, focusData]) => {
         if (!cancelled) {
           setView({ tag: "live", detail });
+          setFocus(focusData);
         }
       })
       .catch((e: unknown) => {
@@ -216,10 +229,29 @@ export function Thread({ id }: { id: number }) {
   const hasRelations = incoming.length > 0 || outgoing.length > 0;
   const hasItems = detail.events.length > 0 || detail.tasks.length > 0;
 
+  // Compute highlighted ids for the active resource.
+  const activeItem = focus?.resources.find((r) => r.resource.id === activeResourceId) ?? null;
+  const highlightedEventIds = new Set<number>(
+    activeItem?.links.filter((l) => l.targetType === "event").map((l) => l.targetId) ?? []
+  );
+  const highlightedTaskIds = new Set<number>(
+    activeItem?.links.filter((l) => l.targetType === "task").map((l) => l.targetId) ?? []
+  );
+  const highlightThread = activeItem?.links.some((l) => l.targetType === "thread") ?? false;
+
+  function nodeClass(base: string, highlighted: boolean): string {
+    if (activeResourceId == null) return base;
+    return highlighted ? `${base} resource-highlight` : `${base} resource-dimmed`;
+  }
+
   return (
     <>
       <main className="app-shell today-live" aria-labelledby="thread-title" inert={linkSheet.tag === "open" ? true : undefined}>
-        <div className="thread-header" style={{ width: "min(100%, 480px)", marginBottom: "16px" }}>
+        <div
+          className={nodeClass("thread-header", highlightThread)}
+          data-testid="thread-header"
+          style={{ width: "min(100%, 480px)", marginBottom: "16px" }}
+        >
           <p className="eyebrow">Thread</p>
           <h1 id="thread-title" className="thread-name">{detail.thread.name}</h1>
           {detail.thread.goal && (
@@ -242,7 +274,7 @@ export function Thread({ id }: { id: number }) {
 
         <ul className="today-stack" role="list" style={{ width: "min(100%, 480px)" }}>
           {activeTasks.map((task) => (
-            <li key={`task-${task.id}`} className="today-card today-card--task">
+            <li key={`task-${task.id}`} className={nodeClass("today-card today-card--task", highlightedTaskIds.has(task.id))} data-task-id={task.id}>
               <span className="card-chip">작업</span>
               <p className="card-title">{task.title}</p>
               {task.context && <p className="card-meta">{task.context}</p>}
@@ -250,7 +282,7 @@ export function Thread({ id }: { id: number }) {
           ))}
 
           {futureEvents.map((event) => (
-            <li key={`event-${event.id}`} className="today-card today-card--event">
+            <li key={`event-${event.id}`} className={nodeClass("today-card today-card--event", highlightedEventIds.has(event.id))} data-event-id={event.id}>
               <span className="card-chip">예정</span>
               <p className="card-title">{event.title}</p>
               <p className="card-meta">
@@ -268,7 +300,7 @@ export function Thread({ id }: { id: number }) {
           )}
 
           {pastEvents.map((event) => (
-            <li key={`event-past-${event.id}`} className="today-card today-card--event thread-node--past">
+            <li key={`event-past-${event.id}`} className={nodeClass("today-card today-card--event thread-node--past", highlightedEventIds.has(event.id))} data-event-id={event.id}>
               <span className="card-chip">{event.status === "done" ? "완료" : event.start ? "지남" : "미정"}</span>
               <p className="card-title">{event.title}</p>
               {event.start && (
@@ -282,7 +314,7 @@ export function Thread({ id }: { id: number }) {
           ))}
 
           {doneTasks.map((task) => (
-            <li key={`task-done-${task.id}`} className="today-card today-card--task thread-node--past">
+            <li key={`task-done-${task.id}`} className={nodeClass("today-card today-card--task thread-node--past", highlightedTaskIds.has(task.id))} data-task-id={task.id}>
               <span className="card-chip">{task.status === "dropped" ? "드롭" : "완료"}</span>
               <p className="card-title">{task.title}</p>
             </li>
@@ -356,6 +388,15 @@ export function Thread({ id }: { id: number }) {
             </ul>
           )}
         </section>
+
+        {/* Resource focus section (FR-XREL cycle-38) */}
+        {focus && focus.resources.length > 0 && (
+          <ResourceFocusSection
+            focus={focus}
+            activeResourceId={activeResourceId}
+            onSelect={(rid) => setActiveResourceId((prev) => (prev === rid ? null : rid))}
+          />
+        )}
 
         {/* Rollup section (FR-THR-10 Rollup A) */}
         <ThreadRollupSection rollup={detail.rollup} />
@@ -526,5 +567,74 @@ function ThreadRollupSection({ rollup }: { rollup: ThreadRollup }) {
         </>
       )}
     </section>
+  );
+}
+
+const FIRMNESS_LABEL: Record<string, string> = {
+  hard: "확정",
+  soft: "연결",
+  tentative: "가능성"
+};
+
+function ResourceFocusSection({
+  focus,
+  activeResourceId,
+  onSelect
+}: {
+  focus: ThreadResourceFocusData;
+  activeResourceId: number | null;
+  onSelect: (id: number) => void;
+}) {
+  return (
+    <section
+      aria-labelledby="resource-focus-title"
+      style={{ width: "min(100%, 480px)", marginTop: "24px" }}
+      data-testid="resource-focus"
+    >
+      <h2 id="resource-focus-title" className="eyebrow" style={{ marginBottom: "8px" }}>관련 리소스</h2>
+      <ul className="resource-chip-list" role="list" style={{ display: "flex", flexWrap: "wrap", gap: "8px", listStyle: "none", padding: 0, margin: "0 0 8px" }}>
+        {focus.resources.map((item) => (
+          <li key={item.resource.id}>
+            <button
+              className={`resource-chip${activeResourceId === item.resource.id ? " resource-chip--active" : ""}`}
+              onClick={() => onSelect(item.resource.id)}
+              aria-pressed={activeResourceId === item.resource.id}
+              data-resource-id={item.resource.id}
+            >
+              {item.resource.name}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {activeResourceId != null && (
+        <ResourceFocusDetail item={focus.resources.find((r) => r.resource.id === activeResourceId) ?? null} />
+      )}
+    </section>
+  );
+}
+
+function ResourceFocusDetail({ item }: { item: ThreadResourceFocusItem | null }) {
+  if (!item) return null;
+  return (
+    <div className="resource-detail" data-testid="resource-detail">
+      <p className="card-meta" style={{ marginBottom: "4px" }}>
+        {item.resource.kind === "item" ? "물건" : "지식"}
+        {item.sourcePerson && ` · 출처: ${item.sourcePerson.name}`}
+      </p>
+      {item.resource.note && <p className="card-meta" style={{ opacity: 0.8 }}>{item.resource.note}</p>}
+      <ul style={{ listStyle: "none", padding: 0, margin: "6px 0 0" }}>
+        {item.links.map((link, i) => (
+          <li key={i} className="resource-link-row" data-firmness={link.firmness}>
+            <span className={`resource-firmness resource-firmness--${link.firmness}`}>
+              {FIRMNESS_LABEL[link.firmness]}
+            </span>
+            <span className="card-meta">
+              {link.targetType === "event" ? "이벤트" : link.targetType === "task" ? "작업" : "스레드"} #{link.targetId}
+              {link.reason && ` — ${link.reason}`}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

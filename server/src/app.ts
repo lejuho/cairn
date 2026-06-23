@@ -14,6 +14,7 @@ import { registerTaskRoutes } from "./routes/tasks.js";
 import { registerThreadRoutes } from "./routes/threads.js";
 import { registerTodayRoute } from "./routes/today.js";
 import { registerWatcherRoutes } from "./routes/watchers.js";
+import { registerResourceRoutes } from "./routes/resources.js";
 
 export function buildServer(db?: CairnDatabase, gateway?: LlmGateway): FastifyInstance {
   const app = Fastify({
@@ -41,6 +42,7 @@ export function buildServer(db?: CairnDatabase, gateway?: LlmGateway): FastifyIn
     registerFeasibilityRoutes(app, db);
     registerDecisionRoutes(app, db);
     registerMirrorRoutes(app, db);
+    registerResourceRoutes(app, db);
     if (gateway) {
       registerAnnotationRoutes(app, db, gateway);
       registerCaptureRoutes(app, db, gateway);

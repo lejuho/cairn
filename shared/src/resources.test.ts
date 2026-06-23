@@ -1,0 +1,184 @@
+import { describe, expect, it } from "vitest";
+import type { ResourceRow } from "./resources.js";
+import {
+  CreateResourceLinkRequestSchema,
+  CreateResourceRequestSchema,
+  ResourceLinkRowSchema,
+  ResourceRowSchema,
+  ThreadResourceFocusDataSchema
+} from "./resources.js";
+
+const VALID_RESOURCE: ResourceRow = {
+  id: 1,
+  name: "노트북",
+  kind: "item",
+  sourcePersonId: null,
+  note: null,
+  createdAt: "2026-06-21 09:00:00"
+};
+
+describe("CreateResourceRequestSchema", () => {
+  it("accepts valid item creation", () => {
+    expect(
+      CreateResourceRequestSchema.safeParse({ name: "노트북", kind: "item" }).success
+    ).toBe(true);
+  });
+
+  it("trims whitespace from name", () => {
+    const result = CreateResourceRequestSchema.safeParse({ name: "  노트북  ", kind: "knowledge" });
+    expect(result.success && result.data.name).toBe("노트북");
+  });
+
+  it("rejects empty name", () => {
+    expect(CreateResourceRequestSchema.safeParse({ name: "", kind: "item" }).success).toBe(false);
+  });
+
+  it("rejects name longer than 120 characters", () => {
+    expect(
+      CreateResourceRequestSchema.safeParse({ name: "a".repeat(121), kind: "item" }).success
+    ).toBe(false);
+  });
+
+  it("rejects invalid kind", () => {
+    expect(CreateResourceRequestSchema.safeParse({ name: "X", kind: "document" }).success).toBe(false);
+  });
+
+  it("rejects injected score field (strict)", () => {
+    expect(
+      CreateResourceRequestSchema.safeParse({ name: "X", kind: "item", score: 9 }).success
+    ).toBe(false);
+  });
+
+  it("rejects injected recommendation field (strict)", () => {
+    expect(
+      CreateResourceRequestSchema.safeParse({ name: "X", kind: "item", recommendation: "buy now" }).success
+    ).toBe(false);
+  });
+
+  it("rejects injected advice field (strict)", () => {
+    expect(
+      CreateResourceRequestSchema.safeParse({ name: "X", kind: "item", advice: "do this" }).success
+    ).toBe(false);
+  });
+
+  it("rejects injected action field (strict)", () => {
+    expect(
+      CreateResourceRequestSchema.safeParse({ name: "X", kind: "item", action: "promote" }).success
+    ).toBe(false);
+  });
+});
+
+describe("CreateResourceLinkRequestSchema", () => {
+  it("accepts valid event link", () => {
+    expect(
+      CreateResourceLinkRequestSchema.safeParse({ targetType: "event", targetId: 5, firmness: "hard" }).success
+    ).toBe(true);
+  });
+
+  it("accepts valid task link with default firmness", () => {
+    const result = CreateResourceLinkRequestSchema.safeParse({ targetType: "task", targetId: 3 });
+    expect(result.success && result.data.firmness).toBe("soft");
+  });
+
+  it("accepts thread target type", () => {
+    expect(
+      CreateResourceLinkRequestSchema.safeParse({ targetType: "thread", targetId: 2 }).success
+    ).toBe(true);
+  });
+
+  it("rejects invalid target type", () => {
+    expect(
+      CreateResourceLinkRequestSchema.safeParse({ targetType: "person", targetId: 1 }).success
+    ).toBe(false);
+  });
+
+  it("rejects invalid firmness", () => {
+    expect(
+      CreateResourceLinkRequestSchema.safeParse({ targetType: "event", targetId: 1, firmness: "maybe" }).success
+    ).toBe(false);
+  });
+
+  it("rejects reason longer than 300 characters", () => {
+    expect(
+      CreateResourceLinkRequestSchema.safeParse({
+        targetType: "event",
+        targetId: 1,
+        reason: "a".repeat(301)
+      }).success
+    ).toBe(false);
+  });
+
+  it("rejects injected certainty field (strict)", () => {
+    expect(
+      CreateResourceLinkRequestSchema.safeParse({ targetType: "event", targetId: 1, certainty: 0.9 }).success
+    ).toBe(false);
+  });
+});
+
+describe("ResourceRowSchema", () => {
+  it("accepts a valid resource row", () => {
+    expect(ResourceRowSchema.safeParse(VALID_RESOURCE).success).toBe(true);
+  });
+
+  it("rejects injected score field (strict)", () => {
+    expect(ResourceRowSchema.safeParse({ ...VALID_RESOURCE, score: 5 }).success).toBe(false);
+  });
+});
+
+describe("ResourceLinkRowSchema", () => {
+  const VALID_LINK = {
+    id: 1,
+    resourceId: 1,
+    targetType: "event" as const,
+    targetId: 10,
+    firmness: "soft" as const,
+    reason: null,
+    createdAt: "2026-06-21 09:00:00"
+  };
+
+  it("accepts a valid link row", () => {
+    expect(ResourceLinkRowSchema.safeParse(VALID_LINK).success).toBe(true);
+  });
+
+  it("rejects injected recommendation field (strict)", () => {
+    expect(ResourceLinkRowSchema.safeParse({ ...VALID_LINK, recommendation: "link this" }).success).toBe(false);
+  });
+});
+
+describe("ThreadResourceFocusDataSchema", () => {
+  it("accepts valid focus data with no resources", () => {
+    expect(
+      ThreadResourceFocusDataSchema.safeParse({ threadId: 1, resources: [] }).success
+    ).toBe(true);
+  });
+
+  it("accepts focus data with a resource and link", () => {
+    const data = {
+      threadId: 1,
+      resources: [
+        {
+          resource: VALID_RESOURCE,
+          sourcePerson: null,
+          links: [
+            { targetType: "event", targetId: 5, firmness: "soft", reason: null }
+          ]
+        }
+      ]
+    };
+    expect(ThreadResourceFocusDataSchema.safeParse(data).success).toBe(true);
+  });
+
+  it("accepts focus data with sourcePerson populated", () => {
+    const data = {
+      threadId: 1,
+      resources: [
+        {
+          resource: { ...VALID_RESOURCE, sourcePersonId: 3 },
+          sourcePerson: { id: 3, name: "Alice" },
+          links: []
+        }
+      ]
+    };
+    expect(ThreadResourceFocusDataSchema.safeParse(data).success).toBe(true);
+  });
+});

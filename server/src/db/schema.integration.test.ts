@@ -29,6 +29,8 @@ describe("core SQLite migration", () => {
       "links",
       "params",
       "people",
+      "resource_links",
+      "resources",
       "tasks",
       "thread_links",
       "threads",

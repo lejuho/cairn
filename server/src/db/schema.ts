@@ -25,6 +25,9 @@ const LINK_KINDS = ["blocks", "requires", "triggers", "caused_by", "follows"] as
 const THREAD_LINK_KINDS = ["contains", "blocks", "feeds", "competes", "shares"] as const;
 const WATCHER_KINDS = ["A", "B"] as const;
 const WATCHER_LOG_OUTCOMES = ["checked_no_signal", "signal_seen", "missed_signal"] as const;
+const RESOURCE_KINDS = ["item", "knowledge"] as const;
+const RESOURCE_TARGET_TYPES = ["event", "task", "thread"] as const;
+const RESOURCE_FIRMNESSES = ["hard", "soft", "tentative"] as const;
 
 const enumSqlList = (values: readonly string[]) =>
   sql.raw(values.map((value) => `'${value}'`).join(", "));
@@ -235,3 +238,36 @@ export const params = sqliteTable("params", {
   key: text("key").primaryKey(),
   value: text("value")
 });
+
+export const resources = sqliteTable(
+  "resources",
+  {
+    id: integer("id").primaryKey(),
+    name: text("name").notNull(),
+    kind: text("kind").notNull(),
+    sourcePersonId: integer("source_person_id").references(() => people.id),
+    note: text("note"),
+    createdAt: text("created_at").default(sql`(datetime('now'))`)
+  },
+  (table) => [
+    check("resources_kind_check", sql`${table.kind} in (${enumSqlList(RESOURCE_KINDS)})`)
+  ]
+);
+
+export const resourceLinks = sqliteTable(
+  "resource_links",
+  {
+    id: integer("id").primaryKey(),
+    resourceId: integer("resource_id").references(() => resources.id).notNull(),
+    targetType: text("target_type").notNull(),
+    targetId: integer("target_id").notNull(),
+    firmness: text("firmness").default("soft").notNull(),
+    reason: text("reason"),
+    createdAt: text("created_at").default(sql`(datetime('now'))`)
+  },
+  (table) => [
+    check("resource_links_target_type_check", sql`${table.targetType} in (${enumSqlList(RESOURCE_TARGET_TYPES)})`),
+    check("resource_links_firmness_check", sql`${table.firmness} in (${enumSqlList(RESOURCE_FIRMNESSES)})`),
+    uniqueIndex("resource_links_unique_idx").on(table.resourceId, table.targetType, table.targetId)
+  ]
+);
