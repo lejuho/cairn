@@ -10,6 +10,21 @@ const EGO_NODE_TYPE_LABEL: Record<EgoGraphData["nodes"][number]["type"], string>
   thread: "스레드"
 };
 
+const EGO_EDGE_KIND_LABEL: Record<EgoGraphData["edges"][number]["kind"], string> = {
+  resource_link: "리소스 연결",
+  source_person: "출처",
+  event_people: "참여",
+  thread_link: "스레드 연결"
+};
+
+const EGO_RELATION_KIND_LABEL: Record<NonNullable<EgoGraphData["edges"][number]["relationKind"]>, string> = {
+  contains: "포함",
+  blocks: "차단",
+  feeds: "연결",
+  competes: "경쟁",
+  shares: "공유"
+};
+
 export async function loadEgoGraph(
   targetType: "resource" | "person",
   targetId: number
@@ -67,6 +82,9 @@ export function EgoSheet({ graph, onClose }: { graph: EgoGraphData; onClose: () 
   }, [onClose]);
 
   const neighbors = graph.nodes.filter((n) => n.id !== graph.center.id);
+  // Includes center so edge endpoints (center-to-neighbor and neighbor-to-neighbor) resolve.
+  const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
+  const labelFor = (id: string) => nodeById.get(id)?.label ?? id;
 
   return (
     <div
@@ -93,29 +111,39 @@ export function EgoSheet({ graph, onClose }: { graph: EgoGraphData; onClose: () 
             ✕
           </button>
         </div>
-        <ul className="ego-sheet__nodes" style={{ listStyle: "none", padding: 0, margin: 0 }}>
-          {neighbors.map((node) => {
-            const edge = graph.edges.find(
-              (e) =>
-                (e.from === graph.center.id && e.to === node.id) ||
-                (e.to === graph.center.id && e.from === node.id)
-            );
-            return (
-              <li key={node.id} className="ego-sheet__node" data-testid="ego-node">
-                <span className="card-meta" style={{ opacity: 0.7 }}>{EGO_NODE_TYPE_LABEL[node.type]}</span>{" "}
-                {node.href ? <a href={node.href}>{node.label}</a> : <span>{node.label}</span>}
-                {node.sublabel && <span className="card-meta"> · {node.sublabel}</span>}
-                {edge && (
-                  <span className={`resource-firmness resource-firmness--${edge.firmness}`} style={{ marginLeft: "6px" }}>
-                    {edge.firmness}
-                  </span>
-                )}
-                {edge?.reason && <span className="card-meta" data-testid="ego-edge-reason"> — {edge.reason}</span>}
-              </li>
-            );
-          })}
+        <h3 className="eyebrow" style={{ margin: "0 0 6px" }}>항목</h3>
+        <ul className="ego-sheet__nodes" style={{ listStyle: "none", padding: 0, margin: "0 0 16px" }}>
+          {neighbors.map((node) => (
+            <li key={node.id} className="ego-sheet__node" data-testid="ego-node">
+              <span className="card-meta" style={{ opacity: 0.7 }}>{EGO_NODE_TYPE_LABEL[node.type]}</span>{" "}
+              {node.href ? <a href={node.href}>{node.label}</a> : <span>{node.label}</span>}
+              {node.sublabel && <span className="card-meta"> · {node.sublabel}</span>}
+            </li>
+          ))}
           {neighbors.length === 0 && (
             <li className="card-meta" style={{ opacity: 0.6 }}>연결된 항목 없음</li>
+          )}
+        </ul>
+
+        <h3 className="eyebrow" style={{ margin: "0 0 6px" }}>관계</h3>
+        <ul className="ego-sheet__edges" style={{ listStyle: "none", padding: 0, margin: 0 }}>
+          {graph.edges.map((edge, i) => (
+            <li key={`${edge.from}->${edge.to}-${i}`} className="ego-sheet__edge" data-testid="ego-edge">
+              <span>{labelFor(edge.from)}</span>
+              <span className="card-meta" style={{ margin: "0 4px" }}>→</span>
+              <span>{labelFor(edge.to)}</span>{" "}
+              <span className="card-meta" style={{ opacity: 0.7 }}>
+                {EGO_EDGE_KIND_LABEL[edge.kind]}
+                {edge.relationKind && ` · ${EGO_RELATION_KIND_LABEL[edge.relationKind]}`}
+              </span>
+              <span className={`resource-firmness resource-firmness--${edge.firmness}`} style={{ marginLeft: "6px" }}>
+                {edge.firmness}
+              </span>
+              {edge.reason && <span className="card-meta" data-testid="ego-edge-reason"> — {edge.reason}</span>}
+            </li>
+          ))}
+          {graph.edges.length === 0 && (
+            <li className="card-meta" style={{ opacity: 0.6 }}>표시할 관계 없음</li>
           )}
         </ul>
       </div>

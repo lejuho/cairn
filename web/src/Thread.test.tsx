@@ -576,10 +576,48 @@ describe("Thread — resource-focus section", () => {
     expect(dialog).toHaveAttribute("aria-modal", "true");
     const nodes = screen.getAllByTestId("ego-node");
     expect(nodes).toHaveLength(1); // center excluded
-    expect(screen.getByText("발표 리허설")).toBeInTheDocument();
-    // edge firmness + reason both visible (ISSUE-3)
-    expect(screen.getByText("hard")).toBeInTheDocument();
+    expect(nodes[0]!).toHaveTextContent("발표 리허설");
+    // edge row carries firmness + reason both visible (ISSUE-3)
+    const edges = screen.getAllByTestId("ego-edge");
+    expect(edges).toHaveLength(1);
+    expect(edges[0]!).toHaveTextContent("노트북");
+    expect(edges[0]!).toHaveTextContent("발표 리허설");
+    expect(edges[0]!).toHaveTextContent("리소스 연결");
+    expect(edges[0]!).toHaveTextContent("hard");
     expect(screen.getByTestId("ego-edge-reason")).toHaveTextContent("발표 때 필요");
+  });
+
+  it("renders non-center thread_link edge in the edge list (ISSUE-5)", async () => {
+    const egoWithThreadLink = {
+      center: { id: "resource:10", type: "resource", targetId: 10, label: "공용 자료" },
+      nodes: [
+        { id: "resource:10", type: "resource", targetId: 10, label: "공용 자료" },
+        { id: "thread:1", type: "thread", targetId: 1, label: "발표 준비", href: "/threads/1" },
+        { id: "thread:2", type: "thread", targetId: 2, label: "출장 준비", href: "/threads/2" }
+      ],
+      edges: [
+        { from: "resource:10", to: "thread:1", kind: "resource_link", firmness: "soft" },
+        { from: "resource:10", to: "thread:2", kind: "resource_link", firmness: "soft" },
+        { from: "thread:1", to: "thread:2", kind: "thread_link", firmness: "soft", relationKind: "feeds" }
+      ],
+      truncated: false
+    };
+    mockFetchWithEgo({ ok: true, data: egoWithThreadLink });
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "노트북" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "노트북" }));
+    await waitFor(() => expect(screen.getByTestId("ego-open-btn")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("ego-open-btn"));
+    await waitFor(() => expect(screen.getByTestId("ego-sheet")).toBeInTheDocument());
+    const edges = screen.getAllByTestId("ego-edge");
+    expect(edges).toHaveLength(3);
+    // The non-center thread→thread edge must be visible with kind + relationKind + firmness.
+    const tlEdge = edges.find((e) => e.textContent?.includes("스레드 연결"));
+    expect(tlEdge).toBeDefined();
+    expect(tlEdge!).toHaveTextContent("발표 준비");
+    expect(tlEdge!).toHaveTextContent("출장 준비");
+    expect(tlEdge!).toHaveTextContent("연결"); // relationKind feeds → 연결
+    expect(tlEdge!).toHaveTextContent("soft");
   });
 
   it("Escape closes the ego sheet (ISSUE-2 keyboard)", async () => {

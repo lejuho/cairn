@@ -168,10 +168,15 @@ describe("PersonDetail ego graph", () => {
     expect(dialog).toHaveAttribute("aria-modal", "true");
     const nodes = screen.getAllByTestId("ego-node");
     expect(nodes).toHaveLength(2); // center excluded
-    expect(screen.getByText("노트북")).toBeInTheDocument();
+    expect(nodes.some((n) => n.textContent?.includes("노트북"))).toBe(true);
+    expect(nodes.some((n) => n.textContent?.includes("주간 회의"))).toBe(true);
     // event node has no href → rendered as plain span, not a link
     expect(screen.queryByRole("link", { name: "주간 회의" })).not.toBeInTheDocument();
-    expect(screen.getByText("주간 회의")).toBeInTheDocument();
+    // edge list shows both relations (source_person + event_people)
+    const edges = screen.getAllByTestId("ego-edge");
+    expect(edges).toHaveLength(2);
+    expect(edges.some((e) => e.textContent?.includes("출처"))).toBe(true);
+    expect(edges.some((e) => e.textContent?.includes("참여"))).toBe(true);
   });
 
   it("Escape closes the ego sheet (ISSUE-2 keyboard)", async () => {
