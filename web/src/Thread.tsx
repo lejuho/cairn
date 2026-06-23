@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApprovePromotionRequest, EgoGraphData, PromotionSuggestion, ThreadDetail, ThreadLinkKind, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadRollup, ThreadRow, ThreadSummary } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
+import { EgoSheet, loadEgoGraph } from "./EgoSheet.js";
 
 type ViewState =
   | { tag: "loading" }
@@ -749,57 +750,11 @@ function PromotionSuggestionsPanel({
   );
 }
 
-async function loadEgoGraph(targetType: "resource" | "person", targetId: number): Promise<EgoGraphData | null> {
-  try {
-    const body = await apiJson<{ ok: boolean; data?: EgoGraphData }>(`/api/relations/ego?targetType=${targetType}&targetId=${targetId}`);
-    return body.ok ? (body.data ?? null) : null;
-  } catch {
-    return null;
-  }
-}
-
 type EgoSheetState =
   | { tag: "closed" }
   | { tag: "loading" }
   | { tag: "open"; graph: EgoGraphData }
   | { tag: "error"; message: string };
-
-const EGO_NODE_TYPE_LABEL: Record<EgoGraphData["nodes"][number]["type"], string> = {
-  resource: "리소스",
-  person: "사람",
-  event: "이벤트",
-  task: "작업",
-  thread: "스레드"
-};
-
-function EgoSheet({ graph, onClose }: { graph: EgoGraphData; onClose: () => void }) {
-  return (
-    <div className="ego-sheet" role="dialog" aria-label="작은 관계 보기" data-testid="ego-sheet">
-      <div className="ego-sheet__header">
-        <span className="ego-sheet__title">{graph.center.label}</span>
-        {graph.truncated && <span className="card-meta"> (일부만 표시)</span>}
-        <button className="ego-sheet__close" onClick={onClose} aria-label="닫기">×</button>
-      </div>
-      <ul className="ego-sheet__nodes" style={{ listStyle: "none", padding: 0, margin: "8px 0" }}>
-        {graph.nodes.filter((n) => n.id !== graph.center.id).map((node) => {
-          const edge = graph.edges.find((e) => e.from === graph.center.id && e.to === node.id || e.to === graph.center.id && e.from === node.id);
-          return (
-            <li key={node.id} className="ego-sheet__node" data-testid="ego-node">
-              <span className="card-meta" style={{ opacity: 0.7 }}>{EGO_NODE_TYPE_LABEL[node.type]}</span>
-              {" "}
-              {node.href ? <a href={node.href}>{node.label}</a> : <span>{node.label}</span>}
-              {node.sublabel && <span className="card-meta"> · {node.sublabel}</span>}
-              {edge && <span className="card-meta" style={{ marginLeft: "4px" }}>[{edge.firmness}]</span>}
-            </li>
-          );
-        })}
-        {graph.nodes.length === 1 && (
-          <li className="card-meta" style={{ opacity: 0.6 }}>연결된 항목 없음</li>
-        )}
-      </ul>
-    </div>
-  );
-}
 
 function ResourceFocusDetail({ item }: { item: ThreadResourceFocusItem | null }) {
   const [egoState, setEgoState] = useState<EgoSheetState>({ tag: "closed" });
@@ -837,13 +792,15 @@ function ResourceFocusDetail({ item }: { item: ThreadResourceFocusItem | null })
         ))}
       </ul>
       <div style={{ marginTop: "8px" }}>
-        {egoState.tag === "closed" && (
-          <button className="btn-secondary" onClick={handleOpenEgo} data-testid="ego-open-btn">
-            작은 관계 보기
-          </button>
-        )}
-        {egoState.tag === "loading" && <span className="card-meta">불러오는 중…</span>}
-        {egoState.tag === "error" && <span className="card-meta" style={{ color: "var(--color-error)" }}>{egoState.message}</span>}
+        <button
+          className="btn-secondary"
+          onClick={handleOpenEgo}
+          data-testid="ego-open-btn"
+          disabled={egoState.tag === "loading"}
+        >
+          {egoState.tag === "loading" ? "불러오는 중…" : "작은 관계 보기"}
+        </button>
+        {egoState.tag === "error" && <span className="card-meta" style={{ color: "var(--color-error)", marginLeft: "8px" }}>{egoState.message}</span>}
         {egoState.tag === "open" && (
           <EgoSheet graph={egoState.graph} onClose={() => setEgoState({ tag: "closed" })} />
         )}

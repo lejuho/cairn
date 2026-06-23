@@ -157,18 +157,31 @@ describe("PersonDetail ego graph", () => {
     expect(screen.getByTestId("person-ego-btn")).toBeInTheDocument();
   });
 
-  it("loads and renders ego nodes on button tap", async () => {
+  it("loads and renders ego nodes in a dialog sheet on button tap", async () => {
     stubDetailThenEgo({ ok: true, data: EGO_GRAPH });
     render(<PersonDetail id={1} />);
     await waitFor(() => expect(screen.getByTestId("person-ego-btn")).toBeInTheDocument());
     fireEvent.click(screen.getByTestId("person-ego-btn"));
-    await waitFor(() => expect(screen.getByTestId("person-ego-sheet")).toBeInTheDocument());
-    const nodes = screen.getAllByTestId("person-ego-node");
+    await waitFor(() => expect(screen.getByTestId("ego-sheet")).toBeInTheDocument());
+    // Bottom sheet exposes dialog semantics (ISSUE-2)
+    const dialog = screen.getByRole("dialog", { name: "작은 관계 보기" });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    const nodes = screen.getAllByTestId("ego-node");
     expect(nodes).toHaveLength(2); // center excluded
     expect(screen.getByText("노트북")).toBeInTheDocument();
     // event node has no href → rendered as plain span, not a link
     expect(screen.queryByRole("link", { name: "주간 회의" })).not.toBeInTheDocument();
     expect(screen.getByText("주간 회의")).toBeInTheDocument();
+  });
+
+  it("Escape closes the ego sheet (ISSUE-2 keyboard)", async () => {
+    stubDetailThenEgo({ ok: true, data: EGO_GRAPH });
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-ego-btn")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("person-ego-btn"));
+    await waitFor(() => expect(screen.getByTestId("ego-sheet")).toBeInTheDocument());
+    fireEvent.keyDown(screen.getByTestId("ego-sheet").parentElement!, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("ego-sheet")).not.toBeInTheDocument());
   });
 
   it("shows error copy when ego fetch fails", async () => {

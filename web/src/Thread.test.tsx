@@ -571,9 +571,27 @@ describe("Thread — resource-focus section", () => {
     await waitFor(() => expect(screen.getByTestId("ego-open-btn")).toBeInTheDocument());
     fireEvent.click(screen.getByTestId("ego-open-btn"));
     await waitFor(() => expect(screen.getByTestId("ego-sheet")).toBeInTheDocument());
+    // Bottom-sheet dialog semantics (ISSUE-2)
+    const dialog = screen.getByRole("dialog", { name: "작은 관계 보기" });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
     const nodes = screen.getAllByTestId("ego-node");
     expect(nodes).toHaveLength(1); // center excluded
     expect(screen.getByText("발표 리허설")).toBeInTheDocument();
+    // edge firmness + reason both visible (ISSUE-3)
+    expect(screen.getByText("hard")).toBeInTheDocument();
+    expect(screen.getByTestId("ego-edge-reason")).toHaveTextContent("발표 때 필요");
+  });
+
+  it("Escape closes the ego sheet (ISSUE-2 keyboard)", async () => {
+    mockFetchWithEgo({ ok: true, data: EGO_RESOURCE });
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "노트북" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "노트북" }));
+    await waitFor(() => expect(screen.getByTestId("ego-open-btn")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("ego-open-btn"));
+    await waitFor(() => expect(screen.getByTestId("ego-sheet")).toBeInTheDocument());
+    fireEvent.keyDown(screen.getByTestId("ego-sheet").parentElement!, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("ego-sheet")).not.toBeInTheDocument());
   });
 
   it("ego sheet shows error copy when fetch fails", async () => {

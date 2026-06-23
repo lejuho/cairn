@@ -1,5 +1,5 @@
 import { eq, inArray } from "drizzle-orm";
-import type { EgoGraphFirmness } from "@cairn/shared";
+import type { EgoGraphEdge, EgoGraphFirmness } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import {
   eventPeople,
@@ -8,6 +8,7 @@ import {
   resourceLinks,
   resources,
   tasks,
+  threadLinks,
   threads
 } from "../db/schema.js";
 import type { RawEdge, RawNeighbor } from "../services/ego-graph.js";
@@ -156,6 +157,7 @@ export function buildResourceEgoData(
     }
 
     // Threads
+    const presentThreadIds: number[] = [];
     if (threadIds.length > 0) {
       const threadRows = db
         .select({ id: threads.id, name: threads.name })
@@ -164,6 +166,7 @@ export function buildResourceEgoData(
         .all();
       for (const t of threadRows) {
         const link = linkRows.find((l) => l.targetType === "thread" && l.targetId === t.id)!;
+        presentThreadIds.push(t.id);
         neighbors.push({
           type: "thread",
           targetId: t.id,
@@ -178,6 +181,36 @@ export function buildResourceEgoData(
           kind: "resource_link",
           firmness: (link.firmness as EgoGraphFirmness) ?? "soft",
           ...(link.reason ? { reason: link.reason } : {})
+        });
+      }
+    }
+
+    // thread_link edges between two returned thread nodes (intra-neighborhood
+    // only — no global traversal). buildEgoGraph drops any edge whose endpoint
+    // is truncated out of the final node set.
+    if (presentThreadIds.length >= 2) {
+      const tlRows = db
+        .select({
+          fromThread: threadLinks.fromThread,
+          toThread: threadLinks.toThread,
+          kind: threadLinks.kind,
+          firmness: threadLinks.firmness
+        })
+        .from(threadLinks)
+        .where(inArray(threadLinks.fromThread, presentThreadIds))
+        .all();
+      const threadIdSet = new Set(presentThreadIds);
+      for (const tl of tlRows) {
+        if (tl.fromThread == null || tl.toThread == null) continue;
+        if (!threadIdSet.has(tl.toThread)) continue;
+        edges.push({
+          fromType: "thread",
+          fromId: tl.fromThread,
+          toType: "thread",
+          toId: tl.toThread,
+          kind: "thread_link",
+          firmness: (tl.firmness as EgoGraphFirmness) ?? "soft",
+          ...(tl.kind ? { relationKind: tl.kind as EgoGraphEdge["relationKind"] } : {})
         });
       }
     }
@@ -250,4 +283,3 @@ export function buildPersonEgoData(
 
   return { person, neighbors, edges };
 }
-

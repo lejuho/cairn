@@ -79,6 +79,18 @@ function insertEventPerson(conn: SqliteConnection, eventId: number, personId: nu
   conn.sqlite.prepare(`INSERT INTO event_people (event_id, person_id) VALUES (?, ?)`).run(eventId, personId);
 }
 
+function insertThreadLink(
+  conn: SqliteConnection,
+  fromThread: number,
+  toThread: number,
+  kind = "feeds",
+  firmness = "soft"
+): void {
+  conn.sqlite
+    .prepare(`INSERT INTO thread_links (from_thread, to_thread, kind, firmness) VALUES (?, ?, ?, ?)`)
+    .run(fromThread, toThread, kind, firmness);
+}
+
 // ---------- Helpers ----------
 
 function egoGet(conn: SqliteConnection, query: Record<string, string | number>) {
@@ -226,6 +238,49 @@ describe("GET /api/relations/ego — resource center", () => {
       expect(keptIds.has(edge.from)).toBe(true);
       expect(keptIds.has(edge.to)).toBe(true);
     }
+  });
+
+  it("emits thread_link edge between two returned thread nodes", async () => {
+    const conn = makeTestDb();
+    const t1 = insertThread(conn, "발표 준비");
+    const t2 = insertThread(conn, "출장 준비");
+    const rid = insertResource(conn, "공용 자료");
+    insertResourceLink(conn, rid, "thread", t1, "soft");
+    insertResourceLink(conn, rid, "thread", t2, "soft");
+    insertThreadLink(conn, t1, t2, "feeds", "soft");
+    const res = await egoGet(conn, { targetType: "resource", targetId: rid });
+    const body = JSON.parse(res.payload);
+    const tlEdge = body.data.edges.find((e: { kind: string }) => e.kind === "thread_link");
+    expect(tlEdge).toBeDefined();
+    expect(tlEdge.from).toBe(`thread:${t1}`);
+    expect(tlEdge.to).toBe(`thread:${t2}`);
+    expect(tlEdge.relationKind).toBe("feeds");
+    expect(tlEdge.firmness).toBe("soft");
+  });
+
+  it("drops thread_link edge when one thread endpoint is truncated out", async () => {
+    const conn = makeTestDb();
+    // Two linked threads with a thread_link between them, but cap forces one out.
+    const t1 = insertThread(conn, "AAA"); // lower id, kept
+    const t2 = insertThread(conn, "BBB");
+    const rid = insertResource(conn, "자료");
+    // Fill with events (typeRank event < thread, so events kept first; both threads dropped)
+    const tEvt = insertThread(conn, "EvtParent");
+    for (let i = 0; i < 4; i++) {
+      const eid = insertEvent(conn, tEvt, `E${i}`);
+      insertResourceLink(conn, rid, "event", eid, "soft");
+    }
+    insertResourceLink(conn, rid, "thread", t1, "soft");
+    insertResourceLink(conn, rid, "thread", t2, "soft");
+    insertThreadLink(conn, t1, t2, "feeds", "soft");
+    const res = await egoGet(conn, { targetType: "resource", targetId: rid, limit: "5" });
+    const body = JSON.parse(res.payload);
+    // limit 5 → center + 4 events; both threads truncated out
+    expect(body.data.truncated).toBe(true);
+    const keptIds = new Set(body.data.nodes.map((n: { id: string }) => n.id));
+    expect(keptIds.has(`thread:${t1}`)).toBe(false);
+    expect(keptIds.has(`thread:${t2}`)).toBe(false);
+    expect(body.data.edges.some((e: { kind: string }) => e.kind === "thread_link")).toBe(false);
   });
 });
 
