@@ -1,9 +1,8 @@
 import { eq, inArray } from "drizzle-orm";
-import type { CreateWatcherRequest, ReversePlanData, WatcherRow } from "@cairn/shared";
+import type { CreateReversePlanWatcherRequest, CreateWatcherRequest, ReversePlanData, ReversePlanView, WatcherRow } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import { links, tasks, watchers } from "../db/schema.js";
 import { computeReversePlan } from "../services/watcher-reverse-plan.js";
-import type { CreateReversePlanWatcherRequest } from "@cairn/shared";
 
 export function createWatcher(
   db: CairnDatabase,
@@ -90,12 +89,15 @@ export function markWatchersFired(
     .run();
 }
 
+export type TaskSummary = { id: number; title: string | null; status: string | null; due: string | null };
+export type LinkSummary = { id: number; fromId: number | null; toId: number | null; kind: string | null };
+
 export type CreateReversePlanResult = {
   watcher: WatcherRow;
-  taskIds: number[];
-  targetTaskId: number;
-  linkIds: number[];
-  reversePlan: ReversePlanData;
+  tasks: TaskSummary[];    // step tasks in execution order
+  targetTask: TaskSummary; // the terminal milestone task
+  links: LinkSummary[];
+  reversePlan: ReversePlanView;
 };
 
 // Creates a reverse-plan watcher with generated step tasks and requires links
@@ -115,30 +117,30 @@ export function createReversePlanWatcher(
 
   return db.transaction((tx) => {
     // 1. Insert step tasks (execution order → index 0 first)
-    const stepTaskIds: number[] = [];
+    const stepTaskRows: TaskSummary[] = [];
     for (const step of computedSteps) {
       const [taskRow] = tx
         .insert(tasks)
         .values({ title: step.label, due: step.latestDate, status: "todo" })
-        .returning()
+        .returning({ id: tasks.id, title: tasks.title, status: tasks.status, due: tasks.due })
         .all();
-      stepTaskIds.push((taskRow as { id: number }).id);
+      stepTaskRows.push(taskRow as TaskSummary);
     }
 
     // 2. Insert target task
     const [targetRow] = tx
       .insert(tasks)
       .values({ title: targetLabel, due: input.targetDate, status: "todo" })
-      .returning()
+      .returning({ id: tasks.id, title: tasks.title, status: tasks.status, due: tasks.due })
       .all();
-    const targetTaskId = (targetRow as { id: number }).id;
+    const targetTask = targetRow as TaskSummary;
 
     // 3. Build rule JSON (complete with taskIds)
     const ruleSteps: ReversePlanData["steps"] = computedSteps.map((s, i) => ({
       label: s.label,
       leadDays: s.leadDays,
       latestDate: s.latestDate,
-      taskId: stepTaskIds[i]!
+      taskId: stepTaskRows[i]!.id
     }));
     const ruleData: ReversePlanData = {
       type: "reverse_plan",
@@ -146,7 +148,7 @@ export function createReversePlanWatcher(
       targetLabel,
       safetyDays: input.safetyDays,
       steps: ruleSteps,
-      targetTaskId
+      targetTaskId: targetTask.id
     };
     const rule = JSON.stringify(ruleData);
 
@@ -168,30 +170,30 @@ export function createReversePlanWatcher(
     // 5. Insert requires links (downstream from → upstream to)
     //    - stepN requires step(N-1) for N > 0
     //    - targetTask requires lastStepTask
-    const linkIds: number[] = [];
-    const lastStepTaskId = stepTaskIds[stepTaskIds.length - 1]!;
+    const linkRows: LinkSummary[] = [];
+    const lastStepTaskId = stepTaskRows[stepTaskRows.length - 1]!.id;
 
-    for (let i = 1; i < stepTaskIds.length; i++) {
+    for (let i = 1; i < stepTaskRows.length; i++) {
       const [linkRow] = tx
         .insert(links)
         .values({
-          fromId: stepTaskIds[i]!,
+          fromId: stepTaskRows[i]!.id,
           fromKind: "task",
-          toId: stepTaskIds[i - 1]!,
+          toId: stepTaskRows[i - 1]!.id,
           toKind: "task",
           kind: "requires",
           firmness: "hard",
           source: "authored"
         })
-        .returning()
+        .returning({ id: links.id, fromId: links.fromId, toId: links.toId, kind: links.kind })
         .all();
-      linkIds.push((linkRow as { id: number }).id);
+      linkRows.push(linkRow as LinkSummary);
     }
 
     const [targetLinkRow] = tx
       .insert(links)
       .values({
-        fromId: targetTaskId,
+        fromId: targetTask.id,
         fromKind: "task",
         toId: lastStepTaskId,
         toKind: "task",
@@ -199,11 +201,21 @@ export function createReversePlanWatcher(
         firmness: "hard",
         source: "authored"
       })
-      .returning()
+      .returning({ id: links.id, fromId: links.fromId, toId: links.toId, kind: links.kind })
       .all();
-    linkIds.push((targetLinkRow as { id: number }).id);
+    linkRows.push(targetLinkRow as LinkSummary);
 
-    return { watcher, taskIds: stepTaskIds, targetTaskId, linkIds, reversePlan: ruleData };
+    // Build the reverse-plan view for the client (all steps are "todo" at creation)
+    const reversePlan: ReversePlanView = {
+      targetDate: input.targetDate,
+      targetLabel,
+      safetyDays: input.safetyDays,
+      steps: ruleSteps.map((s) => ({ ...s, taskStatus: "todo" })),
+      nextStepIndex: 0,
+      completed: false
+    };
+
+    return { watcher, tasks: stepTaskRows, targetTask, links: linkRows, reversePlan };
   });
 }
 

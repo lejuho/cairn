@@ -6,8 +6,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createSqliteConnection, runMigrations, type SqliteConnection } from "../db/index.js";
 import { buildServer } from "../app.js";
 import { createReversePlanWatcher } from "../repositories/watchers.js";
-import { selectDueForPush } from "../services/watcher-daily-push.js";
 import { findWatchersForPush } from "../repositories/watchers.js";
+import { selectDueForPush } from "../services/watcher-daily-push.js";
 
 const DATE = "2026-07-10";
 const NOW = "2026-07-10T00:00:00+00:00";
@@ -44,29 +44,34 @@ describe("createReversePlanWatcher — atomic transaction", () => {
     const conn = makeTestDb();
     const result = createReversePlanWatcher(conn.db, BASE_RP_INPUT);
 
-    // watcher created
     expect(result.watcher.id).toBeGreaterThan(0);
     expect(result.watcher.kind).toBe("A");
     expect(result.watcher.armed).toBe(1);
 
-    // step tasks created
-    expect(result.taskIds).toHaveLength(2);
-    expect(result.targetTaskId).toBeGreaterThan(0);
+    // step tasks returned with full row data
+    expect(result.tasks).toHaveLength(2);
+    expect(result.tasks[0]!.id).toBeGreaterThan(0);
+    expect(result.tasks[0]!.title).toBe("여권 신청");
+    expect(result.tasks[0]!.status).toBe("todo");
 
-    // links created: N-1 step-step + 1 target-lastStep = 2 for 2 steps
-    expect(result.linkIds).toHaveLength(2);
+    // target task is separate
+    expect(result.targetTask.id).toBeGreaterThan(0);
+    expect(result.targetTask.title).toBe(BASE_RP_INPUT.label); // targetLabel defaults to label
+
+    // links: N-1 step-step + 1 target-lastStep = 2 for 2 steps
+    expect(result.links).toHaveLength(2);
 
     // verify link direction: targetTask requires lastStepTask
-    const lastStepId = result.taskIds[result.taskIds.length - 1]!;
+    const lastStepId = result.tasks[result.tasks.length - 1]!.id;
     const targetLink = conn.sqlite
       .prepare("SELECT * FROM links WHERE from_id=? AND to_id=? AND kind='requires'")
-      .get(result.targetTaskId, lastStepId);
+      .get(result.targetTask.id, lastStepId);
     expect(targetLink).toBeTruthy();
 
     // verify step1 requires step0
     const stepLink = conn.sqlite
       .prepare("SELECT * FROM links WHERE from_id=? AND to_id=? AND kind='requires'")
-      .get(result.taskIds[1]!, result.taskIds[0]!);
+      .get(result.tasks[1]!.id, result.tasks[0]!.id);
     expect(stepLink).toBeTruthy();
   });
 
@@ -75,9 +80,9 @@ describe("createReversePlanWatcher — atomic transaction", () => {
     const result = createReversePlanWatcher(conn.db, BASE_RP_INPUT);
     const rule = JSON.parse(result.watcher.rule ?? "{}") as Record<string, unknown>;
     expect(rule.type).toBe("reverse_plan");
-    expect(rule.targetTaskId).toBe(result.targetTaskId);
+    expect(rule.targetTaskId).toBe(result.targetTask.id);
     const steps = rule.steps as Array<{ taskId: number }>;
-    expect(steps[0]!.taskId).toBe(result.taskIds[0]!);
+    expect(steps[0]!.taskId).toBe(result.tasks[0]!.id);
   });
 
   it("threshold is first step's latestDate", () => {
@@ -94,12 +99,20 @@ describe("createReversePlanWatcher — atomic transaction", () => {
     const result = createReversePlanWatcher(conn.db, BASE_RP_INPUT);
     const link = conn.sqlite
       .prepare("SELECT firmness, source FROM links WHERE id=?")
-      .get(result.linkIds[0]!) as { firmness: string; source: string };
+      .get(result.links[0]!.id) as { firmness: string; source: string };
     expect(link.firmness).toBe("hard");
     expect(link.source).toBe("authored");
   });
 
-  it("rejects invalid targetDate", () => {
+  it("reversePlan view in result has all steps todo and nextStepIndex=0", () => {
+    const conn = makeTestDb();
+    const result = createReversePlanWatcher(conn.db, BASE_RP_INPUT);
+    expect(result.reversePlan.nextStepIndex).toBe(0);
+    expect(result.reversePlan.completed).toBe(false);
+    expect(result.reversePlan.steps[0]!.taskStatus).toBe("todo");
+  });
+
+  it("rejects invalid targetDate — computeReversePlan throws", () => {
     const conn = makeTestDb();
     expect(() =>
       createReversePlanWatcher(conn.db, {
@@ -107,6 +120,27 @@ describe("createReversePlanWatcher — atomic transaction", () => {
         targetDate: "2026-02-30"
       })
     ).toThrow();
+  });
+
+  it("rolls back watcher and task rows when link insert fails", () => {
+    const conn = makeTestDb();
+    // Force all link inserts to fail via a BEFORE INSERT trigger
+    conn.sqlite
+      .prepare(
+        "CREATE TRIGGER force_link_fail BEFORE INSERT ON links BEGIN " +
+        "SELECT RAISE(ABORT, 'forced link failure'); END;"
+      )
+      .run();
+
+    expect(() => createReversePlanWatcher(conn.db, BASE_RP_INPUT)).toThrow("forced link failure");
+
+    // Transaction must have rolled back — no orphaned rows
+    const taskCount = (conn.sqlite.prepare("SELECT COUNT(*) as cnt FROM tasks").get() as { cnt: number }).cnt;
+    const watcherCount = (conn.sqlite.prepare("SELECT COUNT(*) as cnt FROM watchers").get() as { cnt: number }).cnt;
+    expect(taskCount).toBe(0);
+    expect(watcherCount).toBe(0);
+
+    conn.sqlite.prepare("DROP TRIGGER IF EXISTS force_link_fail").run();
   });
 });
 
@@ -126,7 +160,7 @@ describe("GET /api/watchers — reverse-plan deep view", () => {
     expect(w!.reversePlan).toBeDefined();
     const rp = w!.reversePlan as { steps: Array<{ taskStatus: string }>; nextStepIndex: number };
     expect(rp.steps).toHaveLength(2);
-    expect(rp.nextStepIndex).toBe(0); // first step not done yet
+    expect(rp.nextStepIndex).toBe(0);
   });
 
   it("shows due status when threshold reached (date >= threshold)", async () => {
@@ -160,9 +194,8 @@ describe("GET /api/watchers — reverse-plan deep view", () => {
     const conn = makeTestDb();
     const result = createReversePlanWatcher(conn.db, BASE_RP_INPUT);
 
-    // Mark all step tasks as done
-    for (const taskId of result.taskIds) {
-      conn.sqlite.prepare("UPDATE tasks SET status='done' WHERE id=?").run(taskId);
+    for (const task of result.tasks) {
+      conn.sqlite.prepare("UPDATE tasks SET status='done' WHERE id=?").run(task.id);
     }
 
     const app = buildServer(conn.db);
@@ -191,7 +224,7 @@ describe("GET /api/watchers — reverse-plan deep view", () => {
 });
 
 describe("POST /api/watchers/reverse-plan — route", () => {
-  it("creates watcher and returns result", async () => {
+  it("creates watcher and returns { watcher, tasks, targetTask, links, reversePlan }", async () => {
     const conn = makeTestDb();
     const app = buildServer(conn.db);
     const resp = await app.inject({
@@ -201,13 +234,43 @@ describe("POST /api/watchers/reverse-plan — route", () => {
       payload: JSON.stringify(BASE_RP_INPUT)
     });
     expect(resp.statusCode).toBe(201);
-    const body = JSON.parse(resp.payload) as { ok: boolean; data: { watcher: { id: number }; taskIds: number[] } };
+    const body = JSON.parse(resp.payload) as {
+      ok: boolean;
+      data: {
+        watcher: { id: number };
+        tasks: Array<{ id: number; title: string | null; status: string | null }>;
+        targetTask: { id: number; title: string | null };
+        links: Array<{ id: number }>;
+        reversePlan: { nextStepIndex: number; completed: boolean; steps: Array<{ taskStatus: string }> };
+      }
+    };
     expect(body.ok).toBe(true);
     expect(body.data.watcher.id).toBeGreaterThan(0);
-    expect(body.data.taskIds).toHaveLength(2);
+    expect(body.data.tasks).toHaveLength(2);
+    expect(body.data.tasks[0]!.title).toBe("여권 신청");
+    expect(body.data.tasks[0]!.status).toBe("todo");
+    expect(body.data.targetTask.id).toBeGreaterThan(0);
+    expect(body.data.links).toHaveLength(2);
+    expect(body.data.reversePlan.nextStepIndex).toBe(0);
+    expect(body.data.reversePlan.completed).toBe(false);
   });
 
-  it("returns 400 for invalid targetDate", async () => {
+  it("returns 400 VALIDATION_ERROR for overflow targetDate", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const resp = await app.inject({
+      method: "POST",
+      url: "/api/watchers/reverse-plan",
+      headers: { "Content-Type": "application/json" },
+      payload: JSON.stringify({ ...BASE_RP_INPUT, targetDate: "2026-02-30" })
+    });
+    expect(resp.statusCode).toBe(400);
+    const body = JSON.parse(resp.payload) as { ok: boolean; error: { code: string } };
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 400 for non-date targetDate format", async () => {
     const conn = makeTestDb();
     const app = buildServer(conn.db);
     const resp = await app.inject({
@@ -217,6 +280,20 @@ describe("POST /api/watchers/reverse-plan — route", () => {
       payload: JSON.stringify({ ...BASE_RP_INPUT, targetDate: "not-a-date" })
     });
     expect(resp.statusCode).toBe(400);
+  });
+
+  it("returns 400 VALIDATION_ERROR for unknown injected fields (strict)", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const resp = await app.inject({
+      method: "POST",
+      url: "/api/watchers/reverse-plan",
+      headers: { "Content-Type": "application/json" },
+      payload: JSON.stringify({ ...BASE_RP_INPUT, score: 0.9, recommendation: "act" })
+    });
+    expect(resp.statusCode).toBe(400);
+    const body = JSON.parse(resp.payload) as { error: { code: string } };
+    expect(body.error.code).toBe("VALIDATION_ERROR");
   });
 
   it("returns 400 when steps array is empty", async () => {
@@ -243,8 +320,11 @@ describe("GET /api/today — reverse-plan watcher surfaces when due", () => {
       method: "GET",
       url: `/api/today?date=${DATE}&now=${ENC_NOW}`
     });
-    const body = JSON.parse(resp.payload) as { data: { watcherBubbles: Array<{ id: number }> } };
+    const body = JSON.parse(resp.payload) as { data: { watcherBubbles: Array<{ id: number; message: string; reasonCodes: string[] }> } };
     expect(body.data.watcherBubbles.length).toBeGreaterThan(0);
+    // ISSUE-2: message must be reverse-plan descriptive
+    expect(body.data.watcherBubbles[0]!.message).toContain("여권 신청");
+    expect(body.data.watcherBubbles[0]!.reasonCodes).toContain("reverse_plan_due");
   });
 
   it("does not show bubble when disarmed", async () => {
@@ -264,9 +344,27 @@ describe("GET /api/today — reverse-plan watcher surfaces when due", () => {
   it("does not show bubble when all steps completed", async () => {
     const conn = makeTestDb();
     const result = createReversePlanWatcher(conn.db, BASE_RP_INPUT);
-    for (const id of result.taskIds) {
-      conn.sqlite.prepare("UPDATE tasks SET status='done' WHERE id=?").run(id);
+    for (const task of result.tasks) {
+      conn.sqlite.prepare("UPDATE tasks SET status='done' WHERE id=?").run(task.id);
     }
+
+    const app = buildServer(conn.db);
+    const resp = await app.inject({
+      method: "GET",
+      url: `/api/today?date=${DATE}&now=${ENC_NOW}`
+    });
+    const body = JSON.parse(resp.payload) as { data: { watcherBubbles: Array<unknown> } };
+    expect(body.data.watcherBubbles).toHaveLength(0);
+  });
+
+  it("does not show bubble when snoozed (snoozedUntil in the future)", async () => {
+    const conn = makeTestDb();
+    const result = createReversePlanWatcher(conn.db, BASE_RP_INPUT);
+    // threshold=2026-07-04, DATE=2026-07-10 → would be due; but snooze it
+    const futureSnoozed = "2026-07-20T00:00:00+00:00";
+    conn.sqlite
+      .prepare("UPDATE watchers SET snoozed_until=? WHERE id=?")
+      .run(futureSnoozed, result.watcher.id);
 
     const app = buildServer(conn.db);
     const resp = await app.inject({
@@ -279,26 +377,41 @@ describe("GET /api/today — reverse-plan watcher surfaces when due", () => {
 });
 
 describe("selectDueForPush — reverse-plan watcher", () => {
-  it("includes due reverse-plan watcher in push digest", () => {
+  it("includes due reverse-plan watcher in push digest with next step label", () => {
     const conn = makeTestDb();
     const result = createReversePlanWatcher(conn.db, BASE_RP_INPUT);
 
-    // Mark step tasks as todo (not done)
-    const stepIds = result.taskIds;
-    const statuses = new Map<number, string>(stepIds.map((id) => [id, "todo"]));
+    const statuses = new Map<number, string>(result.tasks.map((t) => [t.id, "todo"]));
 
     const rows = findWatchersForPush(conn.db);
-    const { items } = selectDueForPush(rows, DATE, NOW, statuses);
+    const { items, message } = selectDueForPush(rows, DATE, NOW, statuses);
     expect(items.length).toBeGreaterThan(0);
     expect(items[0]!.id).toBe(result.watcher.id);
+    // ISSUE-2: push digest must include next step label
+    expect(items[0]!.nextStepLabel).toBe("여권 신청");
+    expect(message).toContain("여권 신청");
   });
 
   it("excludes completed reverse-plan watcher from push", () => {
     const conn = makeTestDb();
     const result = createReversePlanWatcher(conn.db, BASE_RP_INPUT);
 
-    const statuses = new Map<number, string>(result.taskIds.map((id) => [id, "done"]));
+    const statuses = new Map<number, string>(result.tasks.map((t) => [t.id, "done"]));
 
+    const rows = findWatchersForPush(conn.db);
+    const { items } = selectDueForPush(rows, DATE, NOW, statuses);
+    expect(items).toHaveLength(0);
+  });
+
+  it("excludes snoozed reverse-plan watcher from push until expiry", () => {
+    const conn = makeTestDb();
+    const result = createReversePlanWatcher(conn.db, BASE_RP_INPUT);
+    const futureSnoozed = "2026-07-20T00:00:00+00:00";
+    conn.sqlite
+      .prepare("UPDATE watchers SET snoozed_until=? WHERE id=?")
+      .run(futureSnoozed, result.watcher.id);
+
+    const statuses = new Map<number, string>(result.tasks.map((t) => [t.id, "todo"]));
     const rows = findWatchersForPush(conn.db);
     const { items } = selectDueForPush(rows, DATE, NOW, statuses);
     expect(items).toHaveLength(0);

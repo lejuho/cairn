@@ -1,4 +1,4 @@
-import type { WatcherABubble, WatcherRow } from "@cairn/shared";
+import type { WatcherABubble, WatcherReasonCode, WatcherRow, ReversePlanView } from "@cairn/shared";
 import {
   buildReversePlanView,
   effectiveReversePlanThreshold,
@@ -30,26 +30,24 @@ function parseRule(raw: string | null): DateThresholdRule | null {
   return null;
 }
 
-// Resolves effective threshold for Today evaluation.
-// For date_threshold: rule.fireOn.
-// For reverse_plan: next incomplete step's latestDate (null if completed).
-// Falls back to row.threshold for legacy rows without rule JSON.
-function resolveEffectiveThreshold(
+// Resolves effective threshold + reverse-plan view for Today evaluation.
+// For reverse_plan: also returns the view so callers can build descriptive messages.
+function resolveThresholdAndView(
   row: WatcherRow,
   taskStatuses: Map<number, string>
-): string | null {
+): { threshold: string | null; rpView: ReversePlanView | null } {
   const rpRule = parseReversePlanRule(row.rule);
   if (rpRule !== null) {
     const view = buildReversePlanView(rpRule, taskStatuses);
-    if (view === null) return null; // missing tasks → skip
-    if (view.completed) return null; // completed → no threshold
-    return effectiveReversePlanThreshold(view);
+    if (view === null) return { threshold: null, rpView: null };
+    if (view.completed) return { threshold: null, rpView: view };
+    return { threshold: effectiveReversePlanThreshold(view), rpView: view };
   }
 
   const dtRule = parseRule(row.rule);
-  if (dtRule != null) return dtRule.fireOn;
-  if (row.threshold != null && YYYYMMDD.test(row.threshold)) return row.threshold;
-  return null;
+  if (dtRule != null) return { threshold: dtRule.fireOn, rpView: null };
+  if (row.threshold != null && YYYYMMDD.test(row.threshold)) return { threshold: row.threshold, rpView: null };
+  return { threshold: null, rpView: null };
 }
 
 function daysOverdue(date: string, threshold: string): number {
@@ -60,6 +58,12 @@ function daysOverdue(date: string, threshold: string): number {
 
 function bubbleMessage(days: number): string {
   return days === 0 ? "오늘 확인할 watcher야" : `${days}일 지난 watcher야`;
+}
+
+function reversePlanBubbleMessage(overdue: number, view: ReversePlanView): string {
+  const idx = view.nextStepIndex;
+  const label = idx !== null && idx < view.steps.length ? (view.steps[idx]?.label ?? "") : "";
+  return overdue === 0 ? `${label}을 시작할 때야` : `${overdue}일 지난 역산 watcher야: ${label}`;
 }
 
 export function evaluateWatcherA(
@@ -80,7 +84,7 @@ export function evaluateWatcherA(
     if (row.armed !== 1) continue;
     if (row.kind !== "A") continue;
 
-    const threshold = resolveEffectiveThreshold(row, statuses);
+    const { threshold, rpView } = resolveThresholdAndView(row, statuses);
     if (threshold == null) continue;
 
     // Reject overflow dates (e.g., "2026-02-30") via round-trip check
@@ -100,6 +104,8 @@ export function evaluateWatcherA(
     }
 
     const overdue = daysOverdue(date, threshold);
+    const reasonCodes: WatcherReasonCode[] = rpView ? ["reverse_plan_due"] : ["date_threshold_due"];
+    const message = rpView ? reversePlanBubbleMessage(overdue, rpView) : bubbleMessage(overdue);
     bubbles.push({
       id: row.id,
       label: row.label,
@@ -108,8 +114,8 @@ export function evaluateWatcherA(
       threshold,
       snoozedUntil: row.snoozedUntil,
       daysOverdue: overdue,
-      reasonCodes: ["date_threshold_due"],
-      message: bubbleMessage(overdue)
+      reasonCodes,
+      message
     });
   }
 

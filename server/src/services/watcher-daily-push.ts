@@ -1,7 +1,7 @@
 // Pure watcher push selector — no DB, no network, no LLM.
 // parseRule/effectiveThreshold copied from watchers.ts and watcher-deep-view.ts
 // (cross-reference: keep all three in sync if date_threshold rule schema changes).
-import type { WatcherRow } from "@cairn/shared";
+import type { ReversePlanView, WatcherRow } from "@cairn/shared";
 import {
   buildReversePlanView,
   effectiveReversePlanThreshold,
@@ -33,22 +33,22 @@ function parseDateThresholdRule(raw: string | null): DateThresholdRule | null {
   return null;
 }
 
-function resolveEffectiveThreshold(
+function resolveThresholdAndView(
   row: WatcherRow,
   taskStatuses: Map<number, string>
-): string | null {
+): { threshold: string | null; rpView: ReversePlanView | null } {
   const rpRule = parseReversePlanRule(row.rule);
   if (rpRule !== null) {
     const view = buildReversePlanView(rpRule, taskStatuses);
-    if (view === null) return null;
-    if (view.completed) return null;
-    return effectiveReversePlanThreshold(view);
+    if (view === null) return { threshold: null, rpView: null };
+    if (view.completed) return { threshold: null, rpView: view };
+    return { threshold: effectiveReversePlanThreshold(view), rpView: view };
   }
 
   const dtRule = parseDateThresholdRule(row.rule);
-  if (dtRule != null) return dtRule.fireOn;
-  if (row.threshold != null && YYYYMMDD.test(row.threshold)) return row.threshold;
-  return null;
+  if (dtRule != null) return { threshold: dtRule.fireOn, rpView: null };
+  if (row.threshold != null && YYYYMMDD.test(row.threshold)) return { threshold: row.threshold, rpView: null };
+  return { threshold: null, rpView: null };
 }
 
 export type WatcherPushItem = {
@@ -57,6 +57,7 @@ export type WatcherPushItem = {
   category: string | null;
   threshold: string;
   daysOverdue: number;
+  nextStepLabel?: string;
 };
 
 export type WatcherPushResult = {
@@ -78,7 +79,7 @@ export function selectDueForPush(
     if (row.armed !== 1) continue;
     if (row.kind !== "A") continue;
 
-    const threshold = resolveEffectiveThreshold(row, statuses);
+    const { threshold, rpView } = resolveThresholdAndView(row, statuses);
     if (threshold == null) continue;
 
     const threshMs = Date.parse(`${threshold}T00:00:00Z`);
@@ -100,7 +101,15 @@ export function selectDueForPush(
     const dateMs = Date.parse(`${date}T00:00:00Z`);
     const daysOverdue = Math.max(0, Math.floor((dateMs - threshMs) / 86_400_000));
 
-    items.push({ id: row.id, label: row.label, category: row.category, threshold, daysOverdue });
+    const idx = rpView?.nextStepIndex ?? null;
+    const nextStepLabel: string | undefined =
+      rpView !== null && idx !== null && idx < rpView.steps.length
+        ? rpView.steps[idx]?.label
+        : undefined;
+
+    const item: WatcherPushItem = { id: row.id, label: row.label, category: row.category, threshold, daysOverdue };
+    if (nextStepLabel !== undefined) item.nextStepLabel = nextStepLabel;
+    items.push(item);
   }
 
   // Stable sort: threshold asc, id asc
@@ -120,7 +129,8 @@ function buildDigestMessage(items: WatcherPushItem[], date: string): string {
     const cat = item.category ? ` [${item.category}]` : "";
     const overdue =
       item.daysOverdue === 0 ? "오늘 마감" : `${item.daysOverdue}일 지남`;
-    return `• ${name}${cat} (${item.threshold}, ${overdue})`;
+    const stepHint = item.nextStepLabel ? ` → ${item.nextStepLabel}` : "";
+    return `• ${name}${cat} (${item.threshold}, ${overdue})${stepHint}`;
   });
   return [header, "", ...lines].join("\n");
 }

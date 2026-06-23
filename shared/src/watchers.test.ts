@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CreateReversePlanWatcherRequestSchema,
   PatchWatcherArmedRequestSchema,
   WatcherABubbleSchema,
   WatcherDeepRowSchema,
@@ -67,6 +68,16 @@ describe("WatcherABubbleSchema", () => {
       snoozedUntil: "2026-06-30T00:00:00+09:00"
     });
     expect(result.success).toBe(true);
+  });
+
+  it("accepts reverse_plan_due reasonCode", () => {
+    const result = WatcherABubbleSchema.safeParse({ ...VALID_BUBBLE, reasonCodes: ["reverse_plan_due"] });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects unknown reasonCode", () => {
+    const result = WatcherABubbleSchema.safeParse({ ...VALID_BUBBLE, reasonCodes: ["ai_suggested"] });
+    expect(result.success).toBe(false);
   });
 });
 
@@ -145,6 +156,42 @@ describe("PatchWatcherArmedRequestSchema", () => {
 
   it("rejects unknown fields (strict)", () => {
     expect(PatchWatcherArmedRequestSchema.safeParse({ armed: true, score: 1 }).success).toBe(false);
+  });
+});
+
+describe("CreateReversePlanWatcherRequestSchema — strict + overflow refine", () => {
+  const VALID_RP = {
+    label: "여권 갱신",
+    targetDate: "2026-07-30",
+    safetyDays: 3,
+    steps: [{ label: "여권 신청", leadDays: 21 }]
+  };
+
+  it("parses valid input", () => {
+    expect(CreateReversePlanWatcherRequestSchema.safeParse(VALID_RP).success).toBe(true);
+  });
+
+  it("rejects injected unknown fields (strict)", () => {
+    expect(CreateReversePlanWatcherRequestSchema.safeParse({ ...VALID_RP, score: 0.9 }).success).toBe(false);
+    expect(CreateReversePlanWatcherRequestSchema.safeParse({ ...VALID_RP, recommendation: "act" }).success).toBe(false);
+    expect(CreateReversePlanWatcherRequestSchema.safeParse({ ...VALID_RP, certainty: 1 }).success).toBe(false);
+  });
+
+  it("rejects injected fields on step (strict)", () => {
+    const withExtra = { ...VALID_RP, steps: [{ label: "A", leadDays: 5, extra: true }] };
+    expect(CreateReversePlanWatcherRequestSchema.safeParse(withExtra).success).toBe(false);
+  });
+
+  it("rejects overflow targetDate (2026-02-30)", () => {
+    expect(CreateReversePlanWatcherRequestSchema.safeParse({ ...VALID_RP, targetDate: "2026-02-30" }).success).toBe(false);
+  });
+
+  it("rejects overflow targetDate (2026-04-31)", () => {
+    expect(CreateReversePlanWatcherRequestSchema.safeParse({ ...VALID_RP, targetDate: "2026-04-31" }).success).toBe(false);
+  });
+
+  it("accepts valid calendar date (2026-02-28)", () => {
+    expect(CreateReversePlanWatcherRequestSchema.safeParse({ ...VALID_RP, targetDate: "2026-02-28" }).success).toBe(true);
   });
 });
 

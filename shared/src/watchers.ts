@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { WatcherKindSchema } from "./enums.js";
 
-export const WatcherReasonCodeSchema = z.enum(["date_threshold_due"]);
+export const WatcherReasonCodeSchema = z.enum(["date_threshold_due", "reverse_plan_due"]);
 
 export const WatcherABubbleSchema = z.object({
   id: z.number(),
@@ -43,23 +43,30 @@ const YYYYMMDD_STRICT = /^\d{4}-\d{2}-\d{2}$/;
 export const ReversePlanStepInputSchema = z.object({
   label: z.string().min(1),
   leadDays: z.number().int().min(0).max(365)
-});
+}).strict();
+
+function isCalendarDate(d: string): boolean {
+  const ms = Date.parse(`${d}T00:00:00Z`);
+  return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 10) === d;
+}
 
 export const CreateReversePlanWatcherRequestSchema = z.object({
   label: z.string().min(1),
   category: z.string().optional(),
-  targetDate: z.string().regex(YYYYMMDD_STRICT, "Must be YYYY-MM-DD"),
+  targetDate: z.string()
+    .regex(YYYYMMDD_STRICT, "Must be YYYY-MM-DD")
+    .refine(isCalendarDate, "targetDate is not a valid calendar date (e.g., 2026-02-30 is invalid)"),
   targetLabel: z.string().min(1).optional(),
   safetyDays: z.number().int().min(0).max(30).default(0),
   steps: z.array(ReversePlanStepInputSchema).min(1).max(8)
-});
+}).strict();
 
 export const ReversePlanStepDataSchema = z.object({
   label: z.string(),
   leadDays: z.number().int().nonnegative(),
   latestDate: z.string(),
   taskId: z.number().int()
-});
+}).strict();
 
 export const ReversePlanDataSchema = z.object({
   type: z.literal("reverse_plan"),
@@ -68,23 +75,25 @@ export const ReversePlanDataSchema = z.object({
   safetyDays: z.number().int().nonnegative(),
   steps: z.array(ReversePlanStepDataSchema),
   targetTaskId: z.number().int()
-});
+}).strict();
 
 // Subset of ReversePlanDataSchema used in WatcherDeepRow for UI rendering.
+export const ReversePlanViewStepSchema = z.object({
+  label: z.string(),
+  leadDays: z.number().int().nonnegative(),
+  latestDate: z.string(),
+  taskId: z.number().int(),
+  taskStatus: z.string()
+}).strict();
+
 export const ReversePlanViewSchema = z.object({
   targetDate: z.string(),
   targetLabel: z.string(),
   safetyDays: z.number().int().nonnegative(),
-  steps: z.array(z.object({
-    label: z.string(),
-    leadDays: z.number().int().nonnegative(),
-    latestDate: z.string(),
-    taskId: z.number().int(),
-    taskStatus: z.string()
-  })),
+  steps: z.array(ReversePlanViewStepSchema),
   nextStepIndex: z.number().int().nullable(),
   completed: z.boolean()
-});
+}).strict();
 
 // ---- WatcherDeepRow ----
 
@@ -127,6 +136,7 @@ export type CreateWatcherRequest = z.infer<typeof CreateWatcherRequestSchema>;
 export type ReversePlanStepInput = z.infer<typeof ReversePlanStepInputSchema>;
 export type CreateReversePlanWatcherRequest = z.infer<typeof CreateReversePlanWatcherRequestSchema>;
 export type ReversePlanStepData = z.infer<typeof ReversePlanStepDataSchema>;
+export type ReversePlanViewStep = z.infer<typeof ReversePlanViewStepSchema>;
 export type ReversePlanData = z.infer<typeof ReversePlanDataSchema>;
 export type ReversePlanView = z.infer<typeof ReversePlanViewSchema>;
 export type PatchWatcherSnoozeRequest = z.infer<typeof PatchWatcherSnoozeRequestSchema>;
