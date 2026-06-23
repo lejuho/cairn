@@ -176,7 +176,8 @@ export function Thread({ id }: { id: number }) {
         candidateKey: suggestion.candidateKey,
         name: suggestion.name,
         kind: suggestion.kind,
-        occurrences: suggestion.occurrences
+        occurrences: suggestion.occurrences,
+        threadId: id
       };
       const body = await apiJson<{ ok: boolean; error?: { code: string; message: string } }>(
         "/api/resources/promotion-suggestions/approve",

@@ -108,6 +108,7 @@ export const ApprovePromotionRequestSchema = z
     name: z.string().min(1).max(120),
     kind: ResourceKindSchema,
     occurrences: z.array(PromotionOccurrenceSchema).min(2),
+    threadId: z.number().int().positive().optional(),
     sourcePersonId: z.number().int().positive().nullable().optional(),
     note: z.string().max(500).nullable().optional()
   })

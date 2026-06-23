@@ -264,4 +264,78 @@ describe("POST /api/resources/promotion-suggestions/approve", () => {
     });
     expect(res.statusCode).toBe(400);
   });
+
+  it("scoped approve succeeds even when another thread has same name mention", async () => {
+    const app = buildServer(conn.db);
+    // Thread A: 2 nodes with "item: 노트북" → scoped candidate
+    const tA = insertThread(conn, "스레드 A");
+    insertEvent(conn, tA, "item: 노트북");
+    insertEvent(conn, tA, "item: 노트북");
+    // Thread B: 1 additional node with same mention (would break global stale-check)
+    const tB = insertThread(conn, "스레드 B");
+    insertEvent(conn, tB, "item: 노트북");
+
+    // Scoped GET for thread A returns 2-occurrence candidate
+    const getRes = await app.inject({
+      method: "GET",
+      url: `/api/resources/promotion-suggestions?threadId=${tA}`
+    });
+    expect(getRes.statusCode).toBe(200);
+    const { suggestions } = getRes.json().data;
+    expect(suggestions).toHaveLength(1);
+    const suggestion = suggestions[0]!;
+    expect(suggestion.occurrenceCount).toBe(2);
+
+    // Approve with threadId=A (scoped stale-check) must succeed
+    const approveRes = await app.inject({
+      method: "POST",
+      url: "/api/resources/promotion-suggestions/approve",
+      payload: {
+        candidateKey: suggestion.candidateKey,
+        name: suggestion.name,
+        kind: suggestion.kind,
+        occurrences: suggestion.occurrences,
+        threadId: tA
+      }
+    });
+    expect(approveRes.statusCode).toBe(201);
+    expect(approveRes.json().data.links).toHaveLength(2);
+  });
+
+  it("global approve (no threadId) is STALE when candidate key includes outside-thread occurrences", async () => {
+    const app = buildServer(conn.db);
+    // Thread A: 2 nodes
+    const tA = insertThread(conn, "스레드 A");
+    insertEvent(conn, tA, "item: 노트북");
+    insertEvent(conn, tA, "item: 노트북");
+    // Thread B: 1 additional node → global has 3 occurrences
+    const tB = insertThread(conn, "스레드 B");
+    insertEvent(conn, tB, "item: 노트북");
+
+    // Scoped GET gives 2-occurrence key
+    const getRes = await app.inject({
+      method: "GET",
+      url: `/api/resources/promotion-suggestions?threadId=${tA}`
+    });
+    const { suggestions } = getRes.json().data;
+    const suggestion = suggestions[0]!;
+
+    // Approve WITHOUT threadId → recomputed uses global (3 nodes) → key differs → STALE
+    const approveRes = await app.inject({
+      method: "POST",
+      url: "/api/resources/promotion-suggestions/approve",
+      payload: {
+        candidateKey: suggestion.candidateKey,
+        name: suggestion.name,
+        kind: suggestion.kind,
+        occurrences: suggestion.occurrences
+        // no threadId
+      }
+    });
+    expect(approveRes.statusCode).toBe(409);
+    expect(approveRes.json().error.code).toBe("PROMOTION_STALE");
+    // Verify no links were created
+    const count = conn.sqlite.prepare("SELECT count(*) as c FROM resource_links").get() as { c: number };
+    expect(count.c).toBe(0);
+  });
 });

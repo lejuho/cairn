@@ -167,7 +167,7 @@ export function registerResourceRoutes(app: FastifyInstance, db: CairnDatabase):
       });
     }
 
-    const { candidateKey, name, kind, occurrences, sourcePersonId, note } = parsed.data;
+    const { candidateKey, name, kind, occurrences, threadId: approveThreadId, sourcePersonId, note } = parsed.data;
 
     if (sourcePersonId != null && !personExists(db, sourcePersonId)) {
       return reply.code(404).send({
@@ -176,9 +176,9 @@ export function registerResourceRoutes(app: FastifyInstance, db: CairnDatabase):
       });
     }
 
-    // Recompute suggestions and stale-check inside transaction.
-    // We re-read sources before the transaction to build the recomputed set.
-    const nodes = findCandidateSources(db);
+    // Recompute suggestions scoped to the same threadId used when fetching.
+    // Advisory scope — no 404 on missing threadId (occurrences are validated below).
+    const nodes = findCandidateSources(db, approveThreadId);
     const existingLinks = findAllResourceLinksForSuppression(db);
     const recomputed = buildPromotionSuggestions(nodes, existingLinks);
 

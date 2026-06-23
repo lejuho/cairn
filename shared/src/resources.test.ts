@@ -248,6 +248,14 @@ describe("ApprovePromotionRequestSchema", () => {
     expect(ApprovePromotionRequestSchema.safeParse({ ...VALID_APPROVE, kind: "tool" }).success).toBe(false);
   });
 
+  it("accepts optional threadId for scoped approval", () => {
+    expect(ApprovePromotionRequestSchema.safeParse({ ...VALID_APPROVE, threadId: 3 }).success).toBe(true);
+  });
+
+  it("rejects non-integer threadId", () => {
+    expect(ApprovePromotionRequestSchema.safeParse({ ...VALID_APPROVE, threadId: 1.5 }).success).toBe(false);
+  });
+
   it("rejects injected stale fields (strict)", () => {
     expect(ApprovePromotionRequestSchema.safeParse({ ...VALID_APPROVE, score: 9 }).success).toBe(false);
   });
