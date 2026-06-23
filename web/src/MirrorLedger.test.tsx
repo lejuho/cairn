@@ -1,6 +1,6 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { MirrorEnergyTrendData, MirrorLedgerData, MirrorPatternsData } from "@cairn/shared";
+import type { MirrorAutomationNeedsData, MirrorEnergyTrendData, MirrorLedgerData, MirrorPatternsData } from "@cairn/shared";
 import { MirrorLedger } from "./MirrorLedger.js";
 
 afterEach(() => {
@@ -114,10 +114,37 @@ function ledger(over: Partial<MirrorLedgerData>): MirrorLedgerData {
   };
 }
 
+const EMPTY_AUTOMATION: MirrorAutomationNeedsData = {
+  range: { from: "2026-05-23", to: "2026-06-22" },
+  items: [],
+  sampleStatus: "ok"
+};
+
+const WATCH_AUTOMATION: MirrorAutomationNeedsData = {
+  range: { from: "2026-05-23", to: "2026-06-22" },
+  items: [
+    {
+      watcherId: 10,
+      label: "비자 공고",
+      category: null,
+      sourceStability: "unknown",
+      manualLogCount: 5,
+      signalSeenCount: 3,
+      missedSignalCount: 2,
+      missRate: 0.4,
+      level: "watch",
+      reasonCodes: ["miss_seen_below_threshold"],
+      reasons: ["미스 2회 발생, 아직 임계치 미달"]
+    }
+  ],
+  sampleStatus: "ok"
+};
+
 function stubFetch(
   ledgerData: MirrorLedgerData,
   patternsData: MirrorPatternsData = EMPTY_PATTERNS,
-  energyData: MirrorEnergyTrendData = EMPTY_ENERGY
+  energyData: MirrorEnergyTrendData = EMPTY_ENERGY,
+  automationData: MirrorAutomationNeedsData = EMPTY_AUTOMATION
 ) {
   vi.stubGlobal(
     "fetch",
@@ -127,6 +154,9 @@ function stubFetch(
       }
       if (url.includes("/api/mirror/energy-trends")) {
         return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: energyData }) });
+      }
+      if (url.includes("/api/mirror/automation-needs")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: automationData }) });
       }
       return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: ledgerData }) });
     })
@@ -141,6 +171,53 @@ describe("MirrorLedger — quiet state", () => {
       expect(screen.getByTestId("mirror-quiet")).toBeInTheDocument();
     });
     expect(screen.getByRole("heading", { name: "아직 기록된 이동/취소 원장이 없어" })).toBeInTheDocument();
+  });
+
+  it("stays quiet when automation-needs is empty", async () => {
+    stubFetch(ledger({ entries: [] }), EMPTY_PATTERNS, EMPTY_ENERGY, EMPTY_AUTOMATION);
+    render(<MirrorLedger />);
+    await waitFor(() => expect(screen.getByTestId("mirror-quiet")).toBeInTheDocument());
+    expect(screen.queryByTestId("mirror-automation-needs")).not.toBeInTheDocument();
+  });
+
+  it("stays quiet when all automation items are level=quiet", async () => {
+    const allQuiet: MirrorAutomationNeedsData = {
+      ...WATCH_AUTOMATION,
+      items: [{ ...WATCH_AUTOMATION.items[0]!, level: "quiet", reasonCodes: ["no_misses"], reasons: ["미스 없음"] }]
+    };
+    stubFetch(ledger({ entries: [] }), EMPTY_PATTERNS, EMPTY_ENERGY, allQuiet);
+    render(<MirrorLedger />);
+    await waitFor(() => expect(screen.getByTestId("mirror-quiet")).toBeInTheDocument());
+    expect(screen.queryByTestId("mirror-automation-needs")).not.toBeInTheDocument();
+  });
+
+  it("mirror-quiet does NOT mask automation-needs — enters live when watch item present", async () => {
+    // Ledger/energy/patterns empty but automation has a watch-level item
+    stubFetch(ledger({ entries: [] }), EMPTY_PATTERNS, EMPTY_ENERGY, WATCH_AUTOMATION);
+    render(<MirrorLedger />);
+    // Actionable automation → isEmpty=false → live state; automation-needs visible
+    await waitFor(() => expect(screen.getByTestId("mirror-automation-needs")).toBeInTheDocument());
+    expect(screen.getByText("비자 공고")).toBeInTheDocument();
+    // No quiet masking
+    expect(screen.queryByTestId("mirror-quiet")).not.toBeInTheDocument();
+  });
+});
+
+describe("MirrorLedger — automation-needs reasons and /watch link", () => {
+  it("renders human-readable reasons in automation card", async () => {
+    stubFetch(ledger({ entries: [] }), EMPTY_PATTERNS, EMPTY_ENERGY, WATCH_AUTOMATION);
+    render(<MirrorLedger />);
+    await waitFor(() => expect(screen.getByTestId("mirror-automation-needs")).toBeInTheDocument());
+    expect(screen.getByText("미스 2회 발생, 아직 임계치 미달")).toBeInTheDocument();
+  });
+
+  it("renders /watch link in automation-needs section", async () => {
+    stubFetch(ledger({ entries: [] }), EMPTY_PATTERNS, EMPTY_ENERGY, WATCH_AUTOMATION);
+    render(<MirrorLedger />);
+    await waitFor(() => expect(screen.getByTestId("mirror-automation-needs")).toBeInTheDocument());
+    const watchLink = screen.getByRole("link", { name: "여백 →" });
+    expect(watchLink).toBeInTheDocument();
+    expect(watchLink).toHaveAttribute("href", "/watch");
   });
 });
 

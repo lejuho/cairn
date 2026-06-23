@@ -25,11 +25,13 @@ describe("buildAutomationNeeds", () => {
     expect(result.items).toHaveLength(0);
   });
 
-  it("cold-start (<3 logs) → quiet + low_sample", () => {
+  it("cold-start (<3 logs) → quiet + low_sample + reasons populated", () => {
     const result = buildAutomationNeeds([BASE_WATCHER], logs(2, "signal_seen"), RANGE);
     const item = result.items[0];
     expect(item?.level).toBe("quiet");
     expect(item?.reasonCodes).toContain("low_sample");
+    expect(item?.reasons.length).toBeGreaterThan(0);
+    expect(item?.reasons[0]).toMatch(/표본/);
     expect(result.sampleStatus).toBe("low_sample");
   });
 
@@ -60,6 +62,7 @@ describe("buildAutomationNeeds", () => {
     ];
     const result = buildAutomationNeeds([watcherS], allLogs, RANGE);
     expect(result.items[0]?.level).toBe("consider_lightweight");
+    expect(result.items[0]?.reasons[0]).toMatch(/안정적 출처/);
   });
 
   it("unknown stability + single miss → watch", () => {

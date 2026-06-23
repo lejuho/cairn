@@ -48,11 +48,15 @@ export function registerWatcherRoutes(app: FastifyInstance, db: CairnDatabase): 
     }
     const taskStatuses = findTaskStatusesByIds(db, taskIds);
 
-    // Build log summaries for manual-exogenous (kind=B) watchers
+    // Anchor the 30-day log window to the request date, not wall-clock time.
+    const logCutoff = new Date(
+      Date.parse(`${date}T00:00:00Z`) - 30 * 86_400_000
+    ).toISOString().slice(0, 10);
+
     const logSummaries = new Map<number, WatcherLogSummary>();
     for (const row of rows) {
       if (row.kind === "B" && parseManualExogenousRule(row.rule) !== null) {
-        logSummaries.set(row.id, findWatcherLogSummary(db, row.id));
+        logSummaries.set(row.id, findWatcherLogSummary(db, row.id, logCutoff));
       }
     }
 

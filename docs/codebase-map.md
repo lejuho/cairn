@@ -295,7 +295,9 @@ Entry and routing:
   - Shared top navigation bar. Links: Today (`/today`), 입력 (`/input`), 스레드 (`/threads`), 사람 (`/people`), 거울 (`/mirror`), 여백 (`/watch`).
   - `aria-current="page"` on active link (including `/people/:id` matching 사람 link). Touch targets ≥44px. Reduced-motion safe.
 - [web/src/MirrorLedger.tsx](/home/pi/cairn/web/src/MirrorLedger.tsx)
-  - `/mirror` screen (B-temperature reflection surface). Fetches `/api/mirror/ledger`, `/api/mirror/patterns`, and `/api/mirror/energy-trends` in parallel. Five states: loading skeleton, quiet (`아직 기록된 이동/취소 원장이 없어` — when `patterns.totals.annotations===0 && energy.summary.scheduledDays===0`), live (energy trend + pattern section + summary chips + newest-first ledger entries), error (retry), access_session_required (reload). Energy trend section (`MirrorEnergyTrend`): hidden when scheduledDays===0; shows last-7-day rows, summary chips (deficitDays/budgetUnits/averageScheduledLoadUnits/peakLoadUnits/scheduledDays), low-sample note when scheduledDays<3. Pattern section (`MirrorPatterns`): weekday/type/thread buckets with descriptive counts (`{label} 기록 N건 중 이동/취소/지각 M건`), low-sample note per section. Ledger section: entry cards with outcome 이동/취소, split cost chips, reason text/tags, logged date, optional thread link. Descriptive copy only — no advice/moralizing. Semantic tokens only (`--moved`, `.warm`).
+  - `/mirror` screen (B-temperature reflection surface). Fetches `/api/mirror/ledger`, `/api/mirror/patterns`, `/api/mirror/energy-trends`, and `/api/mirror/automation-needs` in parallel. Automation-needs fetch failure is swallowed (null result). Five states: loading skeleton, quiet (ledger/energy/patterns all empty AND no actionable automation items; shows `아직 기록된 이동/취소 원장이 없어`; also renders `MirrorAutomationNeeds` in quiet branch as defense), live (energy + patterns + automation-needs + summary + ledger entries), error (retry), access_session_required (reload). `isEmpty = patterns.totals.annotations===0 && energy.summary.scheduledDays===0 && !hasActionableAutomation`.
+  - Energy trend section (`MirrorEnergyTrend`): hidden when scheduledDays===0; shows last-7-day rows. Pattern section (`MirrorPatterns`): weekday/type/thread buckets. Ledger section: entry cards. Descriptive copy only. Semantic tokens only.
+  - Automation-needs section (`MirrorAutomationNeeds`): shows only items where `level !== "quiet"` (watch/consider_lightweight). Header includes "여백 →" link to `/watch`. Each card: label, level chip (확인 권장/자동화 검토), count chips, miss-rate chip, `reasons[]` list (human-readable Korean text, non-prescriptive). Hidden when no actionable items.
 - [web/src/api.ts](/home/pi/cairn/web/src/api.ts)
   - Frontend fetch boundary (cycle 20). Wraps `fetch` + JSON parsing; classifies errors as `AccessSessionError` (`kind: "access_session_required"`) or `ApiError`.
   - Detection order: (1) 302/401/403 status → access_session_required; (2) `response.redirected` + cloudflareaccess.com URL → access_session_required; (3) HTML/text body with CF Access markers (`/cdn-cgi/access/login`, `cloudflareaccess.com`) → access_session_required; (4) HTML without markers → api_error; (5) fetch() rejection (network error) → access_session_required with "로그인 세션이 만료됐거나 네트워크가 끊겼어".
@@ -326,12 +328,17 @@ Entry and routing:
   - Quick capture (cycle 12): compact one-line input shown in quiet and live states. Posts `POST /api/capture/flat-event` with `{text, now}`. Refetches Today on success. Shows "날짜 없이 저장됐어" for `raw_stored`/`unscheduled` outcomes (auto-clears after 4 s). Empty submit is client-side rejected.
   - Thread picker (cycle 10): `GET /api/threads` fetched lazily on bottom sheet open. Optional `<select>` shown when threads exist; `threadId` sent as number in `POST /api/tasks` or `POST /api/events`. Degrades gracefully when thread list fetch fails.
 - [web/src/Watchers.tsx](/home/pi/cairn/web/src/Watchers.tsx)
-  - `/watch` screen (cycle 33 — Watcher Deep View A). States: loading (2 skeleton cards), error (retry button), access_session (Access 로그인 다시 열기), quiet (no watchers + create CTA), live (watcher sections by status).
+  - `/watch` screen. States: loading (2 skeleton cards), error (retry button), access_session (Access 로그인 다시 열기), quiet (no watchers + create CTA), live (watcher sections by status).
   - Fetches `GET /api/watchers?date&now` via `apiJson`. Sections: 확인 필요 (due), 스누즈 중 (snoozed), 대기 중 (quiet), 비활성 (disarmed), 지원 안 됨 (unsupported).
-  - Armed toggle: `PATCH /api/watchers/:id/armed` with `{ armed: !current }`, then re-fetches. Failure shows row-level `role="alert"`.
-  - Snooze: `PATCH /api/watchers/:id/snooze` with snoozedUntil = queryNow + 24h; available on due watchers only. Failure shows row-level alert.
-  - Create bottom sheet (cycle 35): two-mode tab switcher — "날짜 기반" (`date_threshold`) and "역산 계획" (`reverse_plan`). Date-threshold mode: label, category, threshold date → `POST /api/watchers`. Reverse-plan mode: label, category, targetLabel, targetDate, safetyDays (0-30), step rows (label + leadDays, add/remove, max 8) → `POST /api/watchers/reverse-plan`. Both: failure keeps sheet open with `role="alert"`.
-  - Reverse-plan card: `renderReversePlanChain(rp: ReversePlanView)` renders target + steps with `--next` and `--done` modifiers (CSS semantic tokens only, no hex).
+  - Armed toggle: `PATCH /api/watchers/:id/armed`. Snooze: `PATCH /api/watchers/:id/snooze` (due watchers only). Both re-fetch and show row-level `role="alert"` on failure.
+  - **Create bottom sheet — three modes** (tab switcher):
+    - "날짜 기반" (`date_threshold`): label, category, threshold date → `POST /api/watchers`
+    - "역산 계획" (`reverse_plan`): label, category, targetLabel, targetDate, safetyDays (0-30), step rows (label + leadDays, add/remove, max 8) → `POST /api/watchers/reverse-plan`
+    - "수동 확인" (`manual_exogenous`): label, category, sourceLabel, sourceUrl, sourceStability (unknown/stable/volatile) → `POST /api/watchers/manual-exogenous`
+  - **Watcher cards**:
+    - kind=A (date_threshold): threshold date chip + snooze button on due.
+    - kind=A (reverse_plan): `renderReversePlanChain` — target + steps with `--next`/`--done` modifiers.
+    - kind=B (manual_exogenous): `renderManualExogenousView` — sourceLabel (link if URL present) + stability tag + 30-day summary (확인 N회, 신호 M회, 미스 K회). Three log buttons: "신호 없음", "신호 확인", "미스" → `POST /api/watchers/:id/manual-log`. No snooze button for kind=B.
 - [web/src/PeopleDirectory.tsx](/home/pi/cairn/web/src/PeopleDirectory.tsx)
   - `/people` screen. States: loading, quiet (no people), live (person cards), error, access_error.
   - Quiet: "아직 사람이 없어" + link to /input. Live: card list showing name, relation, frequencyLabel, totalMeets, lastMet. Each card links to `/people/:id`.

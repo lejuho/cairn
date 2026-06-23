@@ -2410,3 +2410,12 @@ p {
   background: color-mix(in srgb, var(--accent) 15%, transparent);
   color: var(--accent);
 }
+
+/* Automation-needs reason list */
+.automation-reasons {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.5;
+}

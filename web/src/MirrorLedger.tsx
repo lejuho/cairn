@@ -62,9 +62,13 @@ export function MirrorLedger() {
     loadMirrorData()
       .then((data) => {
         if (cancelled) return;
+        const hasActionableAutomation = data.automationNeeds?.items.some(
+          (i) => i.level !== "quiet"
+        ) ?? false;
         const isEmpty =
           data.patterns.totals.annotations === 0 &&
-          data.energy.summary.scheduledDays === 0;
+          data.energy.summary.scheduledDays === 0 &&
+          !hasActionableAutomation;
         setView(isEmpty ? { tag: "quiet", data } : { tag: "live", data });
       })
       .catch((e: unknown) => {
@@ -119,6 +123,7 @@ export function MirrorLedger() {
   }
 
   if (view.tag === "quiet") {
+    const { automationNeeds } = view.data;
     return (
       <main className="app-shell" aria-labelledby="mirror-title" data-testid="mirror-quiet">
         <section className="quiet-card warm">
@@ -127,6 +132,9 @@ export function MirrorLedger() {
           <h1 id="mirror-title">아직 기록된 이동/취소 원장이 없어</h1>
           <p>결정에 기록을 남기면 여기서 지난 이동과 취소를 그대로 비춰줄게.</p>
         </section>
+        {automationNeeds && automationNeeds.items.length > 0 && (
+          <MirrorAutomationNeeds data={automationNeeds} />
+        )}
       </main>
     );
   }
@@ -310,7 +318,10 @@ function MirrorAutomationNeeds({ data }: { data: MirrorAutomationNeedsData }) {
       style={{ width: "min(100%, 480px)", marginBottom: "16px" }}
       aria-labelledby="automation-needs-heading"
     >
-      <h2 id="automation-needs-heading" className="watcher-section-heading">자동화 필요 신호</h2>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "8px" }}>
+        <h2 id="automation-needs-heading" className="watcher-section-heading" style={{ margin: 0 }}>자동화 필요 신호</h2>
+        <a href="/watch" className="thread-index-link" style={{ fontSize: "0.85rem" }}>여백 →</a>
+      </div>
       <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "8px" }}>
         {watchOrConsider.map((item) => (
           <MirrorAutomationNeedCard key={item.watcherId} item={item} />
@@ -332,10 +343,13 @@ function MirrorAutomationNeedCard({ item }: { item: MirrorAutomationNeedItem }) 
         <span className="card-chip">확인 {item.manualLogCount}회</span>
         {item.signalSeenCount > 0 && <span className="card-chip">신호 {item.signalSeenCount}회</span>}
         {item.missedSignalCount > 0 && <span className="card-chip">미스 {item.missedSignalCount}회</span>}
-        <span className="card-chip">
-          미스율 {Math.round(item.missRate * 100)}%
-        </span>
+        <span className="card-chip">미스율 {Math.round(item.missRate * 100)}%</span>
       </p>
+      {item.reasons.length > 0 && (
+        <ul className="automation-reasons" aria-label="분석 이유">
+          {item.reasons.map((r, i) => <li key={i}>{r}</li>)}
+        </ul>
+      )}
     </li>
   );
 }

@@ -28,17 +28,20 @@ function deriveItem(
   const missRate = missedSignalCount / Math.max(1, signalSeenCount + missedSignalCount);
 
   const reasonCodes: string[] = [];
+  const reasons: string[] = [];
   let level: MirrorAutomationNeedItem["level"] = "quiet";
 
   if (manualLogCount < 3) {
     reasonCodes.push("low_sample");
-    // cold-start: never consider_lightweight
+    reasons.push("표본 부족 — 아직 3회 미만 기록됨");
   } else if (rule.sourceStability === "volatile") {
     if (missedSignalCount >= 1 && missRate >= 0.34) {
       level = "watch";
       reasonCodes.push("volatile_source_watch");
+      reasons.push(`변동성 높은 출처에서 미스 발생 (미스율 ${Math.round(missRate * 100)}%)`);
     } else {
       reasonCodes.push("volatile_source_quiet");
+      reasons.push("변동성 높은 출처이나 미스 없음");
     }
   } else if (
     missedSignalCount >= 1 &&
@@ -47,11 +50,14 @@ function deriveItem(
   ) {
     level = "consider_lightweight";
     reasonCodes.push("stable_source_miss_rate");
+    reasons.push(`안정적 출처인데 미스율 ${Math.round(missRate * 100)}% — 경량 자동화 고려 시점`);
   } else if (missedSignalCount >= 1) {
     level = "watch";
     reasonCodes.push("miss_seen_below_threshold");
+    reasons.push(`미스 ${missedSignalCount}회 발생, 아직 임계치 미달`);
   } else {
     reasonCodes.push("no_misses");
+    reasons.push("미스 없음");
   }
 
   return {
@@ -64,7 +70,8 @@ function deriveItem(
     missedSignalCount,
     missRate,
     level,
-    reasonCodes
+    reasonCodes,
+    reasons
   };
 }
 

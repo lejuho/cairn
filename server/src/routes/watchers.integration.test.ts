@@ -296,3 +296,49 @@ describe("POST /api/watchers/:id/manual-log", () => {
     expect(summary.checkedNoSignalCount).toBe(1);
   });
 });
+
+describe("GET /api/watchers — manual-B log summary 30-day cutoff is deterministic", () => {
+  let conn: SqliteConnection;
+  beforeEach(() => { conn = makeTestDb(); });
+
+  it("includes logs within 30 days of query date and excludes older ones", async () => {
+    const app = buildServer(conn.db);
+
+    // Create a kind=B watcher
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/watchers/manual-exogenous",
+      payload: { label: "cutoff test", sourceStability: "unknown" }
+    });
+    const watcherId = createRes.json().data.watcher.id as number;
+
+    // Log from 29 days before query date (2026-06-22 → cutoff = 2026-05-23)
+    // 2026-05-24: within window
+    await app.inject({
+      method: "POST",
+      url: `/api/watchers/${watcherId}/manual-log`,
+      payload: { outcome: "signal_seen", observedAt: "2026-05-24T09:00:00.000Z" }
+    });
+    // 2026-05-22: outside 30-day window from 2026-06-22 (cutoff = 2026-05-23)
+    await app.inject({
+      method: "POST",
+      url: `/api/watchers/${watcherId}/manual-log`,
+      payload: { outcome: "missed_signal", observedAt: "2026-05-22T09:00:00.000Z" }
+    });
+
+    const queryDate = "2026-06-22";
+    const queryNow = "2026-06-22T09:00:00+09:00";
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/watchers?date=${queryDate}&now=${encodeURIComponent(queryNow)}`
+    });
+
+    const w = res.json().data.watchers.find((x: { id: number }) => x.id === watcherId) as {
+      manualExogenous: { summary: { manualLogCount: number; signalSeenCount: number; missedSignalCount: number } }
+    };
+    // Only 2026-05-24 is within [2026-05-23, 2026-06-22]; 2026-05-22 is excluded
+    expect(w.manualExogenous.summary.manualLogCount).toBe(1);
+    expect(w.manualExogenous.summary.signalSeenCount).toBe(1);
+    expect(w.manualExogenous.summary.missedSignalCount).toBe(0);
+  });
+});

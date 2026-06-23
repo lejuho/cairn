@@ -372,13 +372,16 @@ export function findWatcherLogsInRange(
     ) as WatcherLogRow[];
 }
 
-// Returns a 30-day summary for the given watcher id (used by GET /api/watchers).
+// Returns a 30-day summary anchored to the given cutoffDate (YYYY-MM-DD, inclusive lower bound).
+// Caller is responsible for computing cutoffDate from the request's date/now anchor so the
+// result is deterministic and does not drift with wall-clock time.
 export function findWatcherLogSummary(
   db: CairnDatabase,
   watcherId: number,
+  cutoffDate: string,
   windowDays = 30
 ): WatcherLogSummary {
-  const cutoff = new Date(Date.now() - windowDays * 86_400_000).toISOString().slice(0, 10);
+  const cutoff = cutoffDate;
   const rows = db
     .select({ outcome: watcherLogs.outcome, observedAt: watcherLogs.observedAt })
     .from(watcherLogs)

@@ -265,7 +265,8 @@ export const MirrorAutomationNeedItemSchema = z.object({
   missedSignalCount: z.number().int().nonnegative(),
   missRate: z.number().min(0).max(1),
   level: AutomationNeedLevelSchema,
-  reasonCodes: z.array(z.string())
+  reasonCodes: z.array(z.string()),
+  reasons: z.array(z.string())
 }).strict();
 
 export const MirrorAutomationNeedsDataSchema = z.object({
