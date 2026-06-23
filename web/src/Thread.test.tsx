@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Thread } from "./Thread.js";
-import type { ThreadDetail, ThreadLinkView, ThreadResourceFocusData, ThreadRollup, ThreadSummary } from "@cairn/shared";
+import type { PromotionSuggestion, ThreadDetail, ThreadLinkView, ThreadResourceFocusData, ThreadRollup, ThreadSummary } from "@cairn/shared";
 
 afterEach(() => {
   cleanup();
@@ -85,12 +85,16 @@ const EMPTY_FOCUS: ThreadResourceFocusData = { threadId: 1, resources: [] };
 
 function mockFetch(
   detail: Omit<ThreadDetail, "relations" | "rollup"> & Partial<Pick<ThreadDetail, "relations" | "rollup">>,
-  focus: ThreadResourceFocusData = EMPTY_FOCUS
+  focus: ThreadResourceFocusData = EMPTY_FOCUS,
+  suggestions: PromotionSuggestion[] = []
 ) {
   const data: ThreadDetail = { relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, ...detail };
   vi.stubGlobal(
     "fetch",
     vi.fn().mockImplementation((url: string) => {
+      if (url.includes("promotion-suggestions")) {
+        return Promise.resolve(makeResponse({ ok: true, data: { suggestions } }, url));
+      }
       if (url.includes("resource-focus")) {
         return Promise.resolve(makeResponse({ ok: true, data: focus }, url));
       }
@@ -519,6 +523,101 @@ describe("Thread — resource-focus section", () => {
     fireEvent.click(screen.getByRole("button", { name: "노트북" }));
     await waitFor(() => expect(screen.getByTestId("resource-detail")).toBeInTheDocument());
     expect(screen.getByText("확정")).toBeInTheDocument();
+  });
+});
+
+describe("Thread — promotion suggestions panel", () => {
+  const SUGGESTION: PromotionSuggestion = {
+    candidateKey: "노트북::item::event:10,task:20",
+    name: "노트북",
+    kind: "item",
+    occurrenceCount: 2,
+    occurrences: [
+      { targetType: "event", targetId: 10 },
+      { targetType: "task", targetId: 20 }
+    ]
+  };
+
+  it("hides panel when no suggestions", async () => {
+    mockFetch({ thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 } }, EMPTY_FOCUS, []);
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByTestId("thread-relations")).toBeInTheDocument());
+    expect(screen.queryByTestId("promotion-suggestions")).not.toBeInTheDocument();
+  });
+
+  it("shows panel and suggestion card when suggestions exist", async () => {
+    mockFetch({ thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 } }, EMPTY_FOCUS, [SUGGESTION]);
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByTestId("promotion-suggestions")).toBeInTheDocument());
+    expect(screen.getByTestId("promotion-suggestion-card")).toBeInTheDocument();
+    expect(screen.getByText(/노트북이\(가\) 2곳에 나타나/)).toBeInTheDocument();
+  });
+
+  it("shows approve button for each suggestion", async () => {
+    mockFetch({ thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 } }, EMPTY_FOCUS, [SUGGESTION]);
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByTestId("promotion-approve-btn")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "노트북 리소스로 승인" })).toBeInTheDocument();
+  });
+
+  it("approve button calls POST and refreshes (panel disappears on success)", async () => {
+    let approveCallCount = 0;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (url.includes("promotion-suggestions") && opts?.method === "POST") {
+        approveCallCount++;
+        return Promise.resolve(makeResponse({ ok: true, data: { resource: { id: 50, name: "노트북", kind: "item", sourcePersonId: null, note: null, createdAt: null }, links: [], reusedResource: false } }, url, 201));
+      }
+      if (url.includes("promotion-suggestions")) {
+        // After approve, return empty suggestions on refresh
+        return Promise.resolve(makeResponse({ ok: true, data: { suggestions: approveCallCount > 0 ? [] : [SUGGESTION] } }, url));
+      }
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: { thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP } }, url));
+    }));
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByTestId("promotion-approve-btn")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("promotion-approve-btn"));
+    expect(approveCallCount).toBe(1);
+    await waitFor(() => expect(screen.queryByTestId("promotion-suggestions")).not.toBeInTheDocument());
+  });
+
+  it("shows scoped error alert on approve failure, not full-thread error", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (url.includes("promotion-suggestions") && opts?.method === "POST") {
+        return Promise.resolve(makeResponse({ ok: false, error: { code: "PROMOTION_STALE", message: "stale" } }, url, 409));
+      }
+      if (url.includes("promotion-suggestions")) {
+        return Promise.resolve(makeResponse({ ok: true, data: { suggestions: [SUGGESTION] } }, url));
+      }
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: { thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP } }, url));
+    }));
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByTestId("promotion-approve-btn")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("promotion-approve-btn"));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByText(/제안이 바뀌었어/)).toBeInTheDocument();
+    // Thread detail still shown — not a full error state
+    expect(screen.getByRole("heading", { name: "프로젝트 알파" })).toBeInTheDocument();
+  });
+
+  it("error alert can be dismissed", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (url.includes("promotion-suggestions") && opts?.method === "POST") {
+        return Promise.resolve(makeResponse({ ok: false, error: { code: "PROMOTION_STALE", message: "stale" } }, url, 409));
+      }
+      if (url.includes("promotion-suggestions")) {
+        return Promise.resolve(makeResponse({ ok: true, data: { suggestions: [SUGGESTION] } }, url));
+      }
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: { thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP } }, url));
+    }));
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByTestId("promotion-approve-btn")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("promotion-approve-btn"));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "오류 닫기" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
 

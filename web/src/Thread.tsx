@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ThreadDetail, ThreadLinkKind, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadRollup, ThreadRow, ThreadSummary } from "@cairn/shared";
+import type { ApprovePromotionRequest, PromotionSuggestion, ThreadDetail, ThreadLinkKind, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadRollup, ThreadRow, ThreadSummary } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
 
 type ViewState =
@@ -36,21 +36,36 @@ async function loadResourceFocus(id: number): Promise<ThreadResourceFocusData | 
   }
 }
 
+async function loadPromotionSuggestions(threadId: number): Promise<PromotionSuggestion[]> {
+  try {
+    const body = await apiJson<{ ok: boolean; data?: { suggestions: PromotionSuggestion[] } }>(
+      `/api/resources/promotion-suggestions?threadId=${threadId}`
+    );
+    return body.ok ? (body.data?.suggestions ?? []) : [];
+  } catch {
+    return [];
+  }
+}
+
 export function Thread({ id }: { id: number }) {
   const [view, setView] = useState<ViewState>({ tag: "loading" });
   const [linkSheet, setLinkSheet] = useState<LinkSheetState>({ tag: "closed" });
   const [focus, setFocus] = useState<ThreadResourceFocusData | null>(null);
   const [activeResourceId, setActiveResourceId] = useState<number | null>(null);
+  const [suggestions, setSuggestions] = useState<PromotionSuggestion[]>([]);
+  const [approvingKey, setApprovingKey] = useState<string | null>(null);
+  const [approveError, setApproveError] = useState<string | null>(null);
   const addBtnRef = useRef<HTMLButtonElement>(null);
   const sheetCloseRef = useRef<HTMLButtonElement>(null);
   const sheetBackdropRef = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(() => {
     setView({ tag: "loading" });
-    Promise.all([loadThread(id), loadResourceFocus(id)])
-      .then(([detail, focusData]) => {
+    Promise.all([loadThread(id), loadResourceFocus(id), loadPromotionSuggestions(id)])
+      .then(([detail, focusData, suggestionsData]) => {
         setView({ tag: "live", detail });
         setFocus(focusData);
+        setSuggestions(suggestionsData);
       })
       .catch((e: unknown) => {
         const err = e as Partial<AccessSessionError>;
@@ -65,11 +80,12 @@ export function Thread({ id }: { id: number }) {
   useEffect(() => {
     let cancelled = false;
     setView({ tag: "loading" });
-    Promise.all([loadThread(id), loadResourceFocus(id)])
-      .then(([detail, focusData]) => {
+    Promise.all([loadThread(id), loadResourceFocus(id), loadPromotionSuggestions(id)])
+      .then(([detail, focusData, suggestionsData]) => {
         if (!cancelled) {
           setView({ tag: "live", detail });
           setFocus(focusData);
+          setSuggestions(suggestionsData);
         }
       })
       .catch((e: unknown) => {
@@ -148,6 +164,45 @@ export function Thread({ id }: { id: number }) {
       refresh();
     } catch {
       // non-critical: refresh still runs if delete succeeds, silent on network error
+    }
+  }
+
+  async function handleApprove(suggestion: PromotionSuggestion) {
+    if (approvingKey != null) return;
+    setApprovingKey(suggestion.candidateKey);
+    setApproveError(null);
+    try {
+      const req: ApprovePromotionRequest = {
+        candidateKey: suggestion.candidateKey,
+        name: suggestion.name,
+        kind: suggestion.kind,
+        occurrences: suggestion.occurrences,
+        threadId: id
+      };
+      const body = await apiJson<{ ok: boolean; error?: { code: string; message: string } }>(
+        "/api/resources/promotion-suggestions/approve",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(req)
+        }
+      );
+      if (!body.ok) {
+        const code = body.error?.code ?? "";
+        const msg = code === "PROMOTION_STALE"
+          ? "제안이 바뀌었어. 새로고침 후 다시 해봐."
+          : code === "PROMOTION_NOT_ELIGIBLE"
+            ? "이 제안은 더 이상 유효하지 않아."
+            : body.error?.message ?? "승인 중 오류가 발생했어";
+        setApproveError(msg);
+      } else {
+        // Refresh all three: thread, focus, suggestions
+        refresh();
+      }
+    } catch {
+      setApproveError("승인 중 오류가 발생했어. 다시 시도해봐.");
+    } finally {
+      setApprovingKey(null);
     }
   }
 
@@ -398,6 +453,17 @@ export function Thread({ id }: { id: number }) {
           />
         )}
 
+        {/* Promotion suggestions panel (FR-XREL-01 cycle-39) */}
+        {suggestions.length > 0 && (
+          <PromotionSuggestionsPanel
+            suggestions={suggestions}
+            approvingKey={approvingKey}
+            error={approveError}
+            onApprove={(s) => void handleApprove(s)}
+            onDismissError={() => setApproveError(null)}
+          />
+        )}
+
         {/* Rollup section (FR-THR-10 Rollup A) */}
         <ThreadRollupSection rollup={detail.rollup} />
       </main>
@@ -609,6 +675,76 @@ function ResourceFocusSection({
       {activeResourceId != null && (
         <ResourceFocusDetail item={focus.resources.find((r) => r.resource.id === activeResourceId) ?? null} />
       )}
+    </section>
+  );
+}
+
+function PromotionSuggestionsPanel({
+  suggestions,
+  approvingKey,
+  error,
+  onApprove,
+  onDismissError
+}: {
+  suggestions: PromotionSuggestion[];
+  approvingKey: string | null;
+  error: string | null;
+  onApprove: (s: PromotionSuggestion) => void;
+  onDismissError: () => void;
+}) {
+  return (
+    <section
+      aria-labelledby="promotion-suggestions-title"
+      style={{ width: "min(100%, 480px)", marginTop: "24px" }}
+      data-testid="promotion-suggestions"
+    >
+      <h2 id="promotion-suggestions-title" className="eyebrow" style={{ marginBottom: "8px" }}>리소스 제안</h2>
+
+      {error && (
+        <p className="today-reply-error" role="alert" style={{ marginBottom: "8px" }}>
+          {error}{" "}
+          <button
+            className="action-btn action-btn--sm"
+            onClick={onDismissError}
+            aria-label="오류 닫기"
+            style={{ marginLeft: "8px" }}
+          >
+            ✕
+          </button>
+        </p>
+      )}
+
+      <ul className="today-stack" role="list">
+        {suggestions.map((s) => {
+          const isApproving = approvingKey === s.candidateKey;
+          const kindLabel = s.kind === "item" ? "물건" : "지식";
+          return (
+            <li key={s.candidateKey} className="today-card" data-testid="promotion-suggestion-card">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
+                <div>
+                  <span className="card-chip">{kindLabel}</span>
+                  <p className="card-title" style={{ margin: "4px 0 2px" }}>
+                    {s.name}
+                  </p>
+                  <p className="card-meta" style={{ opacity: 0.8 }}>
+                    {s.name}이(가) {s.occurrenceCount}곳에 나타나. 리소스로 묶을까?
+                  </p>
+                </div>
+                <button
+                  className="today-submit-btn"
+                  style={{ whiteSpace: "nowrap", minWidth: "60px", padding: "8px 12px" }}
+                  onClick={() => onApprove(s)}
+                  disabled={approvingKey != null}
+                  aria-label={`${s.name} 리소스로 승인`}
+                  data-testid="promotion-approve-btn"
+                >
+                  {isApproving ? "..." : "묶기"}
+                </button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }
