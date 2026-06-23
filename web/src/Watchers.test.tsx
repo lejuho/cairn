@@ -240,3 +240,115 @@ describe("AppNav — /watch active state", () => {
     expect(link?.getAttribute("aria-current")).toBe("page");
   });
 });
+
+// Reverse-plan watcher UI tests
+const RP_WATCHER: WatcherDeepRow = {
+  id: 10, category: "travel", label: "여권 갱신", kind: "A", armed: true,
+  threshold: "2026-07-04", snoozedUntil: null, status: "due", daysOverdue: 6,
+  daysUntil: null, message: "여권 신청을 시작할 때야",
+  reasonCodes: ["reverse_plan_due"],
+  reversePlan: {
+    targetDate: "2026-07-30",
+    targetLabel: "출국",
+    safetyDays: 3,
+    steps: [
+      { label: "여권 신청", leadDays: 21, latestDate: "2026-07-04", taskId: 1, taskStatus: "todo" },
+      { label: "항공권 확인", leadDays: 2, latestDate: "2026-07-25", taskId: 2, taskStatus: "todo" }
+    ],
+    nextStepIndex: 0,
+    completed: false
+  }
+};
+
+describe("Watchers — reverse-plan card display", () => {
+  it("shows target date and target label", async () => {
+    mockFetch([RP_WATCHER]);
+    render(<Watchers />);
+    await waitFor(() => expect(screen.getByText("출국")).toBeInTheDocument());
+    expect(screen.getByText("2026-07-30")).toBeInTheDocument();
+  });
+
+  it("shows chain steps in order with latestDate", async () => {
+    mockFetch([RP_WATCHER]);
+    render(<Watchers />);
+    await waitFor(() => expect(screen.getByText("여권 신청")).toBeInTheDocument());
+    expect(screen.getByText("항공권 확인")).toBeInTheDocument();
+  });
+
+  it("due reverse-plan card shows snooze button", async () => {
+    mockFetch([RP_WATCHER]);
+    render(<Watchers />);
+    await waitFor(() => expect(screen.getByLabelText("여권 갱신 내일 다시 보기")).toBeInTheDocument());
+  });
+
+  it("due reverse-plan card shows armed toggle", async () => {
+    mockFetch([RP_WATCHER]);
+    render(<Watchers />);
+    await waitFor(() => expect(screen.getByLabelText("여권 갱신 비활성화")).toBeInTheDocument());
+  });
+});
+
+describe("Watchers — reverse-plan create form", () => {
+  it("switching to reverse-plan tab shows 목표 날짜 field", async () => {
+    mockFetch([]);
+    render(<Watchers />);
+    await waitFor(() => expect(screen.getByLabelText("Watcher 추가")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("Watcher 추가"));
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText("역산 계획"));
+    await waitFor(() => expect(screen.getByLabelText("목표 날짜")).toBeInTheDocument());
+  });
+
+  it("reverse-plan create POSTs to /api/watchers/reverse-plan", async () => {
+    let rpUrl = "";
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (opts?.method === "POST") {
+        rpUrl = url as string;
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { watcher: { id: 99 }, taskIds: [1, 2] } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { watchers: [] } }) });
+    }));
+
+    render(<Watchers />);
+    await waitFor(() => expect(screen.getByLabelText("Watcher 추가")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("Watcher 추가"));
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText("역산 계획"));
+    await waitFor(() => expect(screen.getByLabelText("역산 watcher 이름")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText("역산 watcher 이름"), { target: { value: "여권 갱신" } });
+    fireEvent.change(screen.getByLabelText("목표 날짜"), { target: { value: "2026-07-30" } });
+    fireEvent.change(screen.getByLabelText("단계 1 이름"), { target: { value: "여권 신청" } });
+    fireEvent.click(screen.getByLabelText("watcher 저장"));
+
+    await waitFor(() => expect(rpUrl).toContain("/api/watchers/reverse-plan"));
+  });
+
+  it("reverse-plan create failure keeps sheet open", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (opts?.method === "POST") {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: false, error: { message: "날짜 오류" } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { watchers: [] } }) });
+    }));
+
+    render(<Watchers />);
+    await waitFor(() => expect(screen.getByLabelText("Watcher 추가")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("Watcher 추가"));
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText("역산 계획"));
+    await waitFor(() => expect(screen.getByLabelText("역산 watcher 이름")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText("역산 watcher 이름"), { target: { value: "X" } });
+    fireEvent.change(screen.getByLabelText("목표 날짜"), { target: { value: "2026-07-30" } });
+    fireEvent.change(screen.getByLabelText("단계 1 이름"), { target: { value: "A" } });
+    fireEvent.click(screen.getByLabelText("watcher 저장"));
+
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByText("날짜 오류")).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+});

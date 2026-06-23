@@ -3,7 +3,8 @@ import { TodayQuerySchema } from "@cairn/shared";
 import { findPlannedAndConfirmedByDate, findUnscheduledCairnEvents } from "../repositories/events.js";
 import { readNumericParam } from "../repositories/params.js";
 import { findTwoMinuteTodoTasks } from "../repositories/tasks.js";
-import { findAllWatchersForEvaluation } from "../repositories/watchers.js";
+import { findAllWatchersForEvaluation, findTaskStatusesByIds } from "../repositories/watchers.js";
+import { parseReversePlanRule } from "../services/watcher-reverse-plan.js";
 import { buildFeasibilityParams, computeDayFeasibility } from "../services/feasibility.js";
 import { listNeedsReviewEvents } from "../services/needsReview.js";
 import { buildTodaySurface } from "../services/today.js";
@@ -25,7 +26,13 @@ export function registerTodayRoute(app: FastifyInstance, db: CairnDatabase): voi
     const dayEvents = findPlannedAndConfirmedByDate(db, date);
     const twoMinuteTasks = findTwoMinuteTodoTasks(db);
     const watcherRows = findAllWatchersForEvaluation(db);
-    const watcherBubbles = evaluateWatcherA(watcherRows, date, now);
+    const rpTaskIds: number[] = [];
+    for (const row of watcherRows) {
+      const rule = parseReversePlanRule(row.rule);
+      if (rule) rpTaskIds.push(...rule.steps.map((s) => s.taskId));
+    }
+    const taskStatuses = findTaskStatusesByIds(db, rpTaskIds);
+    const watcherBubbles = evaluateWatcherA(watcherRows, date, now, taskStatuses);
     const needsReviewEvents = listNeedsReviewEvents(db, now);
     const unscheduledEvents = findUnscheduledCairnEvents(db);
 

@@ -1,4 +1,9 @@
-import type { WatcherDeepRow, WatcherRow } from "@cairn/shared";
+import type { ReversePlanView, WatcherDeepRow, WatcherRow } from "@cairn/shared";
+import {
+  buildReversePlanView,
+  effectiveReversePlanThreshold,
+  parseReversePlanRule
+} from "./watcher-reverse-plan.js";
 
 // parseRule and effectiveThreshold are intentionally duplicated from
 // server/src/services/watchers.ts (evaluateWatcherA). The logic must
@@ -9,7 +14,7 @@ type DateThresholdRule = { type: "date_threshold"; fireOn: string };
 
 const YYYYMMDD = /^\d{4}-\d{2}-\d{2}$/;
 
-function parseRule(raw: string | null): DateThresholdRule | null {
+function parseDateThresholdRule(raw: string | null): DateThresholdRule | null {
   if (raw == null) return null;
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -30,9 +35,20 @@ function parseRule(raw: string | null): DateThresholdRule | null {
   return null;
 }
 
-function effectiveThreshold(row: WatcherRow): string | null {
-  const rule = parseRule(row.rule);
-  if (rule != null) return rule.fireOn;
+// Resolves the effective threshold for a row.
+// For date_threshold: uses rule.fireOn.
+// For reverse_plan: uses the next incomplete step's latestDate from the view.
+// Falls back to row.threshold for legacy rows without rule JSON.
+function resolveThreshold(
+  row: WatcherRow,
+  reversePlanView: ReversePlanView | null
+): string | null {
+  if (reversePlanView !== null) {
+    if (reversePlanView.completed) return null;
+    return effectiveReversePlanThreshold(reversePlanView);
+  }
+  const dtRule = parseDateThresholdRule(row.rule);
+  if (dtRule != null) return dtRule.fireOn;
   if (row.threshold != null && YYYYMMDD.test(row.threshold)) return row.threshold;
   return null;
 }
@@ -60,9 +76,11 @@ const STATUS_ORDER: Record<WatcherDeepRow["status"], number> = {
 export function buildWatcherDeepView(
   rows: WatcherRow[],
   date: string,
-  now: string
+  now: string,
+  taskStatuses?: Map<number, string>
 ): WatcherDeepRow[] {
   const nowMs = Date.parse(now);
+  const statuses = taskStatuses ?? new Map<number, string>();
 
   const result: WatcherDeepRow[] = rows.map((row): WatcherDeepRow => {
     const armed = row.armed === 1;
@@ -86,7 +104,36 @@ export function buildWatcherDeepView(
       };
     }
 
-    const threshold = effectiveThreshold(row);
+    // Attempt to parse a reverse-plan rule first
+    const reversePlanRule = parseReversePlanRule(row.rule);
+    let reversePlanView: ReversePlanView | null = null;
+    if (reversePlanRule !== null) {
+      reversePlanView = buildReversePlanView(reversePlanRule, statuses);
+      if (reversePlanView === null) {
+        // Missing task IDs → degraded unsupported
+        return {
+          id: row.id, category: row.category, label: row.label, kind: "A",
+          armed: true, threshold: row.threshold, snoozedUntil: row.snoozedUntil,
+          status: "unsupported", daysOverdue: null, daysUntil: null,
+          message: "역산 계획 데이터를 읽을 수 없어", reasonCodes: ["malformed_rule"],
+          reversePlan: undefined
+        };
+      }
+
+      // Completed chain: quiet, no threshold
+      if (reversePlanView.completed) {
+        return {
+          id: row.id, category: row.category, label: row.label, kind: "A",
+          armed: true, threshold: row.threshold, snoozedUntil: row.snoozedUntil,
+          status: "quiet", daysOverdue: null, daysUntil: null,
+          message: "모든 단계 완료된 watcher야",
+          reasonCodes: ["reverse_plan_completed"],
+          reversePlan: reversePlanView
+        };
+      }
+    }
+
+    const threshold = resolveThreshold(row, reversePlanView);
     if (threshold == null) {
       return {
         id: row.id, category: row.category, label: row.label, kind: "A",
@@ -110,12 +157,19 @@ export function buildWatcherDeepView(
     // Quiet: threshold is in the future
     if (threshold > date) {
       const daysUntil = computeDaysUntil(date, threshold);
+      const nextLabel = reversePlanView
+        ? reversePlanView.steps[reversePlanView.nextStepIndex!]?.label ?? ""
+        : "";
+      const quietMsg = reversePlanView
+        ? `${daysUntil}일 후 시작할 단계야${nextLabel ? `: ${nextLabel}` : ""}`
+        : daysUntil === 1 ? "내일 확인할 watcher야" : `${daysUntil}일 후 확인할 watcher야`;
       return {
         id: row.id, category: row.category, label: row.label, kind: "A",
         armed: true, threshold, snoozedUntil: row.snoozedUntil,
         status: "quiet", daysOverdue: null, daysUntil,
-        message: daysUntil === 1 ? "내일 확인할 watcher야" : `${daysUntil}일 후 확인할 watcher야`,
-        reasonCodes: ["date_threshold_pending"]
+        message: quietMsg,
+        reasonCodes: reversePlanView ? ["reverse_plan_pending"] : ["date_threshold_pending"],
+        reversePlan: reversePlanView ?? undefined
       };
     }
 
@@ -124,18 +178,41 @@ export function buildWatcherDeepView(
       const snoozedMs = Date.parse(row.snoozedUntil);
       if (!Number.isNaN(snoozedMs) && snoozedMs > nowMs) {
         const overdue = computeDaysOverdue(date, threshold);
+        const snoozeMsg = reversePlanView
+          ? `역산 watcher — 스누즈 중이야`
+          : overdue === 0 ? "오늘 확인할 watcher — 스누즈 중이야" : `${overdue}일 지난 watcher — 스누즈 중이야`;
         return {
           id: row.id, category: row.category, label: row.label, kind: "A",
           armed: true, threshold, snoozedUntil: row.snoozedUntil,
           status: "snoozed", daysOverdue: overdue, daysUntil: null,
-          message: overdue === 0 ? "오늘 확인할 watcher — 스누즈 중이야" : `${overdue}일 지난 watcher — 스누즈 중이야`,
-          reasonCodes: ["date_threshold_due", "snoozed"]
+          message: snoozeMsg,
+          reasonCodes: reversePlanView
+            ? ["reverse_plan_due", "snoozed"]
+            : ["date_threshold_due", "snoozed"],
+          reversePlan: reversePlanView ?? undefined
         };
       }
     }
 
     // Due
     const overdue = computeDaysOverdue(date, threshold);
+    if (reversePlanView) {
+      const nextStep = reversePlanView.steps[reversePlanView.nextStepIndex!];
+      const dueMsg = nextStep
+        ? overdue === 0
+          ? `${nextStep.label}을 시작할 때야`
+          : `${overdue}일 지난 역산 watcher야`
+        : overdue === 0 ? "오늘 확인할 watcher야" : `${overdue}일 지난 watcher야`;
+      return {
+        id: row.id, category: row.category, label: row.label, kind: "A",
+        armed: true, threshold, snoozedUntil: row.snoozedUntil,
+        status: "due", daysOverdue: overdue, daysUntil: null,
+        message: dueMsg,
+        reasonCodes: ["reverse_plan_due"],
+        reversePlan: reversePlanView
+      };
+    }
+
     return {
       id: row.id, category: row.category, label: row.label, kind: "A",
       armed: true, threshold, snoozedUntil: row.snoozedUntil,

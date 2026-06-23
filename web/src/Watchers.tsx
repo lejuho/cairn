@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { WatcherDeepRow } from "@cairn/shared";
+import type { ReversePlanView, WatcherDeepRow } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
 import { localDateString } from "./dateUtils.js";
+
+type CreateMode = "date_threshold" | "reverse_plan";
+
+type ReversePlanStep = { label: string; leadDays: string };
 
 type ScreenState =
   | { tag: "loading" }
@@ -16,9 +20,21 @@ export function Watchers() {
   const [screen, setScreen] = useState<ScreenState>({ tag: "loading" });
   const [rowErrors, setRowErrors] = useState<RowError[]>([]);
   const [showCreate, setShowCreate] = useState(false);
+  const [createMode, setCreateMode] = useState<CreateMode>("date_threshold");
+
+  // Date-threshold form
   const [createLabel, setCreateLabel] = useState("");
   const [createCategory, setCreateCategory] = useState("");
   const [createThreshold, setCreateThreshold] = useState("");
+
+  // Reverse-plan form
+  const [rpLabel, setRpLabel] = useState("");
+  const [rpCategory, setRpCategory] = useState("");
+  const [rpTargetDate, setRpTargetDate] = useState("");
+  const [rpTargetLabel, setRpTargetLabel] = useState("");
+  const [rpSafetyDays, setRpSafetyDays] = useState("0");
+  const [rpSteps, setRpSteps] = useState<ReversePlanStep[]>([{ label: "", leadDays: "1" }]);
+
   const [createError, setCreateError] = useState<string | null>(null);
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const createLabelRef = useRef<HTMLInputElement>(null);
@@ -51,9 +67,10 @@ export function Watchers() {
   useEffect(() => { void load(); }, [load]);
 
   const openCreate = () => {
-    setCreateLabel("");
-    setCreateCategory("");
-    setCreateThreshold("");
+    setCreateLabel(""); setCreateCategory(""); setCreateThreshold("");
+    setRpLabel(""); setRpCategory(""); setRpTargetDate(""); setRpTargetLabel("");
+    setRpSafetyDays("0"); setRpSteps([{ label: "", leadDays: "1" }]);
+    setCreateMode("date_threshold");
     setCreateError(null);
     setShowCreate(true);
     setTimeout(() => createLabelRef.current?.focus(), 50);
@@ -63,20 +80,42 @@ export function Watchers() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!createLabel.trim() || !createThreshold) return;
     setCreateSubmitting(true);
     setCreateError(null);
     try {
-      const body = await apiJson<{ ok: boolean; error?: { message: string } }>("/api/watchers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          label: createLabel.trim(),
-          threshold: createThreshold,
-          ...(createCategory.trim() ? { category: createCategory.trim() } : {})
-        })
-      });
-      if (!body.ok) throw new Error(body.error?.message ?? "생성 실패");
+      if (createMode === "date_threshold") {
+        if (!createLabel.trim() || !createThreshold) return;
+        const body = await apiJson<{ ok: boolean; error?: { message: string } }>("/api/watchers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            label: createLabel.trim(),
+            threshold: createThreshold,
+            ...(createCategory.trim() ? { category: createCategory.trim() } : {})
+          })
+        });
+        if (!body.ok) throw new Error(body.error?.message ?? "생성 실패");
+      } else {
+        if (!rpLabel.trim() || !rpTargetDate) return;
+        const safetyDays = Math.max(0, Math.min(30, parseInt(rpSafetyDays, 10) || 0));
+        const steps = rpSteps.map((s) => ({
+          label: s.label.trim(),
+          leadDays: Math.max(0, Math.min(365, parseInt(s.leadDays, 10) || 0))
+        }));
+        const body = await apiJson<{ ok: boolean; error?: { message: string } }>("/api/watchers/reverse-plan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            label: rpLabel.trim(),
+            targetDate: rpTargetDate,
+            ...(rpCategory.trim() ? { category: rpCategory.trim() } : {}),
+            ...(rpTargetLabel.trim() ? { targetLabel: rpTargetLabel.trim() } : {}),
+            safetyDays,
+            steps
+          })
+        });
+        if (!body.ok) throw new Error(body.error?.message ?? "생성 실패");
+      }
       setShowCreate(false);
       await load();
     } catch (e) {
@@ -129,6 +168,31 @@ export function Watchers() {
     }
   };
 
+  const renderReversePlanChain = (rp: ReversePlanView) => (
+    <div className="watcher-rp-chain">
+      <div className="watcher-rp-target">
+        <span className="watcher-rp-target-label">{rp.targetLabel}</span>
+        <span className="watcher-rp-target-date">{rp.targetDate}</span>
+      </div>
+      <ol className="watcher-rp-steps" reversed>
+        {[...rp.steps].reverse().map((step, revIdx) => {
+          const origIdx = rp.steps.length - 1 - revIdx;
+          const isNext = origIdx === rp.nextStepIndex;
+          const isDone = step.taskStatus === "done" || step.taskStatus === "dropped";
+          return (
+            <li
+              key={step.taskId}
+              className={`watcher-rp-step${isNext ? " watcher-rp-step--next" : ""}${isDone ? " watcher-rp-step--done" : ""}`}
+            >
+              <span className="watcher-rp-step-label">{step.label}</span>
+              <span className="watcher-rp-step-date">{step.latestDate}까지</span>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+
   const renderWatcherCard = (w: WatcherDeepRow, queryNow: string) => {
     const rowErr = rowErrors.find((r) => r.id === w.id);
     return (
@@ -138,8 +202,10 @@ export function Watchers() {
           {w.category && <span className="watcher-card-category">{w.category}</span>}
           <span className={`watcher-card-status watcher-card-status--${w.status}`}>{statusLabel(w.status)}</span>
         </div>
-        {w.threshold && (
-          <p className="watcher-card-threshold">마감 {w.threshold}</p>
+        {w.reversePlan ? (
+          renderReversePlanChain(w.reversePlan)
+        ) : (
+          w.threshold && <p className="watcher-card-threshold">마감 {w.threshold}</p>
         )}
         <p className="watcher-card-message">{w.message}</p>
         <div className="watcher-card-actions">
@@ -168,44 +234,176 @@ export function Watchers() {
     );
   };
 
+  const rpStepRows = rpSteps.map((step, i) => (
+    <div key={i} className="rp-step-row">
+      <input
+        className="form-input rp-step-label"
+        placeholder={`단계 ${i + 1} 이름`}
+        value={step.label}
+        onChange={(e) => setRpSteps((prev) => prev.map((s, j) => j === i ? { ...s, label: e.target.value } : s))}
+        required
+        aria-label={`단계 ${i + 1} 이름`}
+      />
+      <input
+        type="number"
+        className="form-input rp-step-lead"
+        placeholder="리드타임(일)"
+        min={0}
+        max={365}
+        value={step.leadDays}
+        onChange={(e) => setRpSteps((prev) => prev.map((s, j) => j === i ? { ...s, leadDays: e.target.value } : s))}
+        required
+        aria-label={`단계 ${i + 1} 리드타임`}
+      />
+      {rpSteps.length > 1 && (
+        <button
+          type="button"
+          className="rp-step-remove"
+          aria-label={`단계 ${i + 1} 삭제`}
+          onClick={() => setRpSteps((prev) => prev.filter((_, j) => j !== i))}
+        >
+          ×
+        </button>
+      )}
+    </div>
+  ));
+
   const createSheet = showCreate ? (
     <div className="bottom-sheet-backdrop" onClick={closeCreate} role="dialog" aria-modal="true" aria-label="Watcher 추가">
       <div className="bottom-sheet" onClick={(e) => e.stopPropagation()}>
         <h2 className="sheet-title">Watcher 추가</h2>
+
+        <div className="create-mode-tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={createMode === "date_threshold"}
+            className={`create-mode-tab${createMode === "date_threshold" ? " create-mode-tab--active" : ""}`}
+            onClick={() => { setCreateMode("date_threshold"); setCreateError(null); }}
+          >
+            날짜 기준
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={createMode === "reverse_plan"}
+            className={`create-mode-tab${createMode === "reverse_plan" ? " create-mode-tab--active" : ""}`}
+            onClick={() => { setCreateMode("reverse_plan"); setCreateError(null); }}
+          >
+            역산 계획
+          </button>
+        </div>
+
         <form onSubmit={(e) => void handleCreate(e)} className="watcher-create-form">
-          <label className="form-label">
-            이름 <span aria-hidden="true">*</span>
-            <input
-              ref={createLabelRef}
-              className="form-input"
-              value={createLabel}
-              onChange={(e) => setCreateLabel(e.target.value)}
-              required
-              aria-required="true"
-              aria-label="watcher 이름"
-            />
-          </label>
-          <label className="form-label">
-            카테고리
-            <input
-              className="form-input"
-              value={createCategory}
-              onChange={(e) => setCreateCategory(e.target.value)}
-              aria-label="watcher 카테고리"
-            />
-          </label>
-          <label className="form-label">
-            마감일 <span aria-hidden="true">*</span>
-            <input
-              type="date"
-              className="form-input"
-              value={createThreshold}
-              onChange={(e) => setCreateThreshold(e.target.value)}
-              required
-              aria-required="true"
-              aria-label="watcher 마감일"
-            />
-          </label>
+          {createMode === "date_threshold" ? (
+            <>
+              <label className="form-label">
+                이름 <span aria-hidden="true">*</span>
+                <input
+                  ref={createLabelRef}
+                  className="form-input"
+                  value={createLabel}
+                  onChange={(e) => setCreateLabel(e.target.value)}
+                  required
+                  aria-required="true"
+                  aria-label="watcher 이름"
+                />
+              </label>
+              <label className="form-label">
+                카테고리
+                <input
+                  className="form-input"
+                  value={createCategory}
+                  onChange={(e) => setCreateCategory(e.target.value)}
+                  aria-label="watcher 카테고리"
+                />
+              </label>
+              <label className="form-label">
+                마감일 <span aria-hidden="true">*</span>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={createThreshold}
+                  onChange={(e) => setCreateThreshold(e.target.value)}
+                  required
+                  aria-required="true"
+                  aria-label="watcher 마감일"
+                />
+              </label>
+            </>
+          ) : (
+            <>
+              <label className="form-label">
+                watcher 이름 <span aria-hidden="true">*</span>
+                <input
+                  ref={createLabelRef}
+                  className="form-input"
+                  value={rpLabel}
+                  onChange={(e) => setRpLabel(e.target.value)}
+                  required
+                  aria-required="true"
+                  aria-label="역산 watcher 이름"
+                />
+              </label>
+              <label className="form-label">
+                카테고리
+                <input
+                  className="form-input"
+                  value={rpCategory}
+                  onChange={(e) => setRpCategory(e.target.value)}
+                  aria-label="카테고리"
+                />
+              </label>
+              <label className="form-label">
+                목표 이벤트 이름
+                <input
+                  className="form-input"
+                  value={rpTargetLabel}
+                  onChange={(e) => setRpTargetLabel(e.target.value)}
+                  placeholder="(watcher 이름과 같으면 비워도 됨)"
+                  aria-label="목표 이벤트 이름"
+                />
+              </label>
+              <label className="form-label">
+                목표 날짜 <span aria-hidden="true">*</span>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={rpTargetDate}
+                  onChange={(e) => setRpTargetDate(e.target.value)}
+                  required
+                  aria-required="true"
+                  aria-label="목표 날짜"
+                />
+              </label>
+              <label className="form-label">
+                안전 여유 일수 (0–30)
+                <input
+                  type="number"
+                  className="form-input"
+                  value={rpSafetyDays}
+                  min={0}
+                  max={30}
+                  onChange={(e) => setRpSafetyDays(e.target.value)}
+                  aria-label="안전 여유 일수"
+                />
+              </label>
+              <div className="rp-steps-section">
+                <p className="form-label-text">단계 (실행 순서대로) <span aria-hidden="true">*</span></p>
+                {rpStepRows}
+                {rpSteps.length < 8 && (
+                  <button
+                    type="button"
+                    className="rp-add-step"
+                    onClick={() => setRpSteps((prev) => [...prev, { label: "", leadDays: "1" }])}
+                  >
+                    + 단계 추가
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+
           {createError && <p className="form-error" role="alert">{createError}</p>}
           <div className="sheet-actions">
             <button type="button" className="btn-secondary" onClick={closeCreate}>취소</button>

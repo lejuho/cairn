@@ -2,12 +2,17 @@
 // parseRule/effectiveThreshold copied from watchers.ts and watcher-deep-view.ts
 // (cross-reference: keep all three in sync if date_threshold rule schema changes).
 import type { WatcherRow } from "@cairn/shared";
+import {
+  buildReversePlanView,
+  effectiveReversePlanThreshold,
+  parseReversePlanRule
+} from "./watcher-reverse-plan.js";
 
 type DateThresholdRule = { type: "date_threshold"; fireOn: string };
 
 const YYYYMMDD = /^\d{4}-\d{2}-\d{2}$/;
 
-function parseRule(raw: string | null): DateThresholdRule | null {
+function parseDateThresholdRule(raw: string | null): DateThresholdRule | null {
   if (raw == null) return null;
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -28,9 +33,20 @@ function parseRule(raw: string | null): DateThresholdRule | null {
   return null;
 }
 
-function effectiveThreshold(row: WatcherRow): string | null {
-  const rule = parseRule(row.rule);
-  if (rule != null) return rule.fireOn;
+function resolveEffectiveThreshold(
+  row: WatcherRow,
+  taskStatuses: Map<number, string>
+): string | null {
+  const rpRule = parseReversePlanRule(row.rule);
+  if (rpRule !== null) {
+    const view = buildReversePlanView(rpRule, taskStatuses);
+    if (view === null) return null;
+    if (view.completed) return null;
+    return effectiveReversePlanThreshold(view);
+  }
+
+  const dtRule = parseDateThresholdRule(row.rule);
+  if (dtRule != null) return dtRule.fireOn;
   if (row.threshold != null && YYYYMMDD.test(row.threshold)) return row.threshold;
   return null;
 }
@@ -51,16 +67,18 @@ export type WatcherPushResult = {
 export function selectDueForPush(
   rows: WatcherRow[],
   date: string, // YYYY-MM-DD local date
-  now: string   // RFC3339 — for active snooze comparison
+  now: string,  // RFC3339 — for active snooze comparison
+  taskStatuses?: Map<number, string>
 ): WatcherPushResult {
   const nowMs = Date.parse(now);
+  const statuses = taskStatuses ?? new Map<number, string>();
   const items: WatcherPushItem[] = [];
 
   for (const row of rows) {
     if (row.armed !== 1) continue;
     if (row.kind !== "A") continue;
 
-    const threshold = effectiveThreshold(row);
+    const threshold = resolveEffectiveThreshold(row, statuses);
     if (threshold == null) continue;
 
     const threshMs = Date.parse(`${threshold}T00:00:00Z`);

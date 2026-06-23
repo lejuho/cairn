@@ -95,12 +95,13 @@ Route layer:
   - Task creation and status patch APIs.
 - [server/src/routes/watchers.ts](/home/pi/cairn/server/src/routes/watchers.ts)
   - `POST /api/watchers` — creates armed kind-A date-threshold watcher (label, threshold, optional category). Rule JSON auto-generated as `{"type":"date_threshold","fireOn":threshold}`.
+  - `POST /api/watchers/reverse-plan` — creates reverse-plan watcher with generated step tasks + `requires` links in one transaction. Body: `CreateReversePlanWatcherRequest`. Returns `{ watcher, taskIds, targetTaskId, linkIds, reversePlan }`.
   - `PATCH /api/watchers/:id/snooze` — sets `snoozedUntil` (RFC3339 with offset). Used by Today snooze action. Returns 404 on missing id.
-  - `GET /api/watchers?date&now` — returns all watchers with derived status (due/quiet/snoozed/disarmed/unsupported). Calls `buildWatcherDeepView`. Returns `{ ok, data: { watchers: WatcherDeepRow[] } }`.
+  - `GET /api/watchers?date&now` — returns all watchers with derived status (due/quiet/snoozed/disarmed/unsupported). Fetches task statuses for reverse-plan rows and calls `buildWatcherDeepView`. Returns `{ ok, data: { watchers: WatcherDeepRow[] } }`.
   - `PATCH /api/watchers/:id/armed` — toggles armed flag. Body: `{ armed: boolean }`. Returns 404 on missing id.
 - [server/src/routes/today.ts](/home/pi/cairn/server/src/routes/today.ts)
   - `GET /api/today`.
-  - Deterministic aggregation only. No LLM dependency. Calls `findAllWatchersForEvaluation` + `evaluateWatcherA` to produce derived `WatcherABubble[]` — no raw watcher rows in surface payload.
+  - Deterministic aggregation only. No LLM dependency. Fetches task statuses for reverse-plan watchers and calls `evaluateWatcherA(rows, date, now, taskStatuses)` to produce derived `WatcherABubble[]`. Reverse-plan watchers surface when next incomplete step threshold is reached.
 - [server/src/routes/annotations.ts](/home/pi/cairn/server/src/routes/annotations.ts)
   - `POST /api/events/:id/annotations`.
   - Raw annotation first, best-effort LLM parse second.
@@ -156,9 +157,13 @@ Repository/service split:
 - [server/src/services/today.ts](/home/pi/cairn/server/src/services/today.ts)
   - Builds Today card surface and priority order. Receives `WatcherABubble[]` (derived) instead of raw `WatcherRow[]`. Priority: conflict → watcher → next_event → two_minute_task → needs_review → schedule_prompt.
 - [server/src/services/watchers.ts](/home/pi/cairn/server/src/services/watchers.ts)
-  - Pure Watcher A evaluator. `evaluateWatcherA(rows, date, now) → WatcherABubble[]`. Parses `rule` JSON fail-open — supports `{"type":"date_threshold","fireOn":"YYYY-MM-DD"}`. Falls back to `threshold` column when rule absent/malformed. Rejects overflow dates via round-trip check (same as `isCalendarDate`). Filters armed=1, kind="A", threshold≤date, snooze absent or ≤now. Computes `daysOverdue = Math.max(0, (date-threshold)/day)`. Message: "오늘 확인할 watcher야" (=0) or "N일 지난 watcher야" (>0). Sorted threshold asc, id asc. No DB access, no LLM.
+  - Pure Watcher A evaluator. `evaluateWatcherA(rows, date, now, taskStatuses?) → WatcherABubble[]`. Supports `date_threshold` and `reverse_plan` rule types. For reverse_plan: parses rule → `buildReversePlanView` → `effectiveReversePlanThreshold`. Completed chain (all tasks done/dropped) → null threshold → not surfaced. Falls back to `threshold` column when rule absent/malformed. reasonCodes: `reverse_plan_pending`, `reverse_plan_due`, `reverse_plan_completed`. No DB access, no LLM.
 - [server/src/services/watcher-deep-view.ts](/home/pi/cairn/server/src/services/watcher-deep-view.ts)
-  - Pure service (no DB). `buildWatcherDeepView(rows, date, now) → WatcherDeepRow[]`. Status derivation: armed===0 → disarmed (unconditional); kind!=="A" → unsupported; malformed rule → unsupported; threshold > date → quiet; active snooze → snoozed; else → due. daysOverdue/daysUntil computed from threshold vs date. Sort: due→snoozed→quiet→disarmed→unsupported; within group threshold asc, id asc. Duplicates `parseRule`/`effectiveThreshold` from `watchers.ts` (cross-reference comment — kept separate to preserve today/deep-view boundary).
+  - Pure service (no DB). `buildWatcherDeepView(rows, date, now, taskStatuses?) → WatcherDeepRow[]`. Supports `date_threshold` and `reverse_plan` rule types. For reverse-plan: parse rule → `buildReversePlanView` (null → unsupported); completed → quiet. `reversePlan: ReversePlanView` field attached on reverse-plan rows. reasonCodes: `reverse_plan_pending`, `reverse_plan_due`, `reverse_plan_completed`. Status derivation same as before for non-rp watchers.
+- [server/src/services/watcher-reverse-plan.ts](/home/pi/cairn/server/src/services/watcher-reverse-plan.ts) **(NEW)**
+  - Pure functions for reverse-plan watcher logic. `computeReversePlan(input)` — walks steps backward from targetDate; `safetyDays` subtracted only from first step (index 0). `parseReversePlanRule(raw)` — manual structural validation, null on malform. `buildReversePlanView(rule, taskStatuses)` — null if any taskId missing; `nextStepIndex` = first non-done step. `effectiveReversePlanThreshold(view)` — latestDate of nextStep or null if completed.
+- [server/src/services/watcher-daily-push.ts](/home/pi/cairn/server/src/services/watcher-daily-push.ts)
+  - `selectDueForPush(rows, date, now, taskStatuses?) → { items, message }`. Accepts optional taskStatuses for reverse-plan threshold resolution. Excludes completed chains.
 - [server/src/services/decision.ts](/home/pi/cairn/server/src/services/decision.ts)
   - Pure deterministic conflict decision service: detects overlapping planned/confirmed events by epoch ms, computes overlap minutes, urgency (near/planning), actionability (`isResolvable` — strict forward gate: start ≥ now AND start ≤ now+6h), per-event cost extraction, internal score for suggestion ordering (never returned to client). Now accepts optional `eventPeopleContext: Map<number, PersonContextItem[]>` for social cost and guard evaluation. Blocked options excluded from suggestions; one-side-block adds `"required_by_people_constraint"` to unblocked side's reasonCodes. Resolve route re-checks guard in-transaction; returns 409 `PEOPLE_CONSTRAINT_BLOCKED` if blocked. No LLM dependency.
 - [server/src/services/notification-drafts.ts](/home/pi/cairn/server/src/services/notification-drafts.ts)
@@ -317,7 +322,8 @@ Entry and routing:
   - Fetches `GET /api/watchers?date&now` via `apiJson`. Sections: 확인 필요 (due), 스누즈 중 (snoozed), 대기 중 (quiet), 비활성 (disarmed), 지원 안 됨 (unsupported).
   - Armed toggle: `PATCH /api/watchers/:id/armed` with `{ armed: !current }`, then re-fetches. Failure shows row-level `role="alert"`.
   - Snooze: `PATCH /api/watchers/:id/snooze` with snoozedUntil = queryNow + 24h; available on due watchers only. Failure shows row-level alert.
-  - Create bottom sheet: label (required), category (optional), threshold date (required). `POST /api/watchers` then re-fetches. Failure keeps sheet open with `role="alert"`. Sheet accessible via backdrop tap or 취소 button.
+  - Create bottom sheet (cycle 35): two-mode tab switcher — "날짜 기반" (`date_threshold`) and "역산 계획" (`reverse_plan`). Date-threshold mode: label, category, threshold date → `POST /api/watchers`. Reverse-plan mode: label, category, targetLabel, targetDate, safetyDays (0-30), step rows (label + leadDays, add/remove, max 8) → `POST /api/watchers/reverse-plan`. Both: failure keeps sheet open with `role="alert"`.
+  - Reverse-plan card: `renderReversePlanChain(rp: ReversePlanView)` renders target + steps with `--next` and `--done` modifiers (CSS semantic tokens only, no hex).
 - [web/src/PeopleDirectory.tsx](/home/pi/cairn/web/src/PeopleDirectory.tsx)
   - `/people` screen. States: loading, quiet (no people), live (person cards), error, access_error.
   - Quiet: "아직 사람이 없어" + link to /input. Live: card list showing name, relation, frequencyLabel, totalMeets, lastMet. Each card links to `/people/:id`.

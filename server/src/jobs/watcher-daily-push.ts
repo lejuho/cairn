@@ -1,5 +1,6 @@
 import type { CairnDatabase } from "../db/index.js";
-import { findWatchersForPush, markWatchersFired } from "../repositories/watchers.js";
+import { findTaskStatusesByIds, findWatchersForPush, markWatchersFired } from "../repositories/watchers.js";
+import { parseReversePlanRule } from "../services/watcher-reverse-plan.js";
 import { selectDueForPush } from "../services/watcher-daily-push.js";
 
 export type WatcherPushSender = (message: string) => Promise<void>;
@@ -22,7 +23,13 @@ export async function runWatcherDailyPush(
   const date = opts?.date ?? localDateString();
 
   const rows = findWatchersForPush(db);
-  const { items, message } = selectDueForPush(rows, date, now);
+  const rpTaskIds: number[] = [];
+  for (const row of rows) {
+    const rule = parseReversePlanRule(row.rule);
+    if (rule) rpTaskIds.push(...rule.steps.map((s) => s.taskId));
+  }
+  const taskStatuses = findTaskStatusesByIds(db, rpTaskIds);
+  const { items, message } = selectDueForPush(rows, date, now, taskStatuses);
 
   const skippedCount = rows.length - items.length;
 

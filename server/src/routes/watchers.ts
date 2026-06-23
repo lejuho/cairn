@@ -1,7 +1,21 @@
 import type { FastifyInstance } from "fastify";
-import { CreateWatcherRequestSchema, PatchWatcherArmedRequestSchema, PatchWatcherSnoozeRequestSchema, WatchersQuerySchema } from "@cairn/shared";
-import { createWatcher, findAllWatchers, setWatcherArmed, snoozeWatcher } from "../repositories/watchers.js";
+import {
+  CreateReversePlanWatcherRequestSchema,
+  CreateWatcherRequestSchema,
+  PatchWatcherArmedRequestSchema,
+  PatchWatcherSnoozeRequestSchema,
+  WatchersQuerySchema
+} from "@cairn/shared";
+import {
+  createReversePlanWatcher,
+  createWatcher,
+  findAllWatchers,
+  findTaskStatusesByIds,
+  setWatcherArmed,
+  snoozeWatcher
+} from "../repositories/watchers.js";
 import { buildWatcherDeepView } from "../services/watcher-deep-view.js";
+import { parseReversePlanRule } from "../services/watcher-reverse-plan.js";
 import type { CairnDatabase } from "../db/index.js";
 
 export function registerWatcherRoutes(app: FastifyInstance, db: CairnDatabase): void {
@@ -15,7 +29,19 @@ export function registerWatcherRoutes(app: FastifyInstance, db: CairnDatabase): 
     }
     const { date, now } = parsed.data;
     const rows = findAllWatchers(db);
-    const watchers = buildWatcherDeepView(rows, date, now);
+
+    // Collect all task IDs referenced by reverse-plan rules
+    const taskIds: number[] = [];
+    for (const row of rows) {
+      const rule = parseReversePlanRule(row.rule);
+      if (rule) {
+        taskIds.push(...rule.steps.map((s) => s.taskId));
+        taskIds.push(rule.targetTaskId);
+      }
+    }
+    const taskStatuses = findTaskStatusesByIds(db, taskIds);
+
+    const watchers = buildWatcherDeepView(rows, date, now, taskStatuses);
     return reply.send({ ok: true, data: { watchers } });
   });
 
@@ -56,6 +82,27 @@ export function registerWatcherRoutes(app: FastifyInstance, db: CairnDatabase): 
     try {
       const watcher = createWatcher(db, parsed.data);
       return reply.code(201).send({ ok: true, data: watcher });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "DB_ERROR", message: msg }
+      });
+    }
+  });
+
+  app.post("/api/watchers/reverse-plan", async (req, reply) => {
+    const parsed = CreateReversePlanWatcherRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "VALIDATION_ERROR", message: parsed.error.message }
+      });
+    }
+
+    try {
+      const result = createReversePlanWatcher(db, parsed.data);
+      return reply.code(201).send({ ok: true, data: result });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return reply.code(400).send({

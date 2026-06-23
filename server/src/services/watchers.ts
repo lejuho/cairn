@@ -1,4 +1,9 @@
 import type { WatcherABubble, WatcherRow } from "@cairn/shared";
+import {
+  buildReversePlanView,
+  effectiveReversePlanThreshold,
+  parseReversePlanRule
+} from "./watcher-reverse-plan.js";
 
 type DateThresholdRule = { type: "date_threshold"; fireOn: string };
 
@@ -25,9 +30,24 @@ function parseRule(raw: string | null): DateThresholdRule | null {
   return null;
 }
 
-function effectiveThreshold(row: WatcherRow): string | null {
-  const rule = parseRule(row.rule);
-  if (rule != null) return rule.fireOn;
+// Resolves effective threshold for Today evaluation.
+// For date_threshold: rule.fireOn.
+// For reverse_plan: next incomplete step's latestDate (null if completed).
+// Falls back to row.threshold for legacy rows without rule JSON.
+function resolveEffectiveThreshold(
+  row: WatcherRow,
+  taskStatuses: Map<number, string>
+): string | null {
+  const rpRule = parseReversePlanRule(row.rule);
+  if (rpRule !== null) {
+    const view = buildReversePlanView(rpRule, taskStatuses);
+    if (view === null) return null; // missing tasks → skip
+    if (view.completed) return null; // completed → no threshold
+    return effectiveReversePlanThreshold(view);
+  }
+
+  const dtRule = parseRule(row.rule);
+  if (dtRule != null) return dtRule.fireOn;
   if (row.threshold != null && YYYYMMDD.test(row.threshold)) return row.threshold;
   return null;
 }
@@ -44,10 +64,12 @@ function bubbleMessage(days: number): string {
 
 export function evaluateWatcherA(
   rows: WatcherRow[],
-  date: string, // YYYY-MM-DD
-  now: string   // RFC3339 with offset
+  date: string,   // YYYY-MM-DD
+  now: string,    // RFC3339 with offset
+  taskStatuses?: Map<number, string>
 ): WatcherABubble[] {
   const bubbles: WatcherABubble[] = [];
+  const statuses = taskStatuses ?? new Map<number, string>();
 
   // `now` is RFC3339-validated at the route; parse once for instant comparison.
   // If NaN slips through, nowMs is NaN and every `snoozedMs > NaN` is false →
@@ -58,7 +80,7 @@ export function evaluateWatcherA(
     if (row.armed !== 1) continue;
     if (row.kind !== "A") continue;
 
-    const threshold = effectiveThreshold(row);
+    const threshold = resolveEffectiveThreshold(row, statuses);
     if (threshold == null) continue;
 
     // Reject overflow dates (e.g., "2026-02-30") via round-trip check
