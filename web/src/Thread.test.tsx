@@ -524,6 +524,67 @@ describe("Thread — resource-focus section", () => {
     await waitFor(() => expect(screen.getByTestId("resource-detail")).toBeInTheDocument());
     expect(screen.getByText("확정")).toBeInTheDocument();
   });
+
+  // ── Ego graph (작은 관계) in resource detail ──────────────────────────────
+  const EGO_RESOURCE = {
+    center: { id: "resource:10", type: "resource", targetId: 10, label: "노트북" },
+    nodes: [
+      { id: "resource:10", type: "resource", targetId: 10, label: "노트북" },
+      { id: "event:10", type: "event", targetId: 10, label: "발표 리허설", sublabel: "발표 준비" }
+    ],
+    edges: [
+      { from: "resource:10", to: "event:10", kind: "resource_link", firmness: "hard", reason: "발표 때 필요" }
+    ],
+    truncated: false
+  };
+
+  function mockFetchWithEgo(ego: unknown) {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/api/relations/ego")) return Promise.resolve(makeResponse(ego, url));
+      if (url.includes("promotion-suggestions")) return Promise.resolve(makeResponse({ ok: true, data: { suggestions: [] } }, url));
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: FOCUS_DATA }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: { thread: BASE_THREAD, events: [BASE_EVENT], tasks: [BASE_TASK], progress: { done: 0, total: 2 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP } }, url));
+    }));
+  }
+
+  it("ego graph is not fetched on load (tap-only)", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/api/relations/ego")) return Promise.resolve(makeResponse({ ok: true, data: EGO_RESOURCE }, url));
+      if (url.includes("promotion-suggestions")) return Promise.resolve(makeResponse({ ok: true, data: { suggestions: [] } }, url));
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: FOCUS_DATA }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: { thread: BASE_THREAD, events: [BASE_EVENT], tasks: [BASE_TASK], progress: { done: 0, total: 2 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP } }, url));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "노트북" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "노트북" }));
+    await waitFor(() => expect(screen.getByTestId("resource-detail")).toBeInTheDocument());
+    expect(fetchMock.mock.calls.some((c: unknown[]) => (c[0] as string).includes("/api/relations/ego"))).toBe(false);
+    expect(screen.getByTestId("ego-open-btn")).toBeInTheDocument();
+  });
+
+  it("loads ego sheet on '작은 관계 보기' tap", async () => {
+    mockFetchWithEgo({ ok: true, data: EGO_RESOURCE });
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "노트북" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "노트북" }));
+    await waitFor(() => expect(screen.getByTestId("ego-open-btn")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("ego-open-btn"));
+    await waitFor(() => expect(screen.getByTestId("ego-sheet")).toBeInTheDocument());
+    const nodes = screen.getAllByTestId("ego-node");
+    expect(nodes).toHaveLength(1); // center excluded
+    expect(screen.getByText("발표 리허설")).toBeInTheDocument();
+  });
+
+  it("ego sheet shows error copy when fetch fails", async () => {
+    mockFetchWithEgo({ ok: false, error: { message: "boom" } });
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "노트북" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "노트북" }));
+    await waitFor(() => expect(screen.getByTestId("ego-open-btn")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("ego-open-btn"));
+    await waitFor(() => expect(screen.getByText("관계 정보를 불러올 수 없습니다.")).toBeInTheDocument());
+  });
 });
 
 describe("Thread — promotion suggestions panel", () => {

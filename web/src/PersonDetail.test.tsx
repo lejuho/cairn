@@ -117,6 +117,78 @@ describe("PersonDetail", () => {
   });
 });
 
+// ── Ego graph (작은 관계) ─────────────────────────────────────────────────────
+
+const EGO_GRAPH = {
+  center: { id: "person:1", type: "person", targetId: 1, label: "Alice", href: "/people/1" },
+  nodes: [
+    { id: "person:1", type: "person", targetId: 1, label: "Alice", href: "/people/1" },
+    { id: "resource:5", type: "resource", targetId: 5, label: "노트북" },
+    { id: "event:9", type: "event", targetId: 9, label: "주간 회의", sublabel: "회의" }
+  ],
+  edges: [
+    { from: "person:1", to: "resource:5", kind: "source_person", firmness: "hard" },
+    { from: "person:1", to: "event:9", kind: "event_people", firmness: "soft" }
+  ],
+  truncated: false
+};
+
+function stubDetailThenEgo(ego: unknown) {
+  vi.stubGlobal("fetch", vi.fn((url: string) => {
+    if (typeof url === "string" && url.includes("/api/relations/ego")) {
+      return Promise.resolve({ json: () => Promise.resolve(ego) });
+    }
+    return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { person: ALICE_DIR, recentMeetings: [] } }) });
+  }));
+}
+
+describe("PersonDetail ego graph", () => {
+  it("does not fetch ego on page load (tap-only)", async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (typeof url === "string" && url.includes("/api/relations/ego")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: EGO_GRAPH }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { person: ALICE_DIR, recentMeetings: [] } }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
+    expect(fetchMock.mock.calls.some(([u]) => typeof u === "string" && u.includes("/api/relations/ego"))).toBe(false);
+    expect(screen.getByTestId("person-ego-btn")).toBeInTheDocument();
+  });
+
+  it("loads and renders ego nodes on button tap", async () => {
+    stubDetailThenEgo({ ok: true, data: EGO_GRAPH });
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-ego-btn")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("person-ego-btn"));
+    await waitFor(() => expect(screen.getByTestId("person-ego-sheet")).toBeInTheDocument());
+    const nodes = screen.getAllByTestId("person-ego-node");
+    expect(nodes).toHaveLength(2); // center excluded
+    expect(screen.getByText("노트북")).toBeInTheDocument();
+    // event node has no href → rendered as plain span, not a link
+    expect(screen.queryByRole("link", { name: "주간 회의" })).not.toBeInTheDocument();
+    expect(screen.getByText("주간 회의")).toBeInTheDocument();
+  });
+
+  it("shows error copy when ego fetch fails", async () => {
+    stubDetailThenEgo({ ok: false, error: { message: "boom" } });
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-ego-btn")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("person-ego-btn"));
+    await waitFor(() => expect(screen.getByText("불러오기 실패")).toBeInTheDocument());
+  });
+
+  it("renders quiet copy when person has no neighbors", async () => {
+    const lonely = { ...EGO_GRAPH, nodes: [EGO_GRAPH.nodes[0]], edges: [] };
+    stubDetailThenEgo({ ok: true, data: lonely });
+    render(<PersonDetail id={1} />);
+    await waitFor(() => expect(screen.getByTestId("person-ego-btn")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("person-ego-btn"));
+    await waitFor(() => expect(screen.getByText("연결된 항목 없음")).toBeInTheDocument());
+  });
+});
+
 // ── Profile display ───────────────────────────────────────────────────────────
 
 const ALICE_WITH_PROFILE = {

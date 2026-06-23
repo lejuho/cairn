@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { AuthoredPreferredWindows, EventRow, PersonDirectoryRow, PersonRow, PreferredPeriod, Weekday } from "@cairn/shared";
+import type { AuthoredPreferredWindows, EgoGraphData, EventRow, PersonDirectoryRow, PersonRow, PreferredPeriod, Weekday } from "@cairn/shared";
 import { apiJson } from "./api.js";
 import type { AccessSessionError } from "./api.js";
 import { formatLastMet } from "./lastMet.js";
@@ -80,8 +80,32 @@ function buildInitialSheet(person: PersonRow): Omit<SheetState, "open" | "saving
   };
 }
 
+type PersonEgoState =
+  | { tag: "closed" }
+  | { tag: "loading" }
+  | { tag: "open"; graph: EgoGraphData }
+  | { tag: "error" };
+
+const EGO_NODE_TYPE_LABEL: Record<EgoGraphData["nodes"][number]["type"], string> = {
+  resource: "리소스",
+  person: "사람",
+  event: "이벤트",
+  task: "작업",
+  thread: "스레드"
+};
+
+async function loadPersonEgo(personId: number): Promise<EgoGraphData | null> {
+  try {
+    const body = await apiJson<{ ok: boolean; data?: EgoGraphData }>(`/api/relations/ego?targetType=person&targetId=${personId}`);
+    return body.ok ? (body.data ?? null) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function PersonDetail({ id }: { id: number }) {
   const [view, setView] = useState<ViewState>({ tag: "loading" });
+  const [egoState, setEgoState] = useState<PersonEgoState>({ tag: "closed" });
   const [sheet, setSheet] = useState<SheetState>({
     open: false,
     preferredWeekdays: [],
@@ -303,6 +327,48 @@ export function PersonDetail({ id }: { id: number }) {
           <div><dt>마지막 만남</dt><dd>{formatLastMet(person.lastMet)}</dd></div>
           <div><dt>빈도</dt><dd>{frequencyLabel(person.frequencyBand)}</dd></div>
         </dl>
+      </section>
+
+      <section className="person-detail-ego" aria-label="작은 관계">
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <h2 style={{ margin: 0 }}>작은 관계</h2>
+          {egoState.tag === "closed" && (
+            <button className="action-btn action-btn--sm" data-testid="person-ego-btn" onClick={async () => {
+              setEgoState({ tag: "loading" });
+              const graph = await loadPersonEgo(id);
+              setEgoState(graph ? { tag: "open", graph } : { tag: "error" });
+            }}>
+              보기
+            </button>
+          )}
+          {egoState.tag === "loading" && <span className="card-meta">불러오는 중…</span>}
+          {egoState.tag === "open" && (
+            <button className="action-btn action-btn--sm" onClick={() => setEgoState({ tag: "closed" })}>닫기</button>
+          )}
+          {egoState.tag === "error" && <span className="card-meta" style={{ color: "var(--color-error)" }}>불러오기 실패</span>}
+        </div>
+        {egoState.tag === "open" && (
+          <div data-testid="person-ego-sheet">
+            {egoState.graph.truncated && <p className="card-meta">일부만 표시</p>}
+            <ul style={{ listStyle: "none", padding: 0 }}>
+              {egoState.graph.nodes.filter((n) => n.id !== egoState.graph.center.id).map((node) => {
+                const edge = egoState.graph.edges.find((e) => e.from === egoState.graph.center.id && e.to === node.id || e.to === egoState.graph.center.id && e.from === node.id);
+                return (
+                  <li key={node.id} className="ego-sheet__node" data-testid="person-ego-node">
+                    <span className="card-meta" style={{ opacity: 0.7 }}>{EGO_NODE_TYPE_LABEL[node.type]}</span>
+                    {" "}
+                    {node.href ? <a href={node.href}>{node.label}</a> : <span>{node.label}</span>}
+                    {node.sublabel && <span className="card-meta"> · {node.sublabel}</span>}
+                    {edge && <span className="card-meta" style={{ marginLeft: "4px" }}>[{edge.firmness}]</span>}
+                  </li>
+                );
+              })}
+              {egoState.graph.nodes.length === 1 && (
+                <li className="card-meta" style={{ opacity: 0.6 }}>연결된 항목 없음</li>
+              )}
+            </ul>
+          </div>
+        )}
       </section>
 
       <section className="person-detail-profile" aria-label="취급 프로필">
