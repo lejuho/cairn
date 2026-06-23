@@ -152,8 +152,58 @@ async function createEvent(title: string, start: string, end: string, threadId?:
   if (!body.ok) throw new Error("일정 생성 실패");
 }
 
-function FeasibilityPanel({ f, onAdjust }: { f: DayFeasibility; onAdjust?: () => void }) {
-  const { energy, gaps, continuous } = f;
+const TRANSITION_COST_LABEL: Record<DayFeasibility["transitionCosts"][number]["costLevel"], string> = {
+  none: "없음",
+  low: "낮음",
+  high: "높음",
+  unknown: "불확실"
+};
+
+const TRANSITION_RELATION_TEXT: Record<DayFeasibility["transitionCosts"][number]["relation"], string> = {
+  same_thread: "같은 스레드",
+  context_link: "맥락이 이어져 있어",
+  non_context_link: "관계는 있지만 맥락은 달라",
+  unrelated: "이어지는 맥락이 없어",
+  missing_thread: "스레드 정보가 없어"
+};
+
+function TransitionCostsSection({
+  transitions,
+  events
+}: {
+  transitions: DayFeasibility["transitionCosts"];
+  events: EventRow[];
+}) {
+  // Descriptive only: hide `none` (same-thread) rows; show low/high/unknown.
+  const shown = (transitions ?? []).filter((t) => t.costLevel !== "none");
+  if (shown.length === 0) return null;
+  const titleOf = (id: number) => events.find((e) => e.id === id)?.title ?? "이벤트";
+
+  return (
+    <div className="feas-transitions" aria-label="맥락 전환">
+      <p className="feas-transitions-head">맥락 전환</p>
+      <ul className="feas-transition-list" role="list">
+        {shown.map((t, i) => (
+          <li
+            key={`${t.fromEventId}-${t.toEventId}-${i}`}
+            className={`feas-transition feas-transition--${t.costLevel}`}
+            data-testid="transition-row"
+            data-cost={t.costLevel}
+          >
+            <span className="feas-transition-pair">
+              {titleOf(t.fromEventId)} → {titleOf(t.toEventId)}
+            </span>
+            <span className="feas-transition-cost">전환 비용 {TRANSITION_COST_LABEL[t.costLevel]}</span>
+            <span className="feas-transition-reason card-meta">{TRANSITION_RELATION_TEXT[t.relation]}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function FeasibilityPanel({ f, events = [], onAdjust }: { f: DayFeasibility; events?: EventRow[]; onAdjust?: () => void }) {
+  const { energy, gaps, continuous, transitionCosts } = f;
   const pct = Math.min(100, Math.round((energy.loadUnits / energy.budgetUnits) * 100));
   const warningGaps = gaps.filter((g) => g.status !== "ok");
   return (
@@ -181,6 +231,7 @@ function FeasibilityPanel({ f, onAdjust }: { f: DayFeasibility; onAdjust?: () =>
           ⚠ 연속 {Math.round(continuous.spanMinutes)}분 — 쉬는 시간 없어
         </div>
       )}
+      <TransitionCostsSection transitions={transitionCosts} events={events} />
       {onAdjust && (
         <button className="feas-adjust-btn" onClick={onAdjust} aria-label="feasibility 파라미터 조정">
           조정
@@ -1190,7 +1241,7 @@ export function Today() {
           {capture.savedMsg && (
             <p className="today-capture-saved" role="status" aria-live="polite">{capture.savedMsg}</p>
           )}
-          <FeasibilityPanel f={view.surface.feasibility} />
+          <FeasibilityPanel f={view.surface.feasibility} events={view.surface.dayEvents} />
         </main>
         {sheetEl}
         {eventDetailSheetEl}
@@ -1242,6 +1293,7 @@ export function Today() {
         )}
         <FeasibilityPanel
           f={surface.feasibility}
+          events={surface.dayEvents}
           onAdjust={() => void handleOpenFeasSettings(surface.feasibility.params)}
         />
         <ul className="today-stack" role="list">

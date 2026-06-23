@@ -14,7 +14,8 @@ const BASE_FEASIBILITY = {
   params: { energyBudget: 8, meetBufferMinutes: 15, deepBufferMinutes: 30, travelMargin: 1, maxContinuousMinutes: 600 },
   energy: { loadUnits: 0, budgetUnits: 8, remainingUnits: 8, deficit: false, confidence: "cold_start" as const },
   gaps: [],
-  continuous: null
+  continuous: null,
+  transitionCosts: []
 };
 
 const BASE_SURFACE: TodaySurface = {
@@ -1373,7 +1374,8 @@ describe("Today — feasibility panel", () => {
     params: { energyBudget: 8, meetBufferMinutes: 15, deepBufferMinutes: 30, travelMargin: 1, maxContinuousMinutes: 600 },
     energy: { loadUnits: 3, budgetUnits: 8, remainingUnits: 5, deficit: false, confidence: "cold_start" as const },
     gaps: [],
-    continuous: null
+    continuous: null,
+    transitionCosts: []
   };
 
   it("renders energy gauge in quiet state", async () => {
@@ -1459,6 +1461,82 @@ describe("Today — feasibility panel", () => {
     mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: feas });
     render(<Today />);
     await waitFor(() => expect(screen.getByText("초과")).toBeInTheDocument());
+  });
+
+  // ── transition costs (맥락 전환, FR-FEAS-08) ──────────────────────────────
+  const tEvent = (id: number, title: string) => ({
+    id, title, threadId: null, type: null,
+    start: "2026-06-16T09:00:00+09:00", end: "2026-06-16T10:00:00+09:00",
+    location: null, source: "cairn" as const, selfImposed: 1, status: "planned" as const,
+    createdAt: null, updatedAt: null
+  });
+
+  it("renders 맥락 전환 section for non-none transitions with titles and cost label", async () => {
+    const feas = {
+      ...FEAS_BASE,
+      transitionCosts: [{
+        fromEventId: 1, toEventId: 2, fromThreadId: 10, toThreadId: 20,
+        relation: "unrelated" as const, costLevel: "high" as const, reasonCodes: ["transition_unrelated"]
+      }]
+    };
+    mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: feas, dayEvents: [tEvent(1, "회의"), tEvent(2, "운동")] });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("맥락 전환")).toBeInTheDocument());
+    const row = screen.getByTestId("transition-row");
+    expect(row).toHaveTextContent("회의 → 운동");
+    expect(row).toHaveTextContent("전환 비용 높음");
+    expect(row).toHaveAttribute("data-cost", "high");
+  });
+
+  it("does not render 맥락 전환 section when all transitions are none (same thread)", async () => {
+    const feas = {
+      ...FEAS_BASE,
+      transitionCosts: [{
+        fromEventId: 1, toEventId: 2, fromThreadId: 10, toThreadId: 10,
+        relation: "same_thread" as const, costLevel: "none" as const, reasonCodes: ["transition_same_thread"]
+      }]
+    };
+    mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: feas, dayEvents: [tEvent(1, "회의"), tEvent(2, "정리")] });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("일정 부하")).toBeInTheDocument());
+    expect(screen.queryByLabelText("맥락 전환")).not.toBeInTheDocument();
+  });
+
+  it("renders unknown transition as uncertainty, not a hard warning", async () => {
+    const feas = {
+      ...FEAS_BASE,
+      transitionCosts: [{
+        fromEventId: 1, toEventId: 2, fromThreadId: 10, toThreadId: null,
+        relation: "missing_thread" as const, costLevel: "unknown" as const, reasonCodes: ["transition_missing_thread"]
+      }]
+    };
+    mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: feas, dayEvents: [tEvent(1, "회의"), tEvent(2, "약속")] });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("맥락 전환")).toBeInTheDocument());
+    const row = screen.getByTestId("transition-row");
+    expect(row).toHaveAttribute("data-cost", "unknown");
+    expect(row).toHaveTextContent("전환 비용 불확실");
+    expect(row).toHaveTextContent("스레드 정보가 없어");
+    // not a warning-styled gap/continuous row
+    expect(row.className).not.toContain("feas-gap");
+  });
+
+  it("keeps energy/gap rendering intact alongside transitions", async () => {
+    const feas = {
+      ...FEAS_BASE,
+      gaps: [{ availableMinutes: 5, requiredMinutes: 15, status: "tight" as const, mode: "near" as const, reasonCodes: ["gap_tight"] }],
+      transitionCosts: [{
+        fromEventId: 1, toEventId: 2, fromThreadId: 10, toThreadId: 20,
+        relation: "context_link" as const, relationKind: "feeds" as const, firmness: "soft" as const,
+        costLevel: "low" as const, reasonCodes: ["transition_context_link"]
+      }]
+    };
+    mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: feas, dayEvents: [tEvent(1, "회의"), tEvent(2, "운동")] });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("맥락 전환")).toBeInTheDocument());
+    expect(screen.getByText(/여유 부족/)).toBeInTheDocument(); // gap still rendered
+    expect(screen.getByText("3.0h / 8h")).toBeInTheDocument(); // energy still rendered
+    expect(screen.getByTestId("transition-row")).toHaveTextContent("전환 비용 낮음");
   });
 });
 
@@ -1996,7 +2074,7 @@ describe("Today — conflict sheet people guard", () => {
       date: "2026-06-20", now: "2026-06-20T09:00:00+09:00",
       params: { energyBudget: 8, meetBufferMinutes: 15, deepBufferMinutes: 30, travelMargin: 1, maxContinuousMinutes: 600 },
       energy: { loadUnits: 0, budgetUnits: 8, remainingUnits: 8, deficit: false, confidence: "cold_start" },
-      gaps: [], continuous: null
+      gaps: [], continuous: null, transitionCosts: []
     }
   };
 
@@ -2238,7 +2316,8 @@ describe("Today — feasibility settings sheet", () => {
       params: { ...BASE_FEAS_SETTINGS.params, energyBudget: 10 },
       energy: { loadUnits: 0, budgetUnits: 10, remainingUnits: 10, deficit: false, confidence: "cold_start" },
       gaps: [],
-      continuous: null
+      continuous: null,
+      transitionCosts: []
     };
     let callCount = 0;
     vi.stubGlobal("fetch", vi.fn().mockImplementation(() => {
@@ -2276,7 +2355,8 @@ describe("Today — feasibility settings sheet", () => {
       params: { ...BASE_FEAS_SETTINGS.params, energyBudget: 10 },
       energy: { loadUnits: 2, budgetUnits: 10, remainingUnits: 8, deficit: false, confidence: "cold_start" },
       gaps: [],
-      continuous: null
+      continuous: null,
+      transitionCosts: []
     };
     let callCount = 0;
     vi.stubGlobal("fetch", vi.fn().mockImplementation(() => {
@@ -2328,7 +2408,7 @@ describe("Today — feasibility settings sheet", () => {
         date: "2026-06-16", now: "2026-06-16T09:00:00.000Z",
         params: { ...BASE_FEAS_SETTINGS.params },
         energy: { loadUnits: 0, budgetUnits: 8, remainingUnits: 8, deficit: false, confidence: "cold_start" },
-        gaps: [], continuous: null
+        gaps: [], continuous: null, transitionCosts: []
       };
       return Promise.resolve({ ok: true, redirected: false, url: "", json: () => Promise.resolve({ ok: true, data: FEAS }) });
     }));

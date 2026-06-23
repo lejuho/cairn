@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  DayFeasibilitySchema,
   FeasibilityParamSettingsDataSchema,
   PreviewFeasibilityRequestSchema,
+  TransitionCostSchema,
   UpdateFeasibilityParamsRequestSchema
 } from "./feasibility.js";
 
@@ -117,5 +119,84 @@ describe("PreviewFeasibilityRequestSchema", () => {
       ...VALID_PREVIEW,
       params: { ...VALID_PARAMS, energyBudget: 0 }
     }).success).toBe(false);
+  });
+});
+
+describe("TransitionCostSchema", () => {
+  const VALID_TRANSITION = {
+    fromEventId: 1,
+    toEventId: 2,
+    fromThreadId: 10,
+    toThreadId: 20,
+    relation: "context_link",
+    relationKind: "feeds",
+    firmness: "soft",
+    costLevel: "low",
+    reasonCodes: ["transition_context_link"]
+  };
+
+  it("accepts a full context_link/low transition", () => {
+    expect(TransitionCostSchema.safeParse(VALID_TRANSITION).success).toBe(true);
+  });
+
+  it("accepts same_thread/none without relationKind/firmness", () => {
+    expect(TransitionCostSchema.safeParse({
+      fromEventId: 1, toEventId: 2, fromThreadId: 10, toThreadId: 10,
+      relation: "same_thread", costLevel: "none", reasonCodes: ["transition_same_thread"]
+    }).success).toBe(true);
+  });
+
+  it("accepts missing_thread/unknown with null thread ids", () => {
+    expect(TransitionCostSchema.safeParse({
+      fromEventId: 1, toEventId: 2, fromThreadId: null, toThreadId: 20,
+      relation: "missing_thread", costLevel: "unknown", reasonCodes: ["transition_missing_thread"]
+    }).success).toBe(true);
+  });
+
+  it("accepts unrelated/high and non_context_link/high", () => {
+    expect(TransitionCostSchema.safeParse({
+      fromEventId: 1, toEventId: 2, fromThreadId: 10, toThreadId: 20,
+      relation: "unrelated", costLevel: "high", reasonCodes: ["transition_unrelated"]
+    }).success).toBe(true);
+    expect(TransitionCostSchema.safeParse({
+      ...VALID_TRANSITION, relation: "non_context_link", relationKind: "blocks", firmness: "hard", costLevel: "high",
+      reasonCodes: ["transition_non_context_link"]
+    }).success).toBe(true);
+  });
+
+  it("rejects invalid relation", () => {
+    expect(TransitionCostSchema.safeParse({ ...VALID_TRANSITION, relation: "maybe" }).success).toBe(false);
+  });
+
+  it("rejects invalid costLevel", () => {
+    expect(TransitionCostSchema.safeParse({ ...VALID_TRANSITION, costLevel: "medium" }).success).toBe(false);
+  });
+
+  it("rejects injected score/recommendation/precision (strict)", () => {
+    expect(TransitionCostSchema.safeParse({ ...VALID_TRANSITION, score: 9 }).success).toBe(false);
+    expect(TransitionCostSchema.safeParse({ ...VALID_TRANSITION, recommendation: "reorder" }).success).toBe(false);
+    expect(TransitionCostSchema.safeParse({ ...VALID_TRANSITION, costMinutes: 12.5 }).success).toBe(false);
+  });
+});
+
+describe("DayFeasibilitySchema", () => {
+  const VALID_DAY = {
+    date: "2026-06-22",
+    now: "2026-06-22T09:00:00+09:00",
+    params: VALID_PARAMS,
+    energy: { loadUnits: 2, budgetUnits: 8, remainingUnits: 6, deficit: false, confidence: "cold_start" },
+    gaps: [],
+    continuous: null,
+    transitionCosts: []
+  };
+
+  it("accepts a day feasibility with transitionCosts", () => {
+    expect(DayFeasibilitySchema.safeParse(VALID_DAY).success).toBe(true);
+  });
+
+  it("requires transitionCosts", () => {
+    const { transitionCosts, ...withoutTransitions } = VALID_DAY;
+    void transitionCosts;
+    expect(DayFeasibilitySchema.safeParse(withoutTransitions).success).toBe(false);
   });
 });
