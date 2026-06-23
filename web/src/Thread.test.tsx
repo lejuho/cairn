@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Thread } from "./Thread.js";
-import type { ThreadDetail, ThreadLinkView, ThreadRollup, ThreadSummary } from "@cairn/shared";
+import type { ThreadDetail, ThreadLinkView, ThreadResourceFocusData, ThreadRollup, ThreadSummary } from "@cairn/shared";
 
 afterEach(() => {
   cleanup();
@@ -70,17 +70,31 @@ const SUMMARY_OTHER: ThreadSummary = {
   relationCounts: { incoming: 0, outgoing: 0 }
 };
 
-function mockFetch(detail: Omit<ThreadDetail, "relations" | "rollup"> & Partial<Pick<ThreadDetail, "relations" | "rollup">>) {
+function makeResponse(body: unknown, url = "/api/threads/1", status = 200) {
+  return {
+    ok: status < 400,
+    status,
+    headers: { get: () => "application/json" },
+    redirected: false,
+    url,
+    json: () => Promise.resolve(body)
+  };
+}
+
+const EMPTY_FOCUS: ThreadResourceFocusData = { threadId: 1, resources: [] };
+
+function mockFetch(
+  detail: Omit<ThreadDetail, "relations" | "rollup"> & Partial<Pick<ThreadDetail, "relations" | "rollup">>,
+  focus: ThreadResourceFocusData = EMPTY_FOCUS
+) {
   const data: ThreadDetail = { relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, ...detail };
   vi.stubGlobal(
     "fetch",
-    vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      headers: { get: () => "application/json" },
-      redirected: false,
-      url: "/api/threads/1",
-      json: () => Promise.resolve({ ok: true, data })
+    vi.fn().mockImplementation((url: string) => {
+      if (url.includes("resource-focus")) {
+        return Promise.resolve(makeResponse({ ok: true, data: focus }, url));
+      }
+      return Promise.resolve(makeResponse({ ok: true, data }, url));
     })
   );
 }
@@ -88,13 +102,11 @@ function mockFetch(detail: Omit<ThreadDetail, "relations" | "rollup"> & Partial<
 function mockFetchError(code = "NOT_FOUND") {
   vi.stubGlobal(
     "fetch",
-    vi.fn().mockResolvedValue({
-      ok: false,
-      status: 404,
-      headers: { get: () => "application/json" },
-      redirected: false,
-      url: "/api/threads/1",
-      json: () => Promise.resolve({ ok: false, error: { code, message: "Thread not found" } })
+    vi.fn().mockImplementation((url: string) => {
+      if (url.includes("resource-focus")) {
+        return Promise.resolve(makeResponse({ ok: false, error: { code: "NOT_FOUND", message: "not found" } }, url, 404));
+      }
+      return Promise.resolve(makeResponse({ ok: false, error: { code, message: "Thread not found" } }, url, 404));
     })
   );
 }
@@ -144,26 +156,19 @@ describe("Thread — empty items still expose relations", () => {
   });
 
   it("opens the relation sheet from an empty thread (FR-THR-09 first-link path)", async () => {
-    vi.stubGlobal("fetch", vi.fn()
-      .mockResolvedValueOnce({
-        ok: true, status: 200,
-        headers: { get: () => "application/json" },
-        redirected: false, url: "/api/threads/1",
-        json: () => Promise.resolve({
-          ok: true, data: {
-            thread: BASE_THREAD, events: [], tasks: [],
-            progress: { done: 0, total: 0 }, relations: EMPTY_RELATIONS,
-            rollup: EMPTY_ROLLUP
-          }
-        })
-      })
-      .mockResolvedValue({
-        ok: true, status: 200,
-        headers: { get: () => "application/json" },
-        redirected: false, url: "/api/threads",
-        json: () => Promise.resolve({ ok: true, data: [SUMMARY_OTHER] })
-      })
-    );
+    const threadData = {
+      thread: BASE_THREAD, events: [], tasks: [],
+      progress: { done: 0, total: 0 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP
+    };
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+      if (url.includes("resource-focus")) {
+        return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
+      }
+      if (url.includes("/api/threads/1")) {
+        return Promise.resolve(makeResponse({ ok: true, data: threadData }, url));
+      }
+      return Promise.resolve(makeResponse({ ok: true, data: [SUMMARY_OTHER] }, url));
+    }));
     render(<Thread id={1} />);
     await waitFor(() => expect(screen.getByRole("button", { name: "관계 추가" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "관계 추가" }));
@@ -274,40 +279,25 @@ describe("Thread — relations section", () => {
   });
 
   it("delete link calls DELETE and refreshes", async () => {
-    const mockFn = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true, status: 200,
-        headers: { get: () => "application/json" },
-        redirected: false, url: "/api/threads/1",
-        json: () => Promise.resolve({
-          ok: true, data: {
-            thread: BASE_THREAD, events: [BASE_EVENT], tasks: [],
-            progress: { done: 0, total: 1 },
-            relations: { incoming: [], outgoing: [OUTGOING_LINK] },
-            rollup: EMPTY_ROLLUP
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true, status: 200,
-        headers: { get: () => "application/json" },
-        redirected: false, url: "/api/threads/1/links/100",
-        json: () => Promise.resolve({ ok: true })
-      })
-      .mockResolvedValueOnce({
-        ok: true, status: 200,
-        headers: { get: () => "application/json" },
-        redirected: false, url: "/api/threads/1",
-        json: () => Promise.resolve({
-          ok: true, data: {
-            thread: BASE_THREAD, events: [BASE_EVENT], tasks: [],
-            progress: { done: 0, total: 1 },
-            relations: { incoming: [], outgoing: [] },
-            rollup: EMPTY_ROLLUP
-          }
-        })
-      });
-    vi.stubGlobal("fetch", mockFn);
+    let callCount = 0;
+    const threadWithLink = {
+      thread: BASE_THREAD, events: [BASE_EVENT], tasks: [],
+      progress: { done: 0, total: 1 },
+      relations: { incoming: [], outgoing: [OUTGOING_LINK] }, rollup: EMPTY_ROLLUP
+    };
+    const threadNoLink = {
+      thread: BASE_THREAD, events: [BASE_EVENT], tasks: [],
+      progress: { done: 0, total: 1 },
+      relations: { incoming: [], outgoing: [] }, rollup: EMPTY_ROLLUP
+    };
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
+      if (opts?.method === "DELETE") return Promise.resolve(makeResponse({ ok: true }, url));
+      // Thread detail — first call returns with link, subsequent calls after delete return no link
+      callCount++;
+      const data = callCount <= 1 ? threadWithLink : threadNoLink;
+      return Promise.resolve(makeResponse({ ok: true, data }, url));
+    }));
     render(<Thread id={1} />);
     await waitFor(() => expect(screen.getByRole("button", { name: "하위 스레드 관계 삭제" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "하위 스레드 관계 삭제" }));
@@ -316,27 +306,17 @@ describe("Thread — relations section", () => {
 });
 
 describe("Thread — add link sheet", () => {
+  const THREAD_DATA = {
+    thread: BASE_THREAD, events: [BASE_EVENT], tasks: [],
+    progress: { done: 0, total: 1 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP
+  };
+
   function mockWithSheet(threads: ThreadSummary[] = [SUMMARY_OTHER]) {
-    vi.stubGlobal("fetch", vi.fn()
-      .mockResolvedValueOnce({
-        ok: true, status: 200,
-        headers: { get: () => "application/json" },
-        redirected: false, url: "/api/threads/1",
-        json: () => Promise.resolve({
-          ok: true, data: {
-            thread: BASE_THREAD, events: [BASE_EVENT], tasks: [],
-            progress: { done: 0, total: 1 }, relations: EMPTY_RELATIONS,
-            rollup: EMPTY_ROLLUP
-          }
-        })
-      })
-      .mockResolvedValue({
-        ok: true, status: 200,
-        headers: { get: () => "application/json" },
-        redirected: false, url: "/api/threads",
-        json: () => Promise.resolve({ ok: true, data: threads })
-      })
-    );
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
+      if (url.includes("/api/threads/1")) return Promise.resolve(makeResponse({ ok: true, data: THREAD_DATA }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: threads }, url));
+    }));
   }
 
   it("opens sheet and shows thread options excluding current thread", async () => {
@@ -350,32 +330,14 @@ describe("Thread — add link sheet", () => {
   });
 
   it("shows 409 CONTAINS_CYCLE error message and keeps sheet open", async () => {
-    vi.stubGlobal("fetch", vi.fn()
-      .mockResolvedValueOnce({
-        ok: true, status: 200,
-        headers: { get: () => "application/json" },
-        redirected: false, url: "/api/threads/1",
-        json: () => Promise.resolve({
-          ok: true, data: {
-            thread: BASE_THREAD, events: [BASE_EVENT], tasks: [],
-            progress: { done: 0, total: 1 }, relations: EMPTY_RELATIONS,
-            rollup: EMPTY_ROLLUP
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true, status: 200,
-        headers: { get: () => "application/json" },
-        redirected: false, url: "/api/threads",
-        json: () => Promise.resolve({ ok: true, data: [SUMMARY_OTHER] })
-      })
-      .mockResolvedValueOnce({
-        ok: true, status: 409,
-        headers: { get: () => "application/json" },
-        redirected: false, url: "/api/threads/1/links",
-        json: () => Promise.resolve({ ok: false, error: { code: "CONTAINS_CYCLE", message: "cycle" } })
-      })
-    );
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
+      if (url.includes("/api/threads/1/links") && opts?.method === "POST") {
+        return Promise.resolve(makeResponse({ ok: false, error: { code: "CONTAINS_CYCLE", message: "cycle" } }, url, 409));
+      }
+      if (url.includes("/api/threads/1")) return Promise.resolve(makeResponse({ ok: true, data: THREAD_DATA }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: [SUMMARY_OTHER] }, url));
+    }));
     render(<Thread id={1} />);
     await waitFor(() => expect(screen.getByRole("button", { name: "관계 추가" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "관계 추가" }));
@@ -388,32 +350,14 @@ describe("Thread — add link sheet", () => {
   });
 
   it("shows 409 CONTAINS_PARENT_CONFLICT specific copy", async () => {
-    vi.stubGlobal("fetch", vi.fn()
-      .mockResolvedValueOnce({
-        ok: true, status: 200,
-        headers: { get: () => "application/json" },
-        redirected: false, url: "/api/threads/1",
-        json: () => Promise.resolve({
-          ok: true, data: {
-            thread: BASE_THREAD, events: [BASE_EVENT], tasks: [],
-            progress: { done: 0, total: 1 }, relations: EMPTY_RELATIONS,
-            rollup: EMPTY_ROLLUP
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true, status: 200,
-        headers: { get: () => "application/json" },
-        redirected: false, url: "/api/threads",
-        json: () => Promise.resolve({ ok: true, data: [SUMMARY_OTHER] })
-      })
-      .mockResolvedValueOnce({
-        ok: true, status: 409,
-        headers: { get: () => "application/json" },
-        redirected: false, url: "/api/threads/1/links",
-        json: () => Promise.resolve({ ok: false, error: { code: "CONTAINS_PARENT_CONFLICT", message: "conflict" } })
-      })
-    );
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
+      if (url.includes("/api/threads/1/links") && opts?.method === "POST") {
+        return Promise.resolve(makeResponse({ ok: false, error: { code: "CONTAINS_PARENT_CONFLICT", message: "conflict" } }, url, 409));
+      }
+      if (url.includes("/api/threads/1")) return Promise.resolve(makeResponse({ ok: true, data: THREAD_DATA }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: [SUMMARY_OTHER] }, url));
+    }));
     render(<Thread id={1} />);
     await waitFor(() => screen.getByRole("button", { name: "관계 추가" }));
     fireEvent.click(screen.getByRole("button", { name: "관계 추가" }));
@@ -425,47 +369,24 @@ describe("Thread — add link sheet", () => {
   });
 
   it("successful add closes sheet and refreshes relations", async () => {
-    vi.stubGlobal("fetch", vi.fn()
-      .mockResolvedValueOnce({
-        ok: true, status: 200,
-        headers: { get: () => "application/json" },
-        redirected: false, url: "/api/threads/1",
-        json: () => Promise.resolve({
-          ok: true, data: {
-            thread: BASE_THREAD, events: [BASE_EVENT], tasks: [],
-            progress: { done: 0, total: 1 }, relations: EMPTY_RELATIONS,
-            rollup: EMPTY_ROLLUP
-          }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true, status: 200,
-        headers: { get: () => "application/json" },
-        redirected: false, url: "/api/threads",
-        json: () => Promise.resolve({ ok: true, data: [SUMMARY_OTHER] })
-      })
-      .mockResolvedValueOnce({
-        ok: true, status: 201,
-        headers: { get: () => "application/json" },
-        redirected: false, url: "/api/threads/1/links",
-        json: () => Promise.resolve({
+    let threadCallCount = 0;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
+      if (url.includes("/api/threads/1/links") && opts?.method === "POST") {
+        return Promise.resolve(makeResponse({
           ok: true, data: { link: { id: 200, fromThread: 1, toThread: 2, kind: "contains", firmness: "hard", createdAt: null } }
-        })
-      })
-      .mockResolvedValueOnce({
-        ok: true, status: 200,
-        headers: { get: () => "application/json" },
-        redirected: false, url: "/api/threads/1",
-        json: () => Promise.resolve({
-          ok: true, data: {
-            thread: BASE_THREAD, events: [BASE_EVENT], tasks: [],
-            progress: { done: 0, total: 1 },
-            relations: { incoming: [], outgoing: [OUTGOING_LINK] },
-            rollup: EMPTY_ROLLUP
-          }
-        })
-      })
-    );
+        }, url, 201));
+      }
+      if (url.includes("/api/threads/1")) {
+        threadCallCount++;
+        // After adding a link, refresh returns the outgoing relation.
+        const data = threadCallCount > 1
+          ? { ...THREAD_DATA, relations: { incoming: [], outgoing: [OUTGOING_LINK] } }
+          : THREAD_DATA;
+        return Promise.resolve(makeResponse({ ok: true, data }, url));
+      }
+      return Promise.resolve(makeResponse({ ok: true, data: [SUMMARY_OTHER] }, url));
+    }));
     render(<Thread id={1} />);
     await waitFor(() => screen.getByRole("button", { name: "관계 추가" }));
     fireEvent.click(screen.getByRole("button", { name: "관계 추가" }));
@@ -506,6 +427,98 @@ describe("Thread — rollup section", () => {
     render(<Thread id={1} />);
     await waitFor(() => expect(screen.getByTestId("rollup-warning")).toBeInTheDocument());
     expect(screen.getByTestId("rollup-warning")).toHaveTextContent("CONTAINS_CYCLE_DETECTED");
+  });
+});
+
+describe("Thread — resource-focus section", () => {
+  const FOCUS_DATA: ThreadResourceFocusData = {
+    threadId: 1,
+    resources: [
+      {
+        resource: { id: 10, name: "노트북", kind: "item", sourcePersonId: null, note: null, createdAt: null },
+        sourcePerson: null,
+        links: [
+          { targetType: "event", targetId: 10, firmness: "hard", reason: "발표 때 필요" }
+        ]
+      },
+      {
+        resource: { id: 11, name: "충전기", kind: "item", sourcePersonId: null, note: null, createdAt: null },
+        sourcePerson: null,
+        links: [
+          { targetType: "task", targetId: 20, firmness: "soft", reason: null }
+        ]
+      }
+    ]
+  };
+
+  it("fetches resource-focus endpoint alongside thread detail", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: FOCUS_DATA }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: { thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP } }, url));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByTestId("resource-focus")).toBeInTheDocument());
+    const calledUrls = fetchMock.mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(calledUrls.some((u) => u.includes("resource-focus"))).toBe(true);
+  });
+
+  it("hides resource-focus section when no resources are linked", async () => {
+    mockFetch({ thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 } }, EMPTY_FOCUS);
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByTestId("thread-relations")).toBeInTheDocument());
+    expect(screen.queryByTestId("resource-focus")).not.toBeInTheDocument();
+  });
+
+  it("renders resource chips for each linked resource", async () => {
+    mockFetch({ thread: BASE_THREAD, events: [BASE_EVENT], tasks: [BASE_TASK], progress: { done: 0, total: 2 } }, FOCUS_DATA);
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByTestId("resource-focus")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "노트북" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "충전기" })).toBeInTheDocument();
+  });
+
+  it("selecting a resource chip highlights linked event and dims unrelated task", async () => {
+    mockFetch({ thread: BASE_THREAD, events: [BASE_EVENT], tasks: [BASE_TASK], progress: { done: 0, total: 2 } }, FOCUS_DATA);
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "노트북" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "노트북" }));
+    // Event 10 is linked to 노트북 → resource-highlight
+    const eventNode = document.querySelector(`[data-event-id="10"]`);
+    expect(eventNode?.className).toContain("resource-highlight");
+    // Task 20 is NOT linked to 노트북 → resource-dimmed
+    const taskNode = document.querySelector(`[data-task-id="20"]`);
+    expect(taskNode?.className).toContain("resource-dimmed");
+  });
+
+  it("clicking active chip again deselects it and removes all highlight/dim", async () => {
+    mockFetch({ thread: BASE_THREAD, events: [BASE_EVENT], tasks: [BASE_TASK], progress: { done: 0, total: 2 } }, FOCUS_DATA);
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "노트북" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "노트북" }));
+    fireEvent.click(screen.getByRole("button", { name: "노트북" }));
+    const eventNode = document.querySelector(`[data-event-id="10"]`);
+    expect(eventNode?.className).not.toContain("resource-highlight");
+    expect(eventNode?.className).not.toContain("resource-dimmed");
+  });
+
+  it("focus fetch failure leaves thread detail usable", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+      if (url.includes("resource-focus")) return Promise.reject(new Error("network error"));
+      return Promise.resolve(makeResponse({ ok: true, data: { thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP } }, url));
+    }));
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "프로젝트 알파" })).toBeInTheDocument());
+    expect(screen.queryByTestId("resource-focus")).not.toBeInTheDocument();
+  });
+
+  it("firmness is visible in resource detail", async () => {
+    mockFetch({ thread: BASE_THREAD, events: [BASE_EVENT], tasks: [BASE_TASK], progress: { done: 0, total: 2 } }, FOCUS_DATA);
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "노트북" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "노트북" }));
+    await waitFor(() => expect(screen.getByTestId("resource-detail")).toBeInTheDocument());
+    expect(screen.getByText("확정")).toBeInTheDocument();
   });
 });
 
