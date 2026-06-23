@@ -92,6 +92,53 @@ describe("GET /api/mirror/diary", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  // ISSUE-1 fix: one-bound resolved range must still be capped at 90 days.
+  it("returns 400 when only from is provided and resolved range exceeds 90 days", async () => {
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/mirror/diary?from=2020-01-01"
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 200 when only from is provided and resolved range is within 90 days", async () => {
+    const app = buildServer(conn.db);
+    // from = today-29d → resolved range = 29 days (safe)
+    const today = new Date();
+    const from = new Date(today.getTime() - 29 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/mirror/diary?from=${from}`
+    });
+    expect(res.statusCode).toBe(200);
+    expect(Array.isArray(res.json().data.days)).toBe(true);
+  });
+
+  it("returns 400 when only to is provided and resolved range exceeds 90 days (to is far in the past)", async () => {
+    const app = buildServer(conn.db);
+    // to=2020-01-01 → from defaults to today-29d ≫ to, diff < 0 → 400
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/mirror/diary?to=2020-01-01"
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 200 for exactly 89-day diff (90 inclusive days) with both bounds", async () => {
+    const app = buildServer(conn.db);
+    // 2026-01-01 to 2026-03-31: diff = 89
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/mirror/diary?from=2026-01-01&to=2026-03-31"
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
   it("returns diary day with entries from real DB annotations joined to events", async () => {
     const app = buildServer(conn.db);
     const evtId = insertEvent(conn, { title: "팀 회의" });

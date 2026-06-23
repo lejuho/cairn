@@ -119,6 +119,17 @@ export function registerMirrorRoutes(app: FastifyInstance, db: CairnDatabase): v
     const from = parsed.data.from ?? dateSubtractDays(today, 29);
     const to = parsed.data.to ?? today;
 
+    // Re-validate resolved range (schema only checks both-bound cases).
+    const fromMs = Date.parse(`${from}T00:00:00Z`);
+    const toMs = Date.parse(`${to}T00:00:00Z`);
+    const diff = (toMs - fromMs) / 86_400_000;
+    if (diff < 0 || diff > 89) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "VALIDATION_ERROR", message: "range must not exceed 90 days" }
+      });
+    }
+
     const rows = findAllOutcomeAnnotations(db);
     const data = buildMirrorDiary(rows, { from, to });
     return reply.send({ ok: true, data });
