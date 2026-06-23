@@ -1,10 +1,13 @@
 import type { FastifyInstance } from "fastify";
-import { CreateResourceLinkRequestSchema, CreateResourceRequestSchema } from "@cairn/shared";
+import { ApprovePromotionRequestSchema, CreateResourceLinkRequestSchema, CreateResourceRequestSchema } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import {
+  approvePromotion,
   createResource,
   createResourceLinkIdempotent,
   eventExists,
+  findAllResourceLinksForSuppression,
+  findCandidateSources,
   findResourceById,
   findThreadResourceFocus,
   listResources,
@@ -12,6 +15,10 @@ import {
   taskExists,
   threadExists
 } from "../repositories/resources.js";
+import {
+  buildPromotionSuggestions,
+  checkPromotionStaleness
+} from "../services/resource-promotions.js";
 
 export function registerResourceRoutes(app: FastifyInstance, db: CairnDatabase): void {
   app.post("/api/resources", async (req, reply) => {
@@ -123,5 +130,96 @@ export function registerResourceRoutes(app: FastifyInstance, db: CairnDatabase):
 
     const data = findThreadResourceFocus(db, rawId);
     return reply.send({ ok: true, data });
+  });
+
+  app.get("/api/resources/promotion-suggestions", async (req, reply) => {
+    const rawThreadId = (req.query as { threadId?: string }).threadId;
+    let threadId: number | undefined;
+    if (rawThreadId != null) {
+      threadId = Number(rawThreadId);
+      if (!Number.isInteger(threadId) || threadId <= 0) {
+        return reply.code(400).send({
+          ok: false,
+          error: { code: "VALIDATION_ERROR", message: "threadId must be a positive integer" }
+        });
+      }
+      if (!threadExists(db, threadId)) {
+        return reply.code(404).send({
+          ok: false,
+          error: { code: "NOT_FOUND", message: "thread not found" }
+        });
+      }
+    }
+
+    const nodes = findCandidateSources(db, threadId);
+    const existingLinks = findAllResourceLinksForSuppression(db);
+    const suggestions = buildPromotionSuggestions(nodes, existingLinks);
+
+    return reply.send({ ok: true, data: { suggestions } });
+  });
+
+  app.post("/api/resources/promotion-suggestions/approve", async (req, reply) => {
+    const parsed = ApprovePromotionRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "VALIDATION_ERROR", message: parsed.error.message }
+      });
+    }
+
+    const { candidateKey, name, kind, occurrences, sourcePersonId, note } = parsed.data;
+
+    if (sourcePersonId != null && !personExists(db, sourcePersonId)) {
+      return reply.code(404).send({
+        ok: false,
+        error: { code: "SOURCE_PERSON_NOT_FOUND", message: "source person not found" }
+      });
+    }
+
+    // Recompute suggestions and stale-check inside transaction.
+    // We re-read sources before the transaction to build the recomputed set.
+    const nodes = findCandidateSources(db);
+    const existingLinks = findAllResourceLinksForSuppression(db);
+    const recomputed = buildPromotionSuggestions(nodes, existingLinks);
+
+    const staleError = checkPromotionStaleness({ candidateKey, name, kind, occurrences }, recomputed);
+    if (staleError === "PROMOTION_NOT_ELIGIBLE") {
+      return reply.code(409).send({
+        ok: false,
+        error: { code: "PROMOTION_NOT_ELIGIBLE", message: "candidate is no longer eligible (fewer than 2 distinct nodes)" }
+      });
+    }
+    if (staleError === "PROMOTION_STALE") {
+      return reply.code(409).send({
+        ok: false,
+        error: { code: "PROMOTION_STALE", message: "candidate key no longer matches current suggestions" }
+      });
+    }
+
+    // Validate all occurrence targets exist.
+    for (const occ of occurrences) {
+      const exists =
+        occ.targetType === "event"
+          ? eventExists(db, occ.targetId)
+          : occ.targetType === "task"
+            ? taskExists(db, occ.targetId)
+            : threadExists(db, occ.targetId);
+      if (!exists) {
+        return reply.code(400).send({
+          ok: false,
+          error: { code: "VALIDATION_ERROR", message: `${occ.targetType} ${occ.targetId} not found` }
+        });
+      }
+    }
+
+    const result = approvePromotion(db, {
+      name,
+      kind,
+      occurrences,
+      sourcePersonId: sourcePersonId ?? null,
+      note: note ?? null
+    });
+
+    return reply.code(201).send({ ok: true, data: result });
   });
 }

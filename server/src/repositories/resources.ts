@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, or } from "drizzle-orm";
 import type {
+  PromotionOccurrence,
   ResourceFirmness,
   ResourceKind,
   ResourceRow,
@@ -9,6 +10,7 @@ import type {
 } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import { events, people, resourceLinks, resources, tasks, threads } from "../db/schema.js";
+import type { CandidateSourceNode, ExistingLinkEntry } from "../services/resource-promotions.js";
 
 function mapResource(r: {
   id: number;
@@ -203,4 +205,195 @@ export function findThreadResourceFocus(
   }));
 
   return { threadId, resources: items };
+}
+
+// --- Promotion suggestion sources ---
+
+// Returns candidate source nodes for extraction.
+// If threadId is provided, scopes to that thread's events/tasks/thread itself.
+export function findCandidateSources(
+  db: CairnDatabase,
+  threadId?: number
+): CandidateSourceNode[] {
+  const nodes: CandidateSourceNode[] = [];
+
+  if (threadId != null) {
+    // Thread itself
+    const threadRow = db
+      .select({ id: threads.id, name: threads.name, goal: threads.goal })
+      .from(threads)
+      .where(eq(threads.id, threadId))
+      .get();
+    if (threadRow) {
+      nodes.push({
+        targetType: "thread",
+        targetId: threadRow.id,
+        fields: [threadRow.name ?? "", threadRow.goal ?? ""]
+      });
+    }
+
+    // Thread events
+    const eventRows = db
+      .select({ id: events.id, title: events.title, location: events.location })
+      .from(events)
+      .where(eq(events.threadId, threadId))
+      .all();
+    for (const e of eventRows) {
+      nodes.push({
+        targetType: "event",
+        targetId: e.id,
+        fields: [e.title ?? "", e.location ?? ""]
+      });
+    }
+
+    // Thread tasks
+    const taskRows = db
+      .select({ id: tasks.id, title: tasks.title, context: tasks.context })
+      .from(tasks)
+      .where(eq(tasks.threadId, threadId))
+      .all();
+    for (const t of taskRows) {
+      nodes.push({
+        targetType: "task",
+        targetId: t.id,
+        fields: [t.title ?? "", t.context ?? ""]
+      });
+    }
+  } else {
+    // All threads
+    const threadRows = db
+      .select({ id: threads.id, name: threads.name, goal: threads.goal })
+      .from(threads)
+      .all();
+    for (const t of threadRows) {
+      nodes.push({
+        targetType: "thread",
+        targetId: t.id,
+        fields: [t.name ?? "", t.goal ?? ""]
+      });
+    }
+
+    // All events
+    const eventRows = db
+      .select({ id: events.id, title: events.title, location: events.location })
+      .from(events)
+      .all();
+    for (const e of eventRows) {
+      nodes.push({
+        targetType: "event",
+        targetId: e.id,
+        fields: [e.title ?? "", e.location ?? ""]
+      });
+    }
+
+    // All tasks
+    const taskRows = db
+      .select({ id: tasks.id, title: tasks.title, context: tasks.context })
+      .from(tasks)
+      .all();
+    for (const t of taskRows) {
+      nodes.push({
+        targetType: "task",
+        targetId: t.id,
+        fields: [t.title ?? "", t.context ?? ""]
+      });
+    }
+  }
+
+  return nodes;
+}
+
+// Returns all resource_links joined to resource name+kind for suppression.
+export function findAllResourceLinksForSuppression(db: CairnDatabase): ExistingLinkEntry[] {
+  const rows = db
+    .select({
+      resourceName: resources.name,
+      resourceKind: resources.kind,
+      targetType: resourceLinks.targetType,
+      targetId: resourceLinks.targetId
+    })
+    .from(resourceLinks)
+    .innerJoin(resources, eq(resourceLinks.resourceId, resources.id))
+    .all();
+  return rows.map((r) => ({
+    resourceName: r.resourceName,
+    resourceKind: r.resourceKind as ResourceKind,
+    targetType: r.targetType as ResourceTargetType,
+    targetId: r.targetId
+  }));
+}
+
+// Find an existing resource by exact name+kind (for reuse on approval).
+export function findResourceByNameAndKind(
+  db: CairnDatabase,
+  name: string,
+  kind: ResourceKind
+): ResourceRow | undefined {
+  const row = db
+    .select()
+    .from(resources)
+    .where(and(eq(resources.name, name), eq(resources.kind, kind)))
+    .get();
+  return row ? mapResource(row) : undefined;
+}
+
+// Approve promotion: find-or-create resource, then idempotently create links.
+// Runs entirely inside a transaction with re-validated stale check.
+export function approvePromotion(
+  db: CairnDatabase,
+  input: {
+    name: string;
+    kind: ResourceKind;
+    occurrences: PromotionOccurrence[];
+    sourcePersonId?: number | null;
+    note?: string | null;
+  }
+): { resource: ResourceRow; links: { targetType: ResourceTargetType; targetId: number }[]; reusedResource: boolean } {
+  return db.transaction((tx) => {
+    // Find-or-create resource.
+    let existing = tx
+      .select()
+      .from(resources)
+      .where(and(eq(resources.name, input.name), eq(resources.kind, input.kind)))
+      .get();
+
+    const reusedResource = !!existing;
+
+    if (!existing) {
+      existing = tx
+        .insert(resources)
+        .values({
+          name: input.name,
+          kind: input.kind,
+          sourcePersonId: input.sourcePersonId ?? null,
+          note: input.note ?? null
+        })
+        .returning()
+        .get();
+    }
+
+    const resourceId = existing.id;
+
+    // Idempotently create links for each occurrence.
+    for (const occ of input.occurrences) {
+      const reason = `repeated mention in ${occ.targetType} ${occ.targetId}`;
+      tx
+        .insert(resourceLinks)
+        .values({
+          resourceId,
+          targetType: occ.targetType,
+          targetId: occ.targetId,
+          firmness: "tentative",
+          reason
+        })
+        .onConflictDoNothing()
+        .run();
+    }
+
+    return {
+      resource: mapResource(existing),
+      links: input.occurrences.map((o) => ({ targetType: o.targetType, targetId: o.targetId })),
+      reusedResource
+    };
+  });
 }

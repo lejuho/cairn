@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { ResourceRow } from "./resources.js";
 import {
+  ApprovePromotionRequestSchema,
   CreateResourceLinkRequestSchema,
   CreateResourceRequestSchema,
+  PromotionSuggestionSchema,
   ResourceLinkRowSchema,
   ResourceRowSchema,
   ThreadResourceFocusDataSchema
@@ -180,5 +182,83 @@ describe("ThreadResourceFocusDataSchema", () => {
       ]
     };
     expect(ThreadResourceFocusDataSchema.safeParse(data).success).toBe(true);
+  });
+});
+
+describe("PromotionSuggestionSchema", () => {
+  const VALID: object = {
+    candidateKey: "노트북::item::event:1,task:2",
+    name: "노트북",
+    kind: "item",
+    occurrenceCount: 2,
+    occurrences: [
+      { targetType: "event", targetId: 1 },
+      { targetType: "task", targetId: 2 }
+    ]
+  };
+
+  it("accepts valid suggestion", () => {
+    expect(PromotionSuggestionSchema.safeParse(VALID).success).toBe(true);
+  });
+
+  it("accepts with optional existingResourceId", () => {
+    expect(PromotionSuggestionSchema.safeParse({ ...VALID, existingResourceId: 5 }).success).toBe(true);
+  });
+
+  it("rejects injected score field (strict)", () => {
+    expect(PromotionSuggestionSchema.safeParse({ ...VALID, score: 9 }).success).toBe(false);
+  });
+
+  it("rejects injected recommendation field (strict)", () => {
+    expect(PromotionSuggestionSchema.safeParse({ ...VALID, recommendation: "yes" }).success).toBe(false);
+  });
+});
+
+describe("ApprovePromotionRequestSchema", () => {
+  const VALID_APPROVE: object = {
+    candidateKey: "노트북::item::event:1,task:2",
+    name: "노트북",
+    kind: "item",
+    occurrences: [
+      { targetType: "event", targetId: 1 },
+      { targetType: "task", targetId: 2 }
+    ]
+  };
+
+  it("accepts valid approve request", () => {
+    expect(ApprovePromotionRequestSchema.safeParse(VALID_APPROVE).success).toBe(true);
+  });
+
+  it("rejects fewer than two occurrences", () => {
+    expect(ApprovePromotionRequestSchema.safeParse({
+      ...VALID_APPROVE,
+      occurrences: [{ targetType: "event", targetId: 1 }]
+    }).success).toBe(false);
+  });
+
+  it("rejects empty name", () => {
+    expect(ApprovePromotionRequestSchema.safeParse({ ...VALID_APPROVE, name: "" }).success).toBe(false);
+  });
+
+  it("rejects empty candidateKey", () => {
+    expect(ApprovePromotionRequestSchema.safeParse({ ...VALID_APPROVE, candidateKey: "" }).success).toBe(false);
+  });
+
+  it("rejects invalid kind", () => {
+    expect(ApprovePromotionRequestSchema.safeParse({ ...VALID_APPROVE, kind: "tool" }).success).toBe(false);
+  });
+
+  it("rejects injected stale fields (strict)", () => {
+    expect(ApprovePromotionRequestSchema.safeParse({ ...VALID_APPROVE, score: 9 }).success).toBe(false);
+  });
+
+  it("rejects invalid occurrence targetType", () => {
+    expect(ApprovePromotionRequestSchema.safeParse({
+      ...VALID_APPROVE,
+      occurrences: [
+        { targetType: "person", targetId: 1 },
+        { targetType: "event", targetId: 2 }
+      ]
+    }).success).toBe(false);
   });
 });

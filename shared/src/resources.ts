@@ -76,6 +76,43 @@ export const ThreadResourceFocusDataSchema = z
   })
   .strict();
 
+// Promotion suggestion schemas (cycle-39 FR-XREL-01 slice A)
+
+export const PromotionOccurrenceSchema = z
+  .object({
+    targetType: ResourceTargetTypeSchema,
+    targetId: z.number().int().positive()
+  })
+  .strict();
+
+export const PromotionSuggestionSchema = z
+  .object({
+    candidateKey: z.string(),
+    name: z.string(),
+    kind: ResourceKindSchema,
+    occurrenceCount: z.number().int().nonnegative(),
+    occurrences: z.array(PromotionOccurrenceSchema),
+    existingResourceId: z.number().int().positive().optional()
+  })
+  .strict();
+
+export const PromotionSuggestionsDataSchema = z
+  .object({
+    suggestions: z.array(PromotionSuggestionSchema)
+  })
+  .strict();
+
+export const ApprovePromotionRequestSchema = z
+  .object({
+    candidateKey: z.string().min(1),
+    name: z.string().min(1).max(120),
+    kind: ResourceKindSchema,
+    occurrences: z.array(PromotionOccurrenceSchema).min(2),
+    sourcePersonId: z.number().int().positive().nullable().optional(),
+    note: z.string().max(500).nullable().optional()
+  })
+  .strict();
+
 export type ResourceKind = z.infer<typeof ResourceKindSchema>;
 export type ResourceTargetType = z.infer<typeof ResourceTargetTypeSchema>;
 export type ResourceFirmness = z.infer<typeof ResourceFirmnessSchema>;
@@ -85,3 +122,7 @@ export type CreateResourceRequest = z.infer<typeof CreateResourceRequestSchema>;
 export type CreateResourceLinkRequest = z.infer<typeof CreateResourceLinkRequestSchema>;
 export type ThreadResourceFocusItem = z.infer<typeof ThreadResourceFocusItemSchema>;
 export type ThreadResourceFocusData = z.infer<typeof ThreadResourceFocusDataSchema>;
+export type PromotionOccurrence = z.infer<typeof PromotionOccurrenceSchema>;
+export type PromotionSuggestion = z.infer<typeof PromotionSuggestionSchema>;
+export type PromotionSuggestionsData = z.infer<typeof PromotionSuggestionsDataSchema>;
+export type ApprovePromotionRequest = z.infer<typeof ApprovePromotionRequestSchema>;
