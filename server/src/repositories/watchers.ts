@@ -1,7 +1,18 @@
 import { eq, inArray } from "drizzle-orm";
-import type { CreateReversePlanWatcherRequest, CreateWatcherRequest, ReversePlanData, ReversePlanView, WatcherRow } from "@cairn/shared";
+import type {
+  CreateManualExogenousWatcherRequest,
+  CreateReversePlanWatcherRequest,
+  CreateWatcherManualLogRequest,
+  CreateWatcherRequest,
+  ManualExogenousRule,
+  ReversePlanData,
+  ReversePlanView,
+  WatcherLogSummary,
+  WatcherManualLog,
+  WatcherRow
+} from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
-import { links, tasks, watchers } from "../db/schema.js";
+import { links, tasks, watcherLogs, watchers } from "../db/schema.js";
 import { computeReversePlan } from "../services/watcher-reverse-plan.js";
 
 export function createWatcher(
@@ -236,4 +247,160 @@ export function findTaskStatusesByIds(
     if (r.status != null) map.set(r.id, r.status);
   }
   return map;
+}
+
+// Creates a manual-exogenous (kind=B) watcher. Returns the watcher row + the
+// parsed rule for the caller to confirm round-trip fidelity.
+export function createManualExogenousWatcher(
+  db: CairnDatabase,
+  input: CreateManualExogenousWatcherRequest
+): { watcher: WatcherRow; manualExogenous: ManualExogenousRule } {
+  const rule: ManualExogenousRule = {
+    type: "manual_exogenous",
+    sourceLabel: input.sourceLabel ?? null,
+    sourceUrl: input.sourceUrl ?? null,
+    sourceStability: input.sourceStability
+  };
+  const [row] = db
+    .insert(watchers)
+    .values({
+      label: input.label,
+      category: input.category ?? null,
+      kind: "B",
+      armed: 1,
+      rule: JSON.stringify(rule),
+      threshold: null
+    })
+    .returning()
+    .all();
+  return { watcher: row as WatcherRow, manualExogenous: rule };
+}
+
+export type InsertWatcherLogResult = {
+  log: WatcherManualLog;
+  summary: WatcherLogSummary;
+};
+
+// Inserts a watcher log inside a transaction. Throws with code-tagged messages
+// for NOT_FOUND and WRONG_WATCHER_TYPE so the route can map them cleanly.
+export function insertWatcherLog(
+  db: CairnDatabase,
+  watcherId: number,
+  input: CreateWatcherManualLogRequest
+): InsertWatcherLogResult {
+  return db.transaction((tx) => {
+    const [watcherRow] = tx
+      .select({ id: watchers.id, rule: watchers.rule })
+      .from(watchers)
+      .where(eq(watchers.id, watcherId))
+      .all();
+
+    if (!watcherRow) throw Object.assign(new Error(`watcher ${watcherId} not found`), { code: "NOT_FOUND" });
+
+    let parsed: unknown;
+    try { parsed = JSON.parse(watcherRow.rule ?? "{}"); } catch { parsed = {}; }
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      (parsed as Record<string, unknown>).type !== "manual_exogenous"
+    ) {
+      throw Object.assign(new Error(`watcher ${watcherId} is not manual_exogenous`), { code: "WRONG_WATCHER_TYPE" });
+    }
+
+    const [logRow] = tx
+      .insert(watcherLogs)
+      .values({
+        watcherId,
+        outcome: input.outcome,
+        observedAt: input.observedAt,
+        note: input.note ?? null
+      })
+      .returning()
+      .all();
+
+    const log = logRow as WatcherManualLog;
+
+    // Build 30-day summary for response
+    const cutoff = new Date(Date.parse(input.observedAt) - 30 * 86_400_000).toISOString().slice(0, 10);
+    const allLogs = tx
+      .select({ outcome: watcherLogs.outcome, observedAt: watcherLogs.observedAt })
+      .from(watcherLogs)
+      .where(eq(watcherLogs.watcherId, watcherId))
+      .all()
+      .filter((r) => (r.observedAt ?? "") >= cutoff);
+
+    const summary: WatcherLogSummary = {
+      windowDays: 30,
+      manualLogCount: allLogs.length,
+      signalSeenCount: allLogs.filter((r) => r.outcome === "signal_seen").length,
+      missedSignalCount: allLogs.filter((r) => r.outcome === "missed_signal").length,
+      checkedNoSignalCount: allLogs.filter((r) => r.outcome === "checked_no_signal").length,
+      lastOutcome: (log.outcome ?? null) as WatcherLogSummary["lastOutcome"],
+      lastObservedAt: log.observedAt ?? null
+    };
+
+    return { log, summary };
+  });
+}
+
+export type WatcherLogRow = {
+  watcherId: number;
+  outcome: string;
+  observedAt: string;
+};
+
+// Fetches log rows for a set of watcher IDs within [from, to] date range (inclusive).
+// Date comparison uses observedAt.slice(0,10) = YYYY-MM-DD portion.
+export function findWatcherLogsInRange(
+  db: CairnDatabase,
+  watcherIds: number[],
+  from: string,
+  to: string
+): WatcherLogRow[] {
+  if (watcherIds.length === 0) return [];
+  return db
+    .select({ watcherId: watcherLogs.watcherId, outcome: watcherLogs.outcome, observedAt: watcherLogs.observedAt })
+    .from(watcherLogs)
+    .all()
+    .filter(
+      (r) =>
+        r.watcherId !== null &&
+        watcherIds.includes(r.watcherId) &&
+        r.observedAt !== null &&
+        r.observedAt.slice(0, 10) >= from &&
+        r.observedAt.slice(0, 10) <= to
+    ) as WatcherLogRow[];
+}
+
+// Returns a 30-day summary anchored to the given cutoffDate (YYYY-MM-DD, inclusive lower bound).
+// Caller is responsible for computing cutoffDate from the request's date/now anchor so the
+// result is deterministic and does not drift with wall-clock time.
+export function findWatcherLogSummary(
+  db: CairnDatabase,
+  watcherId: number,
+  cutoffDate: string,
+  windowDays = 30
+): WatcherLogSummary {
+  const cutoff = cutoffDate;
+  const rows = db
+    .select({ outcome: watcherLogs.outcome, observedAt: watcherLogs.observedAt })
+    .from(watcherLogs)
+    .where(eq(watcherLogs.watcherId, watcherId))
+    .all()
+    .filter((r) => (r.observedAt ?? "").slice(0, 10) >= cutoff);
+
+  const sorted = [...rows].sort((a, b) =>
+    (b.observedAt ?? "").localeCompare(a.observedAt ?? "")
+  );
+  const last = sorted[0];
+
+  return {
+    windowDays,
+    manualLogCount: rows.length,
+    signalSeenCount: rows.filter((r) => r.outcome === "signal_seen").length,
+    missedSignalCount: rows.filter((r) => r.outcome === "missed_signal").length,
+    checkedNoSignalCount: rows.filter((r) => r.outcome === "checked_no_signal").length,
+    lastOutcome: (last?.outcome ?? null) as WatcherLogSummary["lastOutcome"],
+    lastObservedAt: last?.observedAt ?? null
+  };
 }

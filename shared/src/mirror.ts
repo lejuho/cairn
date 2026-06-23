@@ -236,3 +236,46 @@ export type MirrorEnergyTrendQuery = z.infer<typeof MirrorEnergyTrendQuerySchema
 export type MirrorEnergyTrendDay = z.infer<typeof MirrorEnergyTrendDaySchema>;
 export type MirrorEnergyTrendSummary = z.infer<typeof MirrorEnergyTrendSummarySchema>;
 export type MirrorEnergyTrendData = z.infer<typeof MirrorEnergyTrendDataSchema>;
+
+// ── Automation-needs schemas ──────────────────────────────────────────────────
+
+export const MirrorAutomationNeedsQuerySchema = MirrorRangeQuerySchema.refine(
+  (q) => q.from == null || q.to == null || q.from <= q.to,
+  { message: "from must be <= to", path: ["from"] }
+).refine(
+  (q) => {
+    if (q.from == null || q.to == null) return true;
+    const fromMs = Date.parse(`${q.from}T00:00:00Z`);
+    const toMs = Date.parse(`${q.to}T00:00:00Z`);
+    return (toMs - fromMs) / 86_400_000 <= 89;
+  },
+  { message: "range must not exceed 90 days", path: ["from"] }
+);
+
+export const AUTOMATION_NEED_LEVELS = ["quiet", "watch", "consider_lightweight"] as const;
+export const AutomationNeedLevelSchema = z.enum(AUTOMATION_NEED_LEVELS);
+
+export const MirrorAutomationNeedItemSchema = z.object({
+  watcherId: z.number(),
+  label: z.string().nullable(),
+  category: z.string().nullable(),
+  sourceStability: z.string(),
+  manualLogCount: z.number().int().nonnegative(),
+  signalSeenCount: z.number().int().nonnegative(),
+  missedSignalCount: z.number().int().nonnegative(),
+  missRate: z.number().min(0).max(1),
+  level: AutomationNeedLevelSchema,
+  reasonCodes: z.array(z.string()),
+  reasons: z.array(z.string())
+}).strict();
+
+export const MirrorAutomationNeedsDataSchema = z.object({
+  range: MirrorLedgerRangeSchema,
+  items: z.array(MirrorAutomationNeedItemSchema),
+  sampleStatus: MirrorSampleStatusSchema
+});
+
+export type MirrorAutomationNeedsQuery = z.infer<typeof MirrorAutomationNeedsQuerySchema>;
+export type AutomationNeedLevel = z.infer<typeof AutomationNeedLevelSchema>;
+export type MirrorAutomationNeedItem = z.infer<typeof MirrorAutomationNeedItemSchema>;
+export type MirrorAutomationNeedsData = z.infer<typeof MirrorAutomationNeedsDataSchema>;

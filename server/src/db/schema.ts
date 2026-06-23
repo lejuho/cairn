@@ -24,6 +24,7 @@ const LINK_SOURCES = ["given", "authored", "inferred"] as const;
 const LINK_KINDS = ["blocks", "requires", "triggers", "caused_by", "follows"] as const;
 const THREAD_LINK_KINDS = ["contains", "blocks", "feeds", "competes", "shares"] as const;
 const WATCHER_KINDS = ["A", "B"] as const;
+const WATCHER_LOG_OUTCOMES = ["checked_no_signal", "signal_seen", "missed_signal"] as const;
 
 const enumSqlList = (values: readonly string[]) =>
   sql.raw(values.map((value) => `'${value}'`).join(", "));
@@ -209,6 +210,24 @@ export const watchers = sqliteTable(
   (table) => [
     check("watchers_kind_check", sql`${table.kind} in (${enumSqlList(WATCHER_KINDS)})`),
     check("watchers_armed_check", sql`${table.armed} in (0, 1)`)
+  ]
+);
+
+export const watcherLogs = sqliteTable(
+  "watcher_logs",
+  {
+    id: integer("id").primaryKey(),
+    watcherId: integer("watcher_id").references(() => watchers.id),
+    outcome: text("outcome"),
+    observedAt: text("observed_at"),
+    note: text("note"),
+    createdAt: text("created_at").default(sql`(datetime('now'))`)
+  },
+  (table) => [
+    check(
+      "watcher_logs_outcome_check",
+      sql`${table.outcome} in (${enumSqlList(WATCHER_LOG_OUTCOMES)})`
+    )
   ]
 );
 

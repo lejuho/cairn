@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import type {
+  MirrorAutomationNeedsData,
+  MirrorAutomationNeedItem,
   MirrorEnergyTrendData,
   MirrorEnergyTrendDay,
   MirrorLedgerData,
@@ -10,7 +12,7 @@ import type {
 } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
 
-type MirrorData = { ledger: MirrorLedgerData; patterns: MirrorPatternsData; energy: MirrorEnergyTrendData };
+type MirrorData = { ledger: MirrorLedgerData; patterns: MirrorPatternsData; energy: MirrorEnergyTrendData; automationNeeds: MirrorAutomationNeedsData | null };
 
 type ViewState =
   | { tag: "loading" }
@@ -20,15 +22,23 @@ type ViewState =
   | { tag: "access_session_required" };
 
 async function loadMirrorData(): Promise<MirrorData> {
-  const [ledgerBody, patternsBody, energyBody] = await Promise.all([
+  const [ledgerBody, patternsBody, energyBody, automationBody] = await Promise.all([
     apiJson<{ ok: boolean; data?: MirrorLedgerData; error?: { message: string } }>("/api/mirror/ledger"),
     apiJson<{ ok: boolean; data?: MirrorPatternsData; error?: { message: string } }>("/api/mirror/patterns"),
-    apiJson<{ ok: boolean; data?: MirrorEnergyTrendData; error?: { message: string } }>("/api/mirror/energy-trends")
+    apiJson<{ ok: boolean; data?: MirrorEnergyTrendData; error?: { message: string } }>("/api/mirror/energy-trends"),
+    apiJson<{ ok: boolean; data?: MirrorAutomationNeedsData; error?: { message: string } }>("/api/mirror/automation-needs").catch(() => ({ ok: false as const, data: undefined }))
   ]);
   if (!ledgerBody.ok) throw new Error(ledgerBody.error?.message ?? "알 수 없는 오류");
   if (!patternsBody.ok) throw new Error(patternsBody.error?.message ?? "알 수 없는 오류");
   if (!energyBody.ok) throw new Error(energyBody.error?.message ?? "알 수 없는 오류");
-  return { ledger: ledgerBody.data!, patterns: patternsBody.data!, energy: energyBody.data! };
+  return {
+    ledger: ledgerBody.data!,
+    patterns: patternsBody.data!,
+    energy: energyBody.data!,
+    automationNeeds: (automationBody.ok && Array.isArray((automationBody.data as MirrorAutomationNeedsData | undefined)?.items))
+      ? (automationBody.data as MirrorAutomationNeedsData)
+      : null
+  };
 }
 
 const OUTCOME_LABEL: Record<MirrorLedgerEntry["outcome"], string> = {
@@ -52,9 +62,13 @@ export function MirrorLedger() {
     loadMirrorData()
       .then((data) => {
         if (cancelled) return;
+        const hasActionableAutomation = data.automationNeeds?.items.some(
+          (i) => i.level !== "quiet"
+        ) ?? false;
         const isEmpty =
           data.patterns.totals.annotations === 0 &&
-          data.energy.summary.scheduledDays === 0;
+          data.energy.summary.scheduledDays === 0 &&
+          !hasActionableAutomation;
         setView(isEmpty ? { tag: "quiet", data } : { tag: "live", data });
       })
       .catch((e: unknown) => {
@@ -109,6 +123,7 @@ export function MirrorLedger() {
   }
 
   if (view.tag === "quiet") {
+    const { automationNeeds } = view.data;
     return (
       <main className="app-shell" aria-labelledby="mirror-title" data-testid="mirror-quiet">
         <section className="quiet-card warm">
@@ -117,12 +132,15 @@ export function MirrorLedger() {
           <h1 id="mirror-title">아직 기록된 이동/취소 원장이 없어</h1>
           <p>결정에 기록을 남기면 여기서 지난 이동과 취소를 그대로 비춰줄게.</p>
         </section>
+        {automationNeeds && automationNeeds.items.length > 0 && (
+          <MirrorAutomationNeeds data={automationNeeds} />
+        )}
       </main>
     );
   }
 
   const { data } = view;
-  const { ledger, patterns, energy } = data;
+  const { ledger, patterns, energy, automationNeeds } = data;
   return (
     <main className="app-shell today-live" aria-labelledby="mirror-title">
       <header style={{ width: "min(100%, 480px)", marginBottom: "12px" }}>
@@ -135,6 +153,9 @@ export function MirrorLedger() {
 
       <MirrorEnergyTrend energy={energy} />
       <MirrorPatterns patterns={patterns} />
+      {automationNeeds && automationNeeds.items.length > 0 && (
+        <MirrorAutomationNeeds data={automationNeeds} />
+      )}
 
       <MirrorSummary data={ledger} />
 
@@ -279,6 +300,57 @@ function MirrorSummary({ data }: { data: MirrorLedgerData }) {
         <span className="card-chip">관계 {s.socialTotal}</span>
       </p>
     </section>
+  );
+}
+
+const LEVEL_LABEL: Record<string, string> = {
+  quiet: "이상 없음",
+  watch: "확인 권장",
+  consider_lightweight: "자동화 검토"
+};
+
+function MirrorAutomationNeeds({ data }: { data: MirrorAutomationNeedsData }) {
+  const watchOrConsider = data.items.filter((i) => i.level !== "quiet");
+  if (watchOrConsider.length === 0) return null;
+  return (
+    <section
+      data-testid="mirror-automation-needs"
+      style={{ width: "min(100%, 480px)", marginBottom: "16px" }}
+      aria-labelledby="automation-needs-heading"
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "8px" }}>
+        <h2 id="automation-needs-heading" className="watcher-section-heading" style={{ margin: 0 }}>자동화 필요 신호</h2>
+        <a href="/watch" className="thread-index-link" style={{ fontSize: "0.85rem" }}>여백 →</a>
+      </div>
+      <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "8px" }}>
+        {watchOrConsider.map((item) => (
+          <MirrorAutomationNeedCard key={item.watcherId} item={item} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function MirrorAutomationNeedCard({ item }: { item: MirrorAutomationNeedItem }) {
+  return (
+    <li className="today-card" data-level={item.level}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span className="card-title">{item.label ?? "—"}</span>
+        <span className={`card-chip automation-level--${item.level}`}>{LEVEL_LABEL[item.level] ?? item.level}</span>
+      </div>
+      {item.category && <p className="card-meta" style={{ margin: "2px 0 0", opacity: 0.7 }}>{item.category}</p>}
+      <p className="card-meta" style={{ margin: "4px 0 0", display: "flex", flexWrap: "wrap", gap: "6px" }}>
+        <span className="card-chip">확인 {item.manualLogCount}회</span>
+        {item.signalSeenCount > 0 && <span className="card-chip">신호 {item.signalSeenCount}회</span>}
+        {item.missedSignalCount > 0 && <span className="card-chip">미스 {item.missedSignalCount}회</span>}
+        <span className="card-chip">미스율 {Math.round(item.missRate * 100)}%</span>
+      </p>
+      {item.reasons.length > 0 && (
+        <ul className="automation-reasons" aria-label="분석 이유">
+          {item.reasons.map((r, i) => <li key={i}>{r}</li>)}
+        </ul>
+      )}
+    </li>
   );
 }
 

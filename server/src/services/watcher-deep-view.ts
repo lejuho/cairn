@@ -1,9 +1,10 @@
-import type { ReversePlanView, WatcherDeepRow, WatcherRow } from "@cairn/shared";
+import type { ManualExogenousView, ReversePlanView, WatcherDeepRow, WatcherLogSummary, WatcherRow } from "@cairn/shared";
 import {
   buildReversePlanView,
   effectiveReversePlanThreshold,
   parseReversePlanRule
 } from "./watcher-reverse-plan.js";
+import { buildManualExogenousView, emptyLogSummary, parseManualExogenousRule } from "./watcher-manual-exogenous.js";
 
 // parseRule and effectiveThreshold are intentionally duplicated from
 // server/src/services/watchers.ts (evaluateWatcherA). The logic must
@@ -77,10 +78,12 @@ export function buildWatcherDeepView(
   rows: WatcherRow[],
   date: string,
   now: string,
-  taskStatuses?: Map<number, string>
+  taskStatuses?: Map<number, string>,
+  logSummaries?: Map<number, WatcherLogSummary>
 ): WatcherDeepRow[] {
   const nowMs = Date.parse(now);
   const statuses = taskStatuses ?? new Map<number, string>();
+  const summaries = logSummaries ?? new Map<number, WatcherLogSummary>();
 
   const result: WatcherDeepRow[] = rows.map((row): WatcherDeepRow => {
     const armed = row.armed === 1;
@@ -92,6 +95,28 @@ export function buildWatcherDeepView(
         armed: false, threshold: row.threshold, snoozedUntil: row.snoozedUntil,
         status: "disarmed", daysOverdue: null, daysUntil: null,
         message: "비활성 watcher야", reasonCodes: ["disarmed"]
+      };
+    }
+
+    // Handle kind="B" manual-exogenous watchers
+    if (row.kind === "B") {
+      const meRule = parseManualExogenousRule(row.rule);
+      if (meRule === null) {
+        return {
+          id: row.id, category: row.category, label: row.label, kind: row.kind,
+          armed: true, threshold: null, snoozedUntil: row.snoozedUntil,
+          status: "unsupported", daysOverdue: null, daysUntil: null,
+          message: "지원되지 않는 watcher 유형이야", reasonCodes: ["unsupported_kind"]
+        };
+      }
+      const summary = summaries.get(row.id) ?? emptyLogSummary();
+      const meView: ManualExogenousView = buildManualExogenousView(meRule, summary);
+      return {
+        id: row.id, category: row.category, label: row.label, kind: row.kind,
+        armed: true, threshold: null, snoozedUntil: row.snoozedUntil,
+        status: "quiet", daysOverdue: null, daysUntil: null,
+        message: "수동 확인 watcher야", reasonCodes: ["manual_exogenous"],
+        manualExogenous: meView
       };
     }
 

@@ -15,6 +15,13 @@
       "when": 1781598793345,
       "tag": "0001_faithful_purifiers",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1782189493546,
+      "tag": "0002_outgoing_spot",
+      "breakpoints": true
     }
   ]
 }

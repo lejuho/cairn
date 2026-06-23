@@ -32,6 +32,7 @@ describe("core SQLite migration", () => {
       "tasks",
       "thread_links",
       "threads",
+      "watcher_logs",
       "watchers"
     ]);
     sqlite.close();

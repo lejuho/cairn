@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  MirrorAutomationNeedItemSchema,
   MirrorEnergyTrendDataSchema,
   MirrorEnergyTrendDaySchema,
   MirrorEnergyTrendQuerySchema,
@@ -12,6 +13,20 @@ import {
   MirrorPatternsDataSchema,
   MirrorPatternsQuerySchema
 } from "./mirror.js";
+
+const VALID_AUTOMATION_NEED_ITEM = {
+  watcherId: 7,
+  label: "전기요금",
+  category: "bill",
+  sourceStability: "stable",
+  manualLogCount: 4,
+  signalSeenCount: 10,
+  missedSignalCount: 6,
+  missRate: 0.6,
+  level: "consider_lightweight",
+  reasonCodes: ["high_miss_rate"],
+  reasons: ["놓친 신호가 많습니다"]
+};
 
 const VALID_DATA = {
   range: { from: "2026-06-01", to: "2026-06-21" },
@@ -285,5 +300,30 @@ describe("MirrorLedgerQuerySchema", () => {
 
   it("accepts a valid range", () => {
     expect(MirrorLedgerQuerySchema.safeParse({ from: "2026-06-01", to: "2026-06-21" }).success).toBe(true);
+  });
+});
+
+describe("MirrorAutomationNeedItemSchema", () => {
+  it("accepts a fully populated item", () => {
+    expect(MirrorAutomationNeedItemSchema.safeParse(VALID_AUTOMATION_NEED_ITEM).success).toBe(true);
+  });
+
+  it("rejects an item missing reasons", () => {
+    const { reasons, ...withoutReasons } = VALID_AUTOMATION_NEED_ITEM;
+    void reasons;
+    expect(MirrorAutomationNeedItemSchema.safeParse(withoutReasons).success).toBe(false);
+  });
+
+  it("rejects a non-string entry in reasons", () => {
+    expect(
+      MirrorAutomationNeedItemSchema.safeParse({ ...VALID_AUTOMATION_NEED_ITEM, reasons: [1] }).success
+    ).toBe(false);
+  });
+
+  it("rejects an injected unknown field (strict)", () => {
+    expect(
+      MirrorAutomationNeedItemSchema.safeParse({ ...VALID_AUTOMATION_NEED_ITEM, recommendation: "자동화하세요" })
+        .success
+    ).toBe(false);
   });
 });
