@@ -77,6 +77,7 @@ Data layer:
     - `people`
     - `event_people`
     - `watchers`
+    - `watcher_logs` — manual-exogenous observation logs (FK watchers.id, outcome CHECK constraint)
     - `params`
 - [server/src/db/index.ts](/home/pi/cairn/server/src/db/index.ts)
   - `better-sqlite3` connection creation.
@@ -94,11 +95,13 @@ Route layer:
 - [server/src/routes/tasks.ts](/home/pi/cairn/server/src/routes/tasks.ts)
   - Task creation and status patch APIs.
 - [server/src/routes/watchers.ts](/home/pi/cairn/server/src/routes/watchers.ts)
-  - `POST /api/watchers` — creates armed kind-A date-threshold watcher (label, threshold, optional category). Rule JSON auto-generated as `{"type":"date_threshold","fireOn":threshold}`.
-  - `POST /api/watchers/reverse-plan` — creates reverse-plan watcher with generated step tasks + `requires` links in one transaction. Body: `CreateReversePlanWatcherRequest`. Returns `{ watcher, taskIds, targetTaskId, linkIds, reversePlan }`.
-  - `PATCH /api/watchers/:id/snooze` — sets `snoozedUntil` (RFC3339 with offset). Used by Today snooze action. Returns 404 on missing id.
-  - `GET /api/watchers?date&now` — returns all watchers with derived status (due/quiet/snoozed/disarmed/unsupported). Fetches task statuses for reverse-plan rows and calls `buildWatcherDeepView`. Returns `{ ok, data: { watchers: WatcherDeepRow[] } }`.
-  - `PATCH /api/watchers/:id/armed` — toggles armed flag. Body: `{ armed: boolean }`. Returns 404 on missing id.
+  - `POST /api/watchers` — creates armed kind-A date-threshold watcher. Rule JSON auto-generated as `{"type":"date_threshold","fireOn":threshold}`.
+  - `POST /api/watchers/reverse-plan` — creates reverse-plan watcher with generated step tasks + `requires` links in one transaction. Body: `CreateReversePlanWatcherRequest`. Returns `{ watcher, tasks, targetTask, links, reversePlan }`.
+  - `POST /api/watchers/manual-exogenous` — creates armed kind-B manual-exogenous watcher. Body: `CreateManualExogenousWatcherRequest` (label, optional category/sourceLabel/sourceUrl/sourceStability). Returns `{ watcher, manualExogenous }`. 201 on success, 400 VALIDATION_ERROR.
+  - `POST /api/watchers/:id/manual-log` — records manual observation on a kind=B watcher. Body: `CreateWatcherManualLogRequest` (outcome: checked_no_signal|signal_seen|missed_signal, observedAt ISO8601, optional note). Returns 201 `{ log, summary }` (30-day summary). 404 NOT_FOUND, 409 WRONG_WATCHER_TYPE.
+  - `GET /api/watchers?date&now` — returns all watchers with derived status. kind=A: date_threshold or reverse-plan; kind=B: manual_exogenous view with 30-day log summary. Returns `{ ok, data: { watchers: WatcherDeepRow[] } }`.
+  - `PATCH /api/watchers/:id/armed` — toggles armed flag. Returns 404 on missing id.
+  - `PATCH /api/watchers/:id/snooze` — sets `snoozedUntil`. Returns 404 on missing id.
 - [server/src/routes/today.ts](/home/pi/cairn/server/src/routes/today.ts)
   - `GET /api/today`.
   - Deterministic aggregation only. No LLM dependency. Fetches task statuses for reverse-plan watchers and calls `evaluateWatcherA(rows, date, now, taskStatuses)` to produce derived `WatcherABubble[]`. Reverse-plan watchers surface when next incomplete step threshold is reached.
@@ -130,6 +133,7 @@ Route layer:
   - `GET /api/mirror/ledger?from&to` — read-only deterministic Mirror Ledger A (FR-MIR-02/04). Validates `MirrorLedgerQuerySchema` (optional `YYYY-MM-DD` from/to, from<=to), 400 `VALIDATION_ERROR` on bad/reversed dates. Resolves server-local today at the route edge (`Date.now` boundary), then calls `buildMirrorLedger`. No LLM gateway. Registered in the `if (db)` block of `app.ts`.
   - `GET /api/mirror/patterns?from&to` — read-only deterministic Mirror Pattern A (FR-MIR-01). Validates `MirrorPatternsQuerySchema` (same strict date + from<=to contract). Calls `findAllOutcomeAnnotations` (all 4 outcomes) then `buildMirrorPatterns`. Returns weekday/type/thread buckets with counts and descriptive slip ratios. No LLM gateway.
   - `GET /api/mirror/energy-trends?from&to` — read-only deterministic Mirror Energy Trend A (FR-MIR-03). Validates `MirrorEnergyTrendQuerySchema` (optional `YYYY-MM-DD` from/to, from<=to, max 90-day range). Reads DB params (energy_budget, meet_buffer, deep_buffer, travel_margin, max_continuous) via `readNumericParam`. Calls `findPlannedAndConfirmedAll` then `buildMirrorEnergyTrends`. Returns per-day energy load/deficit/continuous with summary aggregates. No LLM gateway.
+  - `GET /api/mirror/automation-needs?from&to` — deterministic automation-need level derivation for kind=B manual-exogenous watchers. Validates `MirrorAutomationNeedsQuerySchema` (optional `YYYY-MM-DD` from/to, from<=to, max 90-day range; defaults to 30-day window). Calls `findAllWatchers` + `findWatcherLogsInRange` then `buildAutomationNeeds`. Returns `{ range, items: MirrorAutomationNeedItem[], sampleStatus }`. Levels: quiet/watch/consider_lightweight. Sorted consider_lightweight → watch → quiet.
 - [server/src/routes/people.ts](/home/pi/cairn/server/src/routes/people.ts)
   - `GET /api/people/directory?now=` — sorted people list with totalMeets, lastMet, frequencyBand, preferredWindows, leadTime per person. Sorted: lastMet desc by epoch (nulls last), then name asc, id asc. 400 on missing/invalid now.
   - `GET /api/people/:id/detail?now=` — person (with stats + profile fields) + up to 10 recent qualifying meetings newest-first. 400 on invalid id/now, 404 on missing person.
@@ -159,7 +163,11 @@ Repository/service split:
 - [server/src/services/watchers.ts](/home/pi/cairn/server/src/services/watchers.ts)
   - Pure Watcher A evaluator. `evaluateWatcherA(rows, date, now, taskStatuses?) → WatcherABubble[]`. Supports `date_threshold` and `reverse_plan` rule types. For reverse_plan: parses rule → `buildReversePlanView` → `effectiveReversePlanThreshold`. Completed chain (all tasks done/dropped) → null threshold → not surfaced. Falls back to `threshold` column when rule absent/malformed. reasonCodes: `reverse_plan_pending`, `reverse_plan_due`, `reverse_plan_completed`. No DB access, no LLM.
 - [server/src/services/watcher-deep-view.ts](/home/pi/cairn/server/src/services/watcher-deep-view.ts)
-  - Pure service (no DB). `buildWatcherDeepView(rows, date, now, taskStatuses?) → WatcherDeepRow[]`. Supports `date_threshold` and `reverse_plan` rule types. For reverse-plan: parse rule → `buildReversePlanView` (null → unsupported); completed → quiet. `reversePlan: ReversePlanView` field attached on reverse-plan rows. reasonCodes: `reverse_plan_pending`, `reverse_plan_due`, `reverse_plan_completed`. Status derivation same as before for non-rp watchers.
+  - Pure service (no DB). `buildWatcherDeepView(rows, date, now, taskStatuses?, logSummaries?) → WatcherDeepRow[]`. kind=A: `date_threshold` and `reverse_plan` rule types. kind=B: `manual_exogenous` — uses `parseManualExogenousRule` + `buildManualExogenousView`; attaches `manualExogenous: ManualExogenousView` field; status always `quiet`. Other kinds → unsupported. Disarmed check runs first for all kinds.
+- [server/src/services/watcher-manual-exogenous.ts](/home/pi/cairn/server/src/services/watcher-manual-exogenous.ts) **(NEW)**
+  - Pure functions for manual-exogenous rule parsing. `parseManualExogenousRule(raw)` — null on malform/wrong type. `buildManualExogenousView(rule, summary) → ManualExogenousView`. `emptyLogSummary() → WatcherLogSummary` — zero-count 30-day summary.
+- [server/src/services/mirror-automation-needs.ts](/home/pi/cairn/server/src/services/mirror-automation-needs.ts) **(NEW)**
+  - Pure service. `buildAutomationNeeds(watchers, logs, range) → MirrorAutomationNeedsData`. Only kind=B watchers. Level rules: `<3 logs → quiet+low_sample`; `volatile+missRate≥0.34+missedSignalCount≥1 → watch`; `stable+missRate≥0.34+missedSignalCount≥1 → consider_lightweight`; `missedSignalCount≥1 → watch`; else quiet. `missRate = missedSignalCount / max(1, signalSeen+missedSignal)`. `sampleStatus=low_sample` if any item has `low_sample` reasonCode.
 - [server/src/services/watcher-reverse-plan.ts](/home/pi/cairn/server/src/services/watcher-reverse-plan.ts) **(NEW)**
   - Pure functions for reverse-plan watcher logic. `computeReversePlan(input)` — walks steps backward from targetDate; `safetyDays` subtracted only from first step (index 0). `parseReversePlanRule(raw)` — manual structural validation, null on malform. `buildReversePlanView(rule, taskStatuses)` — null if any taskId missing; `nextStepIndex` = first non-done step. `effectiveReversePlanThreshold(view)` — latestDate of nextStep or null if completed.
 - [server/src/services/watcher-daily-push.ts](/home/pi/cairn/server/src/services/watcher-daily-push.ts)

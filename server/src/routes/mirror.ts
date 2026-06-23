@@ -1,11 +1,13 @@
 import type { FastifyInstance } from "fastify";
-import { MirrorEnergyTrendQuerySchema, MirrorLedgerQuerySchema, MirrorPatternsQuerySchema } from "@cairn/shared";
+import { MirrorAutomationNeedsQuerySchema, MirrorEnergyTrendQuerySchema, MirrorLedgerQuerySchema, MirrorPatternsQuerySchema } from "@cairn/shared";
 import { findPlannedAndConfirmedAll } from "../repositories/events.js";
 import { findAllOutcomeAnnotations, findMovedCancelledAnnotations } from "../repositories/mirror.js";
 import { readNumericParam } from "../repositories/params.js";
+import { findAllWatchers, findWatcherLogsInRange } from "../repositories/watchers.js";
 import { buildMirrorLedger } from "../services/mirror-ledger.js";
 import { buildMirrorPatterns } from "../services/mirror-patterns.js";
 import { buildMirrorEnergyTrends, resolveTrendRange } from "../services/mirror-energy-trends.js";
+import { buildAutomationNeeds } from "../services/mirror-automation-needs.js";
 import type { CairnDatabase } from "../db/index.js";
 
 export function registerMirrorRoutes(app: FastifyInstance, db: CairnDatabase): void {
@@ -82,6 +84,32 @@ export function registerMirrorRoutes(app: FastifyInstance, db: CairnDatabase): v
     });
     return reply.send({ ok: true, data });
   });
+
+  app.get("/api/mirror/automation-needs", async (req, reply) => {
+    const parsed = MirrorAutomationNeedsQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "VALIDATION_ERROR", message: parsed.error.message }
+      });
+    }
+    const today = serverLocalToday();
+    const defaultFrom = dateSubtractDays(today, 29);
+    const from = parsed.data.from ?? defaultFrom;
+    const to = parsed.data.to ?? today;
+
+    const watcherRows = findAllWatchers(db);
+    const manualBIds = watcherRows.filter((w) => w.kind === "B").map((w) => w.id);
+    const logRows = findWatcherLogsInRange(db, manualBIds, from, to);
+
+    const data = buildAutomationNeeds(watcherRows, logRows, { from, to });
+    return reply.send({ ok: true, data });
+  });
+}
+
+function dateSubtractDays(date: string, days: number): string {
+  const ms = Date.parse(`${date}T00:00:00Z`) - days * 86_400_000;
+  return new Date(ms).toISOString().slice(0, 10);
 }
 
 // Server-local calendar date. Date.now boundary stays at the route edge so the

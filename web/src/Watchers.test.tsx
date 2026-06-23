@@ -27,6 +27,22 @@ const WATCHER_DISARMED: WatcherDeepRow = {
   daysUntil: null, message: "비활성 watcher야", reasonCodes: ["disarmed"]
 };
 
+const WATCHER_MANUAL_B: WatcherDeepRow = {
+  id: 10, category: "외부", label: "비자 공고 확인", kind: "B", armed: true,
+  threshold: null, snoozedUntil: null, status: "quiet", daysOverdue: null,
+  daysUntil: null, message: "수동 확인 watcher야", reasonCodes: ["manual_exogenous"],
+  manualExogenous: {
+    sourceLabel: "대사관 사이트",
+    sourceUrl: "https://visa.example.com",
+    sourceStability: "stable",
+    summary: {
+      windowDays: 30, manualLogCount: 5, signalSeenCount: 3,
+      missedSignalCount: 1, checkedNoSignalCount: 1,
+      lastOutcome: "signal_seen", lastObservedAt: "2026-06-20T09:00:00.000Z"
+    }
+  }
+};
+
 function mockFetch(watchers: WatcherDeepRow[]) {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
     json: () => Promise.resolve({ ok: true, data: { watchers } })
@@ -350,5 +366,100 @@ describe("Watchers — reverse-plan create form", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
     expect(screen.getByText("날짜 오류")).toBeInTheDocument();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+});
+
+describe("Watchers — manual-exogenous (kind=B) card", () => {
+  it("shows label, source, and summary for kind=B watcher", async () => {
+    mockFetch([WATCHER_MANUAL_B]);
+    render(<Watchers />);
+    await waitFor(() => expect(screen.getByText("비자 공고 확인")).toBeInTheDocument());
+    expect(screen.getByText(/대사관 사이트/)).toBeInTheDocument();
+    expect(screen.getByText(/최근 30일.*5회/)).toBeInTheDocument();
+    expect(screen.getByText(/신호 3회/)).toBeInTheDocument();
+    expect(screen.getByText(/미스 1회/)).toBeInTheDocument();
+  });
+
+  it("shows log action buttons for kind=B watcher", async () => {
+    mockFetch([WATCHER_MANUAL_B]);
+    render(<Watchers />);
+    await waitFor(() => expect(screen.getByText("비자 공고 확인")).toBeInTheDocument());
+    expect(screen.getByLabelText("비자 공고 확인 신호 없음")).toBeInTheDocument();
+    expect(screen.getByLabelText("비자 공고 확인 신호 확인")).toBeInTheDocument();
+    expect(screen.getByLabelText("비자 공고 확인 신호 미스")).toBeInTheDocument();
+  });
+
+  it("does not show snooze button for kind=B watcher", async () => {
+    mockFetch([WATCHER_MANUAL_B]);
+    render(<Watchers />);
+    await waitFor(() => expect(screen.getByText("비자 공고 확인")).toBeInTheDocument());
+    expect(screen.queryByLabelText("비자 공고 확인 내일 다시 보기")).not.toBeInTheDocument();
+  });
+
+  it("log button calls POST /api/watchers/:id/manual-log", async () => {
+    const postFn = vi.fn().mockResolvedValue({
+      json: () => Promise.resolve({ ok: true, data: { log: { outcome: "signal_seen" }, summary: { windowDays: 30, manualLogCount: 6, signalSeenCount: 4, missedSignalCount: 1, checkedNoSignalCount: 1, lastOutcome: "signal_seen", lastObservedAt: "2026-06-22T09:00:00Z" } } })
+    });
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce({ json: () => Promise.resolve({ ok: true, data: { watchers: [WATCHER_MANUAL_B] } }) })
+      .mockImplementation(postFn)
+    );
+    render(<Watchers />);
+    await waitFor(() => screen.getByLabelText("비자 공고 확인 신호 확인"));
+    fireEvent.click(screen.getByLabelText("비자 공고 확인 신호 확인"));
+    await waitFor(() => expect(postFn).toHaveBeenCalled());
+    const [url, options] = postFn.mock.calls[0] as [string, { method: string; body: string }];
+    expect(url).toContain("/api/watchers/10/manual-log");
+    expect(options.method).toBe("POST");
+    expect(JSON.parse(options.body).outcome).toBe("signal_seen");
+  });
+});
+
+describe("Watchers — manual-exogenous create form", () => {
+  it("shows 수동 확인 tab in create sheet", async () => {
+    mockFetch([]);
+    render(<Watchers />);
+    await waitFor(() => screen.getByLabelText("Watcher 추가"));
+    fireEvent.click(screen.getByLabelText("Watcher 추가"));
+    await waitFor(() => screen.getByRole("dialog"));
+    expect(screen.getByText("수동 확인")).toBeInTheDocument();
+  });
+
+  it("shows manual-exogenous form fields when 수동 확인 tab selected", async () => {
+    mockFetch([]);
+    render(<Watchers />);
+    await waitFor(() => screen.getByLabelText("Watcher 추가"));
+    fireEvent.click(screen.getByLabelText("Watcher 추가"));
+    await waitFor(() => screen.getByRole("dialog"));
+    fireEvent.click(screen.getByText("수동 확인"));
+    await waitFor(() => expect(screen.getByLabelText("수동 확인 watcher 이름")).toBeInTheDocument());
+    expect(screen.getByLabelText("출처 이름")).toBeInTheDocument();
+    expect(screen.getByLabelText("출처 URL")).toBeInTheDocument();
+    expect(screen.getByLabelText("출처 안정성")).toBeInTheDocument();
+  });
+
+  it("submits POST /api/watchers/manual-exogenous with correct payload", async () => {
+    const postFn = vi.fn().mockResolvedValue({
+      json: () => Promise.resolve({ ok: true, data: { watcher: { id: 99, kind: "B", label: "비자" }, manualExogenous: { type: "manual_exogenous", sourceStability: "volatile", sourceLabel: null, sourceUrl: null } } })
+    });
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce({ json: () => Promise.resolve({ ok: true, data: { watchers: [] } }) })
+      .mockImplementation(postFn)
+    );
+    render(<Watchers />);
+    await waitFor(() => screen.getByLabelText("Watcher 추가"));
+    fireEvent.click(screen.getByLabelText("Watcher 추가"));
+    await waitFor(() => screen.getByRole("dialog"));
+    fireEvent.click(screen.getByText("수동 확인"));
+    await waitFor(() => screen.getByLabelText("수동 확인 watcher 이름"));
+    fireEvent.change(screen.getByLabelText("수동 확인 watcher 이름"), { target: { value: "비자 공고" } });
+    fireEvent.change(screen.getByLabelText("출처 안정성"), { target: { value: "volatile" } });
+    fireEvent.click(screen.getByLabelText("watcher 저장"));
+    await waitFor(() => expect(postFn).toHaveBeenCalled());
+    const [url, opts] = postFn.mock.calls[0] as [string, { method: string; body: string }];
+    expect(url).toContain("/api/watchers/manual-exogenous");
+    const payload = JSON.parse(opts.body) as { label: string; sourceStability: string };
+    expect(payload.label).toBe("비자 공고");
+    expect(payload.sourceStability).toBe("volatile");
   });
 });

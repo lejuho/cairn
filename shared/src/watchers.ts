@@ -36,6 +36,61 @@ export const WatchersQuerySchema = z.object({
 
 export const WatcherDeepStatusSchema = z.enum(["due", "quiet", "snoozed", "disarmed", "unsupported"]);
 
+// ---- Manual-exogenous watcher schemas ----
+
+export const SOURCE_STABILITIES = ["unknown", "stable", "volatile"] as const;
+export const SourceStabilitySchema = z.enum(SOURCE_STABILITIES);
+
+export const WATCHER_LOG_OUTCOMES = ["checked_no_signal", "signal_seen", "missed_signal"] as const;
+export const WatcherLogOutcomeSchema = z.enum(WATCHER_LOG_OUTCOMES);
+
+export const CreateManualExogenousWatcherRequestSchema = z.object({
+  label: z.string().min(1),
+  category: z.string().optional(),
+  sourceLabel: z.string().min(1).optional(),
+  sourceUrl: z.string().url().optional(),
+  sourceStability: SourceStabilitySchema.default("unknown")
+}).strict();
+
+export const ManualExogenousRuleSchema = z.object({
+  type: z.literal("manual_exogenous"),
+  sourceLabel: z.string().nullable(),
+  sourceUrl: z.string().nullable(),
+  sourceStability: SourceStabilitySchema
+}).strict();
+
+export const CreateWatcherManualLogRequestSchema = z.object({
+  outcome: WatcherLogOutcomeSchema,
+  observedAt: z.string().datetime({ offset: true }),
+  note: z.string().min(1).max(500).optional()
+}).strict();
+
+export const WatcherManualLogSchema = z.object({
+  id: z.number(),
+  watcherId: z.number(),
+  outcome: WatcherLogOutcomeSchema,
+  observedAt: z.string(),
+  note: z.string().nullable(),
+  createdAt: z.string().nullable()
+}).strict();
+
+export const WatcherLogSummarySchema = z.object({
+  windowDays: z.number(),
+  manualLogCount: z.number(),
+  signalSeenCount: z.number(),
+  missedSignalCount: z.number(),
+  checkedNoSignalCount: z.number(),
+  lastOutcome: WatcherLogOutcomeSchema.nullable(),
+  lastObservedAt: z.string().nullable()
+}).strict();
+
+export const ManualExogenousViewSchema = z.object({
+  sourceLabel: z.string().nullable(),
+  sourceUrl: z.string().nullable(),
+  sourceStability: SourceStabilitySchema,
+  summary: WatcherLogSummarySchema
+}).strict();
+
 // ---- Reverse-plan schemas ----
 
 const YYYYMMDD_STRICT = /^\d{4}-\d{2}-\d{2}$/;
@@ -110,7 +165,8 @@ export const WatcherDeepRowSchema = z.object({
   daysUntil: z.number().int().nonnegative().nullable(),
   message: z.string(),
   reasonCodes: z.array(z.string()),
-  reversePlan: ReversePlanViewSchema.nullable().optional()
+  reversePlan: ReversePlanViewSchema.nullable().optional(),
+  manualExogenous: ManualExogenousViewSchema.nullable().optional()
 }).strict();
 
 export const WatcherListResponseDataSchema = z.object({
@@ -130,6 +186,14 @@ export const WatcherRowSchema = z.object({
   createdAt: z.string().nullable()
 });
 
+export type SourceStability = z.infer<typeof SourceStabilitySchema>;
+export type WatcherLogOutcome = z.infer<typeof WatcherLogOutcomeSchema>;
+export type CreateManualExogenousWatcherRequest = z.infer<typeof CreateManualExogenousWatcherRequestSchema>;
+export type ManualExogenousRule = z.infer<typeof ManualExogenousRuleSchema>;
+export type CreateWatcherManualLogRequest = z.infer<typeof CreateWatcherManualLogRequestSchema>;
+export type WatcherManualLog = z.infer<typeof WatcherManualLogSchema>;
+export type WatcherLogSummary = z.infer<typeof WatcherLogSummarySchema>;
+export type ManualExogenousView = z.infer<typeof ManualExogenousViewSchema>;
 export type WatcherReasonCode = z.infer<typeof WatcherReasonCodeSchema>;
 export type WatcherABubble = z.infer<typeof WatcherABubbleSchema>;
 export type CreateWatcherRequest = z.infer<typeof CreateWatcherRequestSchema>;

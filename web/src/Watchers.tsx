@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ReversePlanView, WatcherDeepRow } from "@cairn/shared";
+import type { ManualExogenousView, ReversePlanView, SourceStability, WatcherDeepRow } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
 import { localDateString } from "./dateUtils.js";
 
-type CreateMode = "date_threshold" | "reverse_plan";
+type CreateMode = "date_threshold" | "reverse_plan" | "manual_exogenous";
 
 type ReversePlanStep = { label: string; leadDays: string };
 
@@ -34,6 +34,13 @@ export function Watchers() {
   const [rpTargetLabel, setRpTargetLabel] = useState("");
   const [rpSafetyDays, setRpSafetyDays] = useState("0");
   const [rpSteps, setRpSteps] = useState<ReversePlanStep[]>([{ label: "", leadDays: "1" }]);
+
+  // Manual-exogenous form
+  const [meLabel, setMeLabel] = useState("");
+  const [meCategory, setMeCategory] = useState("");
+  const [meSourceLabel, setMeSourceLabel] = useState("");
+  const [meSourceUrl, setMeSourceUrl] = useState("");
+  const [meSourceStability, setMeSourceStability] = useState<SourceStability>("unknown");
 
   const [createError, setCreateError] = useState<string | null>(null);
   const [createSubmitting, setCreateSubmitting] = useState(false);
@@ -70,6 +77,7 @@ export function Watchers() {
     setCreateLabel(""); setCreateCategory(""); setCreateThreshold("");
     setRpLabel(""); setRpCategory(""); setRpTargetDate(""); setRpTargetLabel("");
     setRpSafetyDays("0"); setRpSteps([{ label: "", leadDays: "1" }]);
+    setMeLabel(""); setMeCategory(""); setMeSourceLabel(""); setMeSourceUrl(""); setMeSourceStability("unknown");
     setCreateMode("date_threshold");
     setCreateError(null);
     setShowCreate(true);
@@ -95,7 +103,7 @@ export function Watchers() {
           })
         });
         if (!body.ok) throw new Error(body.error?.message ?? "생성 실패");
-      } else {
+      } else if (createMode === "reverse_plan") {
         if (!rpLabel.trim() || !rpTargetDate) return;
         const safetyDays = Math.max(0, Math.min(30, parseInt(rpSafetyDays, 10) || 0));
         const steps = rpSteps.map((s) => ({
@@ -112,6 +120,21 @@ export function Watchers() {
             ...(rpTargetLabel.trim() ? { targetLabel: rpTargetLabel.trim() } : {}),
             safetyDays,
             steps
+          })
+        });
+        if (!body.ok) throw new Error(body.error?.message ?? "생성 실패");
+      } else {
+        // manual_exogenous
+        if (!meLabel.trim()) return;
+        const body = await apiJson<{ ok: boolean; error?: { message: string } }>("/api/watchers/manual-exogenous", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            label: meLabel.trim(),
+            ...(meCategory.trim() ? { category: meCategory.trim() } : {}),
+            ...(meSourceLabel.trim() ? { sourceLabel: meSourceLabel.trim() } : {}),
+            ...(meSourceUrl.trim() ? { sourceUrl: meSourceUrl.trim() } : {}),
+            sourceStability: meSourceStability
           })
         });
         if (!body.ok) throw new Error(body.error?.message ?? "생성 실패");
@@ -193,8 +216,49 @@ export function Watchers() {
     </div>
   );
 
+  const handleManualLog = async (id: number, outcome: "checked_no_signal" | "signal_seen" | "missed_signal") => {
+    setRowErrors((prev) => prev.filter((r) => r.id !== id));
+    try {
+      const body = await apiJson<{ ok: boolean; error?: { message: string } }>(
+        `/api/watchers/${id}/manual-log`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ outcome, observedAt: new Date().toISOString() })
+        }
+      );
+      if (!body.ok) throw new Error(body.error?.message ?? "로그 실패");
+      await load();
+    } catch (e) {
+      setRowErrors((prev) => [
+        ...prev.filter((r) => r.id !== id),
+        { id, message: e instanceof Error ? e.message : "로그 실패" }
+      ]);
+    }
+  };
+
+  const renderManualExogenousView = (me: ManualExogenousView) => (
+    <div className="watcher-me-view">
+      {me.sourceLabel && (
+        <p className="watcher-me-source">
+          출처: {me.sourceUrl
+            ? <a href={me.sourceUrl} target="_blank" rel="noopener noreferrer">{me.sourceLabel}</a>
+            : me.sourceLabel}
+          {" "}
+          <span className="watcher-me-stability">[{stabilityLabel(me.sourceStability)}]</span>
+        </p>
+      )}
+      <p className="watcher-me-summary">
+        최근 30일: {me.summary.manualLogCount}회 확인
+        {me.summary.signalSeenCount > 0 && ` · 신호 ${me.summary.signalSeenCount}회`}
+        {me.summary.missedSignalCount > 0 && ` · 미스 ${me.summary.missedSignalCount}회`}
+      </p>
+    </div>
+  );
+
   const renderWatcherCard = (w: WatcherDeepRow, queryNow: string) => {
     const rowErr = rowErrors.find((r) => r.id === w.id);
+    const isManualB = w.kind === "B" && w.manualExogenous != null;
     return (
       <li key={w.id} className="watcher-card">
         <div className="watcher-card-header">
@@ -202,11 +266,12 @@ export function Watchers() {
           {w.category && <span className="watcher-card-category">{w.category}</span>}
           <span className={`watcher-card-status watcher-card-status--${w.status}`}>{statusLabel(w.status)}</span>
         </div>
-        {w.reversePlan ? (
-          renderReversePlanChain(w.reversePlan)
-        ) : (
-          w.threshold && <p className="watcher-card-threshold">마감 {w.threshold}</p>
-        )}
+        {isManualB && w.manualExogenous
+          ? renderManualExogenousView(w.manualExogenous)
+          : w.reversePlan
+            ? renderReversePlanChain(w.reversePlan)
+            : w.threshold && <p className="watcher-card-threshold">마감 {w.threshold}</p>
+        }
         <p className="watcher-card-message">{w.message}</p>
         <div className="watcher-card-actions">
           <button
@@ -217,7 +282,32 @@ export function Watchers() {
           >
             {w.armed ? "활성" : "비활성"}
           </button>
-          {w.status === "due" && (
+          {isManualB && (
+            <>
+              <button
+                className="watcher-log-btn watcher-log-btn--no-signal"
+                aria-label={`${w.label ?? "watcher"} 신호 없음`}
+                onClick={() => void handleManualLog(w.id, "checked_no_signal")}
+              >
+                신호 없음
+              </button>
+              <button
+                className="watcher-log-btn watcher-log-btn--signal"
+                aria-label={`${w.label ?? "watcher"} 신호 확인`}
+                onClick={() => void handleManualLog(w.id, "signal_seen")}
+              >
+                신호 확인
+              </button>
+              <button
+                className="watcher-log-btn watcher-log-btn--miss"
+                aria-label={`${w.label ?? "watcher"} 신호 미스`}
+                onClick={() => void handleManualLog(w.id, "missed_signal")}
+              >
+                미스
+              </button>
+            </>
+          )}
+          {w.status === "due" && !isManualB && (
             <button
               className="watcher-snooze-btn"
               aria-label={`${w.label ?? "watcher"} 내일 다시 보기`}
@@ -292,10 +382,77 @@ export function Watchers() {
           >
             역산 계획
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={createMode === "manual_exogenous"}
+            className={`create-mode-tab${createMode === "manual_exogenous" ? " create-mode-tab--active" : ""}`}
+            onClick={() => { setCreateMode("manual_exogenous"); setCreateError(null); }}
+          >
+            수동 확인
+          </button>
         </div>
 
         <form onSubmit={(e) => void handleCreate(e)} className="watcher-create-form">
-          {createMode === "date_threshold" ? (
+          {createMode === "manual_exogenous" ? (
+            <>
+              <label className="form-label">
+                이름 <span aria-hidden="true">*</span>
+                <input
+                  ref={createLabelRef}
+                  className="form-input"
+                  value={meLabel}
+                  onChange={(e) => setMeLabel(e.target.value)}
+                  required
+                  aria-required="true"
+                  aria-label="수동 확인 watcher 이름"
+                />
+              </label>
+              <label className="form-label">
+                카테고리
+                <input
+                  className="form-input"
+                  value={meCategory}
+                  onChange={(e) => setMeCategory(e.target.value)}
+                  aria-label="카테고리"
+                />
+              </label>
+              <label className="form-label">
+                출처 이름
+                <input
+                  className="form-input"
+                  value={meSourceLabel}
+                  onChange={(e) => setMeSourceLabel(e.target.value)}
+                  placeholder="예: 비자 공고 페이지"
+                  aria-label="출처 이름"
+                />
+              </label>
+              <label className="form-label">
+                출처 URL
+                <input
+                  type="url"
+                  className="form-input"
+                  value={meSourceUrl}
+                  onChange={(e) => setMeSourceUrl(e.target.value)}
+                  placeholder="https://..."
+                  aria-label="출처 URL"
+                />
+              </label>
+              <label className="form-label">
+                출처 안정성
+                <select
+                  className="form-input"
+                  value={meSourceStability}
+                  onChange={(e) => setMeSourceStability(e.target.value as SourceStability)}
+                  aria-label="출처 안정성"
+                >
+                  <option value="unknown">알 수 없음</option>
+                  <option value="stable">안정</option>
+                  <option value="volatile">변동성 있음</option>
+                </select>
+              </label>
+            </>
+          ) : createMode === "date_threshold" ? (
             <>
               <label className="form-label">
                 이름 <span aria-hidden="true">*</span>
@@ -540,4 +697,10 @@ function statusLabel(status: WatcherDeepRow["status"]): string {
     case "disarmed": return "비활성";
     case "unsupported": return "미지원";
   }
+}
+
+function stabilityLabel(s: string): string {
+  if (s === "stable") return "안정";
+  if (s === "volatile") return "변동";
+  return "미확인";
 }
