@@ -295,12 +295,12 @@ describe("CreateEventPreparationRequestSchema", () => {
     expect(CreateEventPreparationRequestSchema.safeParse({}).success).toBe(false);
   });
 
-  it("rejects injected kind/sourcePerson/note/firmness/aiSuggestion (strict)", () => {
+  it("rejects injected kind/sourcePerson/note/firmness/extra fields (strict)", () => {
     expect(CreateEventPreparationRequestSchema.safeParse({ name: "x", kind: "knowledge" }).success).toBe(false);
     expect(CreateEventPreparationRequestSchema.safeParse({ name: "x", sourcePersonId: 1 }).success).toBe(false);
     expect(CreateEventPreparationRequestSchema.safeParse({ name: "x", note: "y" }).success).toBe(false);
     expect(CreateEventPreparationRequestSchema.safeParse({ name: "x", firmness: "hard" }).success).toBe(false);
-    expect(CreateEventPreparationRequestSchema.safeParse({ name: "x", aiSuggestion: "z" }).success).toBe(false);
+    expect(CreateEventPreparationRequestSchema.safeParse({ name: "x", suggested: "z" }).success).toBe(false);
   });
 });
 

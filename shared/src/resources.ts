@@ -51,8 +51,8 @@ export const ResourceLinkRowSchema = z
   .strict();
 
 // Manual one-line preparation entry (cycle-46 FR-BRF-04). A submitted name is
-// stored as an `item` resource and linked directly to the event. Strict: no
-// kind/sourcePerson/note/link/AI/procurement fields are accepted from the client.
+// stored as an `item` resource and linked directly to the event. Strict: only
+// `name` is accepted — no kind/sourcePerson/note/link or other injected fields.
 export const CreateEventPreparationRequestSchema = z
   .object({
     name: z.string().trim().min(1).max(120)
