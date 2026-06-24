@@ -202,8 +202,37 @@ function TransitionCostsSection({
   );
 }
 
+function SequenceEnergySection({ seq }: { seq: DayFeasibility["sequenceEnergy"] }) {
+  if (!seq) return null;
+  // Only surface when transition load changes the picture, or unknowns exist.
+  // A same-thread-only day (no added load, no unknowns) shows nothing.
+  const hasAddedLoad = seq.totalLoadUnits !== seq.workLoadUnits;
+  const hasUnknown = seq.unknownTransitionCount > 0;
+  if (!hasAddedLoad && !hasUnknown) return null;
+
+  return (
+    <div className="feas-sequence" aria-label="전환 포함" data-testid="sequence-energy" data-deficit={seq.deficit ? "true" : "false"}>
+      <p className="feas-sequence-head">전환 포함</p>
+      <p className="feas-sequence-line">
+        <span className="feas-sequence-work">일 {seq.workLoadUnits.toFixed(2)}h</span>
+        {hasAddedLoad && (
+          <span className="feas-sequence-added"> + 전환 {seq.transitionLoadUnits.toFixed(2)}h</span>
+        )}
+        <span className="feas-sequence-total"> = 합계 {seq.totalLoadUnits.toFixed(2)}h / {seq.budgetUnits}h</span>
+        {seq.deficit && <span className="feas-deficit" role="status"> 초과</span>}
+      </p>
+      {hasUnknown && (
+        <p className="feas-sequence-unknown card-meta">
+          전환 {seq.unknownTransitionCount}건은 스레드 정보가 없어 비용을 매기지 않았어
+        </p>
+      )}
+      <p className="feas-confidence">추정치 (cold start)</p>
+    </div>
+  );
+}
+
 function FeasibilityPanel({ f, events = [], onAdjust }: { f: DayFeasibility; events?: EventRow[]; onAdjust?: () => void }) {
-  const { energy, gaps, continuous, transitionCosts } = f;
+  const { energy, gaps, continuous, transitionCosts, sequenceEnergy } = f;
   const pct = Math.min(100, Math.round((energy.loadUnits / energy.budgetUnits) * 100));
   const warningGaps = gaps.filter((g) => g.status !== "ok");
   return (
@@ -232,6 +261,7 @@ function FeasibilityPanel({ f, events = [], onAdjust }: { f: DayFeasibility; eve
         </div>
       )}
       <TransitionCostsSection transitions={transitionCosts} events={events} />
+      <SequenceEnergySection seq={sequenceEnergy} />
       {onAdjust && (
         <button className="feas-adjust-btn" onClick={onAdjust} aria-label="feasibility 파라미터 조정">
           조정

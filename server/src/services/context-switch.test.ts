@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { EventRow } from "@cairn/shared";
-import { computeTransitionCosts, type ThreadLinkRow } from "./context-switch.js";
+import type { EventRow, TransitionCost } from "@cairn/shared";
+import { computeSequenceEnergy, computeTransitionCosts, type ThreadLinkRow } from "./context-switch.js";
 
 function ev(id: number, threadId: number | null, start: string, end: string): EventRow {
   return {
@@ -144,5 +144,82 @@ describe("computeTransitionCosts — pairing", () => {
     // link between 10 and 99 must not affect the 10→20 pair
     const r = computeTransitionCosts([A, B], [link(1, 10, 99, "contains")]);
     expect(r[0]!.relation).toBe("unrelated");
+  });
+});
+
+// ── sequence energy (FR-FEAS-09) ───────────────────────────────────────────────
+
+function tc(costLevel: TransitionCost["costLevel"]): TransitionCost {
+  return {
+    fromEventId: 1, toEventId: 2, fromThreadId: 10, toThreadId: 20,
+    relation: costLevel === "none" ? "same_thread" : costLevel === "unknown" ? "missing_thread" : "unrelated",
+    costLevel, reasonCodes: []
+  };
+}
+
+describe("computeSequenceEnergy", () => {
+  it("no transitions → transition load 0, total equals work load", () => {
+    const s = computeSequenceEnergy(4, [], 8);
+    expect(s.workLoadUnits).toBe(4);
+    expect(s.transitionLoadUnits).toBe(0);
+    expect(s.totalLoadUnits).toBe(4);
+    expect(s.remainingUnits).toBe(4);
+    expect(s.deficit).toBe(false);
+    expect(s.unknownTransitionCount).toBe(0);
+    expect(s.confidence).toBe("cold_start");
+    expect(s.reasonCodes).toEqual(["sequence_work_only"]);
+  });
+
+  it("same-thread none transition adds 0", () => {
+    const s = computeSequenceEnergy(4, [tc("none")], 8);
+    expect(s.transitionLoadUnits).toBe(0);
+    expect(s.reasonCodes).toEqual(["sequence_work_only"]);
+  });
+
+  it("context low transition adds 0.25", () => {
+    const s = computeSequenceEnergy(4, [tc("low")], 8);
+    expect(s.transitionLoadUnits).toBe(0.25);
+    expect(s.totalLoadUnits).toBe(4.25);
+    expect(s.reasonCodes).toContain("sequence_transition_added");
+  });
+
+  it("high transition adds 0.75", () => {
+    const s = computeSequenceEnergy(4, [tc("high")], 8);
+    expect(s.transitionLoadUnits).toBe(0.75);
+    expect(s.totalLoadUnits).toBe(4.75);
+  });
+
+  it("unknown transition adds 0 and increments unknown count", () => {
+    const s = computeSequenceEnergy(4, [tc("unknown")], 8);
+    expect(s.transitionLoadUnits).toBe(0);
+    expect(s.unknownTransitionCount).toBe(1);
+    expect(s.reasonCodes).toEqual(["sequence_work_only", "sequence_unknown_present"]);
+  });
+
+  it("sums mixed transition categories deterministically", () => {
+    // 0.25 + 0.75 + 0 (none) + unknown → 1.0, unknown count 1
+    const s = computeSequenceEnergy(3, [tc("low"), tc("high"), tc("none"), tc("unknown")], 8);
+    expect(s.transitionLoadUnits).toBe(1);
+    expect(s.totalLoadUnits).toBe(4);
+    expect(s.unknownTransitionCount).toBe(1);
+    expect(s.reasonCodes).toEqual(["sequence_transition_added", "sequence_unknown_present"]);
+  });
+
+  it("total deficit can be true even when duration-only load is under budget", () => {
+    // work 7.5 (< 8 budget, no duration deficit) + 0.75 high → 8.25 > 8 → deficit
+    const s = computeSequenceEnergy(7.5, [tc("high")], 8);
+    expect(s.totalLoadUnits).toBe(8.25);
+    expect(s.deficit).toBe(true);
+    expect(s.remainingUnits).toBe(-0.25);
+    expect(s.reasonCodes).toContain("sequence_deficit");
+  });
+
+  it("budgetUnits is reflected from the passed budget", () => {
+    expect(computeSequenceEnergy(2, [], 10).budgetUnits).toBe(10);
+  });
+
+  it("three low transitions sum to exactly 0.75 (no fp drift)", () => {
+    const s = computeSequenceEnergy(0, [tc("low"), tc("low"), tc("low")], 8);
+    expect(s.transitionLoadUnits).toBe(0.75);
   });
 });

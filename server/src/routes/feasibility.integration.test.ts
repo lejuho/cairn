@@ -493,3 +493,94 @@ describe("GET /api/feasibility/day — transition costs", () => {
     expect(linksAfter.c).toBe(linksBefore.c);
   });
 });
+
+// ── sequence energy (FR-FEAS-09) ───────────────────────────────────────────────
+
+describe("GET /api/feasibility/day — sequence energy", () => {
+  it("always returns sequenceEnergy with workLoadUnits equal to energy.loadUnits", async () => {
+    const conn = makeTestDb();
+    const t = insertThread(conn, "T");
+    insertEventWithThread(conn, t, S1, E1); // 1h
+    const data = (await get(conn)).json().data;
+    expect(data.sequenceEnergy).toBeDefined();
+    expect(data.sequenceEnergy.workLoadUnits).toBe(data.energy.loadUnits);
+    expect(data.sequenceEnergy.transitionLoadUnits).toBe(0); // single event, no transition
+    expect(data.sequenceEnergy.totalLoadUnits).toBe(data.energy.loadUnits);
+    expect(data.sequenceEnergy.confidence).toBe("cold_start");
+  });
+
+  it("low context transition adds 0.25 to total over work load (real DB rows)", async () => {
+    const conn = makeTestDb();
+    const t1 = insertThread(conn, "A");
+    const t2 = insertThread(conn, "B");
+    insertEventWithThread(conn, t1, S1, E1);
+    insertEventWithThread(conn, t2, S2, E2);
+    insertThreadLink(conn, t1, t2, "contains");
+    const data = (await get(conn)).json().data;
+    expect(data.sequenceEnergy.transitionLoadUnits).toBe(0.25);
+    expect(data.sequenceEnergy.totalLoadUnits).toBe(data.sequenceEnergy.workLoadUnits + 0.25);
+    // duration-only energy unchanged
+    expect(data.energy.loadUnits).toBe(data.sequenceEnergy.workLoadUnits);
+  });
+
+  it("unrelated high transition adds 0.75", async () => {
+    const conn = makeTestDb();
+    const t1 = insertThread(conn, "A");
+    const t2 = insertThread(conn, "B");
+    insertEventWithThread(conn, t1, S1, E1);
+    insertEventWithThread(conn, t2, S2, E2);
+    const data = (await get(conn)).json().data;
+    expect(data.sequenceEnergy.transitionLoadUnits).toBe(0.75);
+  });
+
+  it("missing thread → unknown adds 0 load and increments unknownTransitionCount", async () => {
+    const conn = makeTestDb();
+    const t1 = insertThread(conn, "A");
+    insertEventWithThread(conn, t1, S1, E1);
+    insertEventWithThread(conn, null, S2, E2);
+    const data = (await get(conn)).json().data;
+    expect(data.sequenceEnergy.transitionLoadUnits).toBe(0);
+    expect(data.sequenceEnergy.unknownTransitionCount).toBe(1);
+    expect(data.sequenceEnergy.reasonCodes).toContain("sequence_unknown_present");
+  });
+
+  it("GET /api/today exposes the same sequenceEnergy under data.feasibility", async () => {
+    const conn = makeTestDb();
+    const t1 = insertThread(conn, "A");
+    const t2 = insertThread(conn, "B");
+    insertEventWithThread(conn, t1, S1, E1);
+    insertEventWithThread(conn, t2, S2, E2);
+    insertThreadLink(conn, t1, t2, "feeds");
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "GET", url: `/api/today?date=${DATE}&now=${encodeURIComponent(NOW_MORNING)}` });
+    expect(res.json().data.feasibility.sequenceEnergy.transitionLoadUnits).toBe(0.25);
+  });
+
+  it("POST preview returns sequenceEnergy and does not change row counts", async () => {
+    const conn = makeTestDb();
+    const t1 = insertThread(conn, "A");
+    const t2 = insertThread(conn, "B");
+    insertEventWithThread(conn, t1, S1, E1);
+    insertEventWithThread(conn, t2, S2, E2);
+    insertThreadLink(conn, t1, t2, "blocks");
+    const eventsBefore = conn.sqlite.prepare("SELECT count(*) c FROM events").get() as { c: number };
+    const linksBefore = conn.sqlite.prepare("SELECT count(*) c FROM thread_links").get() as { c: number };
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/feasibility/day/preview",
+      payload: {
+        date: DATE,
+        now: NOW_MORNING,
+        params: { energyBudget: 6, meetBufferMinutes: 10, deepBufferMinutes: 20, travelMargin: 1, maxContinuousMinutes: 500 }
+      }
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.sequenceEnergy.transitionLoadUnits).toBe(0.75); // blocks = high
+    expect(res.json().data.sequenceEnergy.budgetUnits).toBe(6);
+    const eventsAfter = conn.sqlite.prepare("SELECT count(*) c FROM events").get() as { c: number };
+    const linksAfter = conn.sqlite.prepare("SELECT count(*) c FROM thread_links").get() as { c: number };
+    expect(eventsAfter.c).toBe(eventsBefore.c);
+    expect(linksAfter.c).toBe(linksBefore.c);
+  });
+});

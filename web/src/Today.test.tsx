@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Today } from "./Today.js";
-import type { ConflictDecision, EventDetailData, FeasibilityParamSettingsData, TodaySurface } from "@cairn/shared";
+import type { ConflictDecision, DayFeasibility, EventDetailData, FeasibilityParamSettingsData, TodaySurface } from "@cairn/shared";
 
 afterEach(() => {
   cleanup();
@@ -15,7 +15,12 @@ const BASE_FEASIBILITY = {
   energy: { loadUnits: 0, budgetUnits: 8, remainingUnits: 8, deficit: false, confidence: "cold_start" as const },
   gaps: [],
   continuous: null,
-  transitionCosts: []
+  transitionCosts: [],
+  sequenceEnergy: {
+    workLoadUnits: 0, transitionLoadUnits: 0, totalLoadUnits: 0,
+    budgetUnits: 8, remainingUnits: 8, deficit: false,
+    unknownTransitionCount: 0, confidence: "cold_start" as const, reasonCodes: ["sequence_work_only"]
+  }
 };
 
 const BASE_SURFACE: TodaySurface = {
@@ -1375,7 +1380,12 @@ describe("Today — feasibility panel", () => {
     energy: { loadUnits: 3, budgetUnits: 8, remainingUnits: 5, deficit: false, confidence: "cold_start" as const },
     gaps: [],
     continuous: null,
-    transitionCosts: []
+    transitionCosts: [],
+    sequenceEnergy: {
+      workLoadUnits: 3, transitionLoadUnits: 0, totalLoadUnits: 3,
+      budgetUnits: 8, remainingUnits: 5, deficit: false,
+      unknownTransitionCount: 0, confidence: "cold_start" as const, reasonCodes: ["sequence_work_only"]
+    }
   };
 
   it("renders energy gauge in quiet state", async () => {
@@ -1537,6 +1547,63 @@ describe("Today — feasibility panel", () => {
     expect(screen.getByText(/여유 부족/)).toBeInTheDocument(); // gap still rendered
     expect(screen.getByText("3.0h / 8h")).toBeInTheDocument(); // energy still rendered
     expect(screen.getByTestId("transition-row")).toHaveTextContent("전환 비용 낮음");
+  });
+
+  // ── sequence energy (전환 포함, FR-FEAS-09) ───────────────────────────────
+  const seq = (over: Partial<DayFeasibility["sequenceEnergy"]>): DayFeasibility["sequenceEnergy"] => ({
+    workLoadUnits: 3, transitionLoadUnits: 0, totalLoadUnits: 3, budgetUnits: 8, remainingUnits: 5,
+    deficit: false, unknownTransitionCount: 0, confidence: "cold_start", reasonCodes: ["sequence_work_only"], ...over
+  });
+
+  it("renders 전환 포함 section when transition load is added", async () => {
+    const feas = {
+      ...FEAS_BASE,
+      sequenceEnergy: seq({ transitionLoadUnits: 0.75, totalLoadUnits: 3.75, remainingUnits: 4.25, reasonCodes: ["sequence_transition_added"] })
+    };
+    mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: feas });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("전환 포함")).toBeInTheDocument());
+    const node = screen.getByTestId("sequence-energy");
+    expect(node).toHaveTextContent("일 3.00h");
+    expect(node).toHaveTextContent("전환 0.75h");
+    expect(node).toHaveTextContent("합계 3.75h / 8h");
+    expect(node).toHaveAttribute("data-deficit", "false");
+  });
+
+  it("does not render 전환 포함 for a same-thread-only day (no added load, no unknown)", async () => {
+    const feas = { ...FEAS_BASE, sequenceEnergy: seq({}) }; // total == work, unknown 0
+    mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: feas });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("일정 부하")).toBeInTheDocument());
+    expect(screen.queryByLabelText("전환 포함")).not.toBeInTheDocument();
+  });
+
+  it("shows unknown transitions as uncertainty copy, not inflated energy", async () => {
+    const feas = {
+      ...FEAS_BASE,
+      sequenceEnergy: seq({ unknownTransitionCount: 2, reasonCodes: ["sequence_work_only", "sequence_unknown_present"] })
+    };
+    mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: feas });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("전환 포함")).toBeInTheDocument());
+    const node = screen.getByTestId("sequence-energy");
+    expect(node).toHaveTextContent("전환 2건은 스레드 정보가 없어 비용을 매기지 않았어");
+    // total equals work (no inflation)
+    expect(node).toHaveTextContent("합계 3.00h / 8h");
+  });
+
+  it("marks deficit when sequence total exceeds budget even if duration-only does not", async () => {
+    const feas = {
+      ...FEAS_BASE,
+      energy: { loadUnits: 7.5, budgetUnits: 8, remainingUnits: 0.5, deficit: false, confidence: "cold_start" as const },
+      sequenceEnergy: seq({ workLoadUnits: 7.5, transitionLoadUnits: 0.75, totalLoadUnits: 8.25, remainingUnits: -0.25, deficit: true, reasonCodes: ["sequence_transition_added", "sequence_deficit"] })
+    };
+    mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: feas });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("sequence-energy")).toHaveAttribute("data-deficit", "true"));
+    // duration-only energy row shows no 초과 (loadUnits < budget)
+    const node = screen.getByTestId("sequence-energy");
+    expect(node).toHaveTextContent("합계 8.25h / 8h");
   });
 });
 
@@ -2074,7 +2141,11 @@ describe("Today — conflict sheet people guard", () => {
       date: "2026-06-20", now: "2026-06-20T09:00:00+09:00",
       params: { energyBudget: 8, meetBufferMinutes: 15, deepBufferMinutes: 30, travelMargin: 1, maxContinuousMinutes: 600 },
       energy: { loadUnits: 0, budgetUnits: 8, remainingUnits: 8, deficit: false, confidence: "cold_start" },
-      gaps: [], continuous: null, transitionCosts: []
+      gaps: [], continuous: null, transitionCosts: [],
+      sequenceEnergy: {
+        workLoadUnits: 0, transitionLoadUnits: 0, totalLoadUnits: 0, budgetUnits: 8, remainingUnits: 8,
+        deficit: false, unknownTransitionCount: 0, confidence: "cold_start", reasonCodes: ["sequence_work_only"]
+      }
     }
   };
 
