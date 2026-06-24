@@ -210,6 +210,62 @@ p {
 .today-card--task     { border-left-color: var(--firm-hard); }
 .today-card--review   { border-left-color: var(--muted); }
 
+/* Event mode chip + schedule brief (FR-BRF, Schedule Brief A). */
+.event-mode-chip {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent), transparent 90%);
+  color: var(--text);
+}
+.event-mode-chip--sm { font-size: 0.66rem; padding: 1px 6px; }
+
+.input-mode-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+.input-mode-legend {
+  font-size: 0.72rem;
+  color: var(--faint);
+  padding: 0;
+  margin-bottom: 4px;
+}
+.input-mode-chip {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.85rem;
+}
+.input-mode-chip--active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent), transparent 82%);
+  font-weight: 600;
+}
+
+.event-brief {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border-left: 3px solid var(--accent);
+  background: color-mix(in srgb, var(--accent), transparent 92%);
+}
+.event-brief-thread-name,
+.event-brief-person-name { font-weight: 600; font-size: 0.85rem; }
+.event-brief-prev-note { font-style: italic; }
+
 /* Needs-review placement copy (FR-FEAS-11): explanatory "why now" line. */
 .review-placement {
   font-size: 0.75rem;

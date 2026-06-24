@@ -4,7 +4,7 @@ import { NeedsReviewPlacementSchema, TodaySurfaceSchema } from "./today.js";
 const EVENT = {
   id: 1, threadId: null, title: "회의", type: null,
   start: "2026-06-20T09:00:00+09:00", end: "2026-06-20T10:00:00+09:00",
-  location: null, source: "cairn", selfImposed: 1, status: "done",
+  location: null, mode: null, source: "cairn", selfImposed: 1, status: "done",
   createdAt: null, updatedAt: null
 };
 

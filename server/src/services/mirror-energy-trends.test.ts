@@ -16,6 +16,7 @@ function event(overrides: Partial<EventRow> = {}): EventRow {
     end: "2026-06-22T11:00:00Z",
     type: null,
     location: null,
+    mode: null,
     createdAt: null,
     updatedAt: null,
     ...overrides

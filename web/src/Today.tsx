@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ConflictDecision, DayFeasibility, EventDetailData, EventRow, FeasibilityParamLimits, FeasibilityParamSettingsData, FeasibilityParams, NeedsReviewPlacement, NotificationDraft, SlotCandidate, SlotSuggestionContribution, ThreadSummary, TodaySurface, UpdateFeasibilityParamsRequest } from "@cairn/shared";
+import type { ConflictDecision, DayFeasibility, EventDetailData, EventMode, EventRow, FeasibilityParamLimits, FeasibilityParamSettingsData, FeasibilityParams, NeedsReviewPlacement, NotificationDraft, PreferredPeriod, ScheduleBrief, SlotCandidate, SlotSuggestionContribution, ThreadSummary, TodaySurface, UpdateFeasibilityParamsRequest, Weekday } from "@cairn/shared";
 import { ResolveConflictResponseDataSchema } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString } from "./dateUtils.js";
 import { apiJson, type AccessSessionError } from "./api.js";
@@ -158,6 +158,20 @@ const PLACEMENT_TEXT: Record<NeedsReviewPlacement["mode"], string> = {
   no_context: "짧게 확인"
 };
 
+const EVENT_MODE_LABEL: Record<EventMode, string> = {
+  in_person: "대면",
+  remote: "비대면",
+  async: "과제"
+};
+
+const WEEKDAY_LABEL: Record<Weekday, string> = {
+  monday: "월", tuesday: "화", wednesday: "수", thursday: "목",
+  friday: "금", saturday: "토", sunday: "일"
+};
+const PERIOD_LABEL: Record<PreferredPeriod, string> = {
+  morning: "오전", afternoon: "오후", evening: "저녁"
+};
+
 const TRANSITION_COST_LABEL: Record<DayFeasibility["transitionCosts"][number]["costLevel"], string> = {
   none: "없음",
   low: "낮음",
@@ -234,6 +248,51 @@ function SequenceEnergySection({ seq }: { seq: DayFeasibility["sequenceEnergy"] 
       )}
       <p className="feas-confidence">추정치 (cold start)</p>
     </div>
+  );
+}
+
+function ScheduleBriefSection({ brief }: { brief: ScheduleBrief }) {
+  // Read-only highlight layer. Only render when Cairn actually has context to
+  // show — quiet brief (no thread/previous/people facts) renders nothing.
+  const hasPeopleFacts = brief.people.some(
+    (p) => p.preferredWeekdays.length > 0 || p.preferredPeriods.length > 0 || p.leadTimeDays != null || p.unavailableWeekdays.length > 0
+  );
+  const show = brief.thread != null || brief.previousEvent != null || brief.previousAnnotation != null || hasPeopleFacts;
+  if (!show) return null;
+
+  return (
+    <section className="event-brief" aria-label="일정 브리프" data-testid="schedule-brief">
+      <p className="event-detail-section-label">브리프</p>
+      {brief.thread && (
+        <div className="event-brief-thread" data-testid="brief-thread">
+          <span className="event-brief-thread-name">{brief.thread.name}</span>
+          {brief.thread.goal && <span className="card-meta"> · {brief.thread.goal}</span>}
+          {brief.thread.deadline && <span className="card-meta"> · 마감 {brief.thread.deadline.slice(0, 10)}</span>}
+        </div>
+      )}
+      {brief.previousEvent && (
+        <div className="event-brief-previous" data-testid="brief-previous">
+          <span className="card-meta">직전: {brief.previousEvent.title}</span>
+          {brief.previousAnnotation?.reasonText && (
+            <span className="event-brief-prev-note"> — “{brief.previousAnnotation.reasonText}”</span>
+          )}
+        </div>
+      )}
+      {brief.people.filter((p) =>
+        p.preferredWeekdays.length > 0 || p.preferredPeriods.length > 0 || p.leadTimeDays != null || p.unavailableWeekdays.length > 0
+      ).map((p) => (
+        <div key={p.personId} className="event-brief-person" data-testid="brief-person">
+          <span className="event-brief-person-name">{p.name}</span>
+          {(p.preferredWeekdays.length > 0 || p.preferredPeriods.length > 0) && (
+            <span className="card-meta"> · 선호 {[...p.preferredWeekdays.map((w) => WEEKDAY_LABEL[w]), ...p.preferredPeriods.map((pd) => PERIOD_LABEL[pd])].join("/")}</span>
+          )}
+          {p.leadTimeDays != null && <span className="card-meta"> · 사전통보 {p.leadTimeDays}일</span>}
+          {p.unavailableWeekdays.length > 0 && (
+            <span className="card-meta"> · 불가 {p.unavailableWeekdays.map((w) => WEEKDAY_LABEL[w]).join("/")}</span>
+          )}
+        </div>
+      ))}
+    </section>
   );
 }
 
@@ -953,6 +1012,11 @@ export function Today() {
           <>
             <div className="event-detail-header">
               <p className="event-detail-title">{eventDetail.data.event.title}</p>
+              {eventDetail.data.event.mode && (
+                <span className="event-mode-chip" data-testid="event-mode-chip" data-mode={eventDetail.data.event.mode}>
+                  {EVENT_MODE_LABEL[eventDetail.data.event.mode]}
+                </span>
+              )}
               {(eventDetail.data.event.start || eventDetail.data.event.end) && (
                 <p className="event-detail-time">
                   {eventDetail.data.event.start?.slice(11, 16)}
@@ -963,6 +1027,7 @@ export function Today() {
                 <p className="event-detail-thread">{eventDetail.data.thread.name}</p>
               )}
             </div>
+            <ScheduleBriefSection brief={eventDetail.data.scheduleBrief} />
             {eventDetail.data.people.length > 0 && (
               <div className="event-detail-people">
                 <p className="event-detail-section-label">참석자</p>
@@ -1609,6 +1674,11 @@ export function Today() {
                     >
                       {event.title}
                     </button>
+                    {event.mode && (
+                      <span className="event-mode-chip event-mode-chip--sm" data-testid="tl-mode-chip" data-mode={event.mode}>
+                        {EVENT_MODE_LABEL[event.mode]}
+                      </span>
+                    )}
                     {event.threadId != null && (
                       <a
                         className="today-tl-link"

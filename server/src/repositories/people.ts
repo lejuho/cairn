@@ -353,6 +353,7 @@ export function findRecentMeetings(db: CairnDatabase, personId: number, nowIso: 
       threadId: r.events.threadId,
       type: r.events.type,
       location: r.events.location,
+      mode: r.events.mode as EventRow["mode"],
       createdAt: r.events.createdAt,
       updatedAt: r.events.updatedAt
     }));

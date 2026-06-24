@@ -5,7 +5,7 @@ import { computeNeedsReviewPlacement } from "./needsReviewPlacement.js";
 function ev(id: number, end: string | null): EventRow {
   return {
     id, threadId: null, title: `E${id}`, type: null,
-    start: null, end, location: null, source: "cairn",
+    start: null, end, location: null, mode: null, source: "cairn",
     selfImposed: 1, status: "done", createdAt: null, updatedAt: null
   };
 }

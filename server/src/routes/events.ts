@@ -1,9 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { CreateEventRequestSchema, PatchEventStatusRequestSchema } from "@cairn/shared";
-import { createEventWithPeople, findEventById, updateEventStatus } from "../repositories/events.js";
+import { createEventWithPeople, findEventById, findNearestPriorThreadEvent, updateEventStatus } from "../repositories/events.js";
 import { findAnnotationsByEvent } from "../repositories/annotations.js";
 import { findEventWithPeople, findPeopleByIds } from "../repositories/people.js";
 import { findThreadById } from "../repositories/threads.js";
+import { buildScheduleBrief, pickNewestAnnotation } from "../services/scheduleBrief.js";
 import type { CairnDatabase } from "../db/index.js";
 
 export function registerEventRoutes(app: FastifyInstance, db: CairnDatabase): void {
@@ -60,7 +61,19 @@ export function registerEventRoutes(app: FastifyInstance, db: CairnDatabase): vo
       ? (findThreadById(db, result.event.threadId) ?? null)
       : null;
     const compactThread = thread ? { id: thread.id, name: thread.name } : null;
-    return reply.send({ ok: true, data: { event: result.event, people: result.people, annotations, thread: compactThread } });
+
+    // Schedule Brief A (read-only): nearest prior same-thread event + its newest
+    // annotation. Only when this event has a thread and a start to anchor on.
+    const previousEvent =
+      result.event.threadId != null && result.event.start != null
+        ? findNearestPriorThreadEvent(db, result.event.threadId, result.event.start, result.event.id)
+        : null;
+    const previousAnnotation = previousEvent
+      ? pickNewestAnnotation(findAnnotationsByEvent(db, previousEvent.id))
+      : null;
+    const scheduleBrief = buildScheduleBrief(result.event, thread, previousEvent, previousAnnotation, result.people);
+
+    return reply.send({ ok: true, data: { event: result.event, people: result.people, annotations, thread: compactThread, scheduleBrief } });
   });
 
   app.patch("/api/events/:id/status", async (req, reply) => {

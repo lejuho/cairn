@@ -63,6 +63,7 @@ function eventRow(overrides: Partial<EventRow> = {}): EventRow {
     end: null,
     threadId: null,
     location: null,
+    mode: null,
     createdAt: null,
     updatedAt: null,
     ...overrides

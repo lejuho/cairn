@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { EventRow, PersonRow, SlotCandidate, ThreadSummary, TodaySurface, Weekday } from "@cairn/shared";
+import type { EventMode, EventRow, PersonRow, SlotCandidate, ThreadSummary, TodaySurface, Weekday } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString, localNowRfc3339 } from "./dateUtils.js";
 import { apiJson, type AccessSessionError } from "./api.js";
 
@@ -14,7 +14,7 @@ type HubViewState =
 
 type CaptureState = { text: string; submitting: boolean; savedMsg: string | null; error: string | null };
 
-type EventForm = { title: string; start: string; end: string; threadId: string; personIds: number[] };
+type EventForm = { title: string; start: string; end: string; threadId: string; personIds: number[]; eventMode: EventMode | null };
 type NewPersonState = { show: boolean; name: string; channel: string; relation: string; submitting: boolean; error: string | null };
 type ConstraintSheetState = { open: false } | { open: true; personId: number; personName: string; weekdays: Weekday[]; submitting: boolean; error: string | null };
 
@@ -36,7 +36,13 @@ type FormSectionState = {
 
 type SlotMap = Record<number, { tag: "idle" } | { tag: "loading" } | { tag: "loaded"; candidates: SlotCandidate[] } | { tag: "error"; message: string }>;
 
-const EMPTY_EVENT: EventForm = { title: "", start: "", end: "", threadId: "", personIds: [] };
+const EMPTY_EVENT: EventForm = { title: "", start: "", end: "", threadId: "", personIds: [], eventMode: null };
+
+const EVENT_MODE_CHIPS: { value: EventMode; label: string }[] = [
+  { value: "in_person", label: "대면" },
+  { value: "remote", label: "비대면" },
+  { value: "async", label: "과제" }
+];
 const EMPTY_TASK: TaskForm = { title: "", estMinutes: "", threadId: "" };
 
 
@@ -120,7 +126,7 @@ export function InputHub() {
     setForm((f) => ({ ...f, submitting: true, error: null, saved: false }));
     try {
       if (form.mode === "event") {
-        const { title, start, end, threadId, personIds } = form.eventForm;
+        const { title, start, end, threadId, personIds, eventMode } = form.eventForm;
         if (!title.trim() || !start || !end) {
           setForm((f) => ({ ...f, submitting: false, error: "제목, 시작, 종료 시간을 입력해줘" }));
           return;
@@ -129,6 +135,7 @@ export function InputHub() {
         const tid = parseInt(threadId, 10);
         if (tid > 0) payload.threadId = tid;
         if (personIds.length > 0) payload.personIds = personIds;
+        if (eventMode != null) payload.mode = eventMode;
         const body = await apiJson<{ ok: boolean; error?: { message: string } }>("/api/events", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -361,6 +368,27 @@ export function InputHub() {
             aria-label="종료 시간"
             disabled={form.submitting}
           />
+          <fieldset className="input-mode-chips" aria-label="진행 방식 (선택)">
+            <legend className="input-mode-legend">진행 방식 (선택)</legend>
+            {EVENT_MODE_CHIPS.map((chip) => {
+              const active = form.eventForm.eventMode === chip.value;
+              return (
+                <button
+                  key={chip.value}
+                  type="button"
+                  className={`input-mode-chip${active ? " input-mode-chip--active" : ""}`}
+                  aria-pressed={active}
+                  disabled={form.submitting}
+                  onClick={() => setForm((f) => ({
+                    ...f,
+                    eventForm: { ...f.eventForm, eventMode: active ? null : chip.value }
+                  }))}
+                >
+                  {chip.label}
+                </button>
+              );
+            })}
+          </fieldset>
           {threads.length > 0 && (
             <select
               className="input-field"

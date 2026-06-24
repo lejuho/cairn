@@ -96,6 +96,7 @@ describe("Today — live state", () => {
       start: "2026-06-16T10:00:00+00:00",
       end: "2026-06-16T11:00:00+00:00",
       threadId: null, type: null, location: null,
+      mode: null,
       source: "cairn" as const, selfImposed: 1,
       status: "planned" as const,
       createdAt: null, updatedAt: null
@@ -118,6 +119,7 @@ describe("Today — live state", () => {
       start: "2026-06-16T10:00:00+00:00",
       end: "2026-06-16T12:00:00+00:00",
       threadId: null, type: null, location: null,
+      mode: null,
       source: "cairn" as const, selfImposed: 1,
       status: "planned" as const,
       createdAt: null, updatedAt: null
@@ -127,6 +129,7 @@ describe("Today — live state", () => {
       start: "2026-06-16T11:00:00+00:00",
       end: "2026-06-16T13:00:00+00:00",
       threadId: null, type: null, location: null,
+      mode: null,
       source: "cairn" as const, selfImposed: 1,
       status: "planned" as const,
       createdAt: null, updatedAt: null
@@ -358,6 +361,7 @@ const REVIEW_EVENT = {
   threadId: null,
   type: null,
   location: null,
+  mode: null,
   source: "cairn" as const,
   selfImposed: 1,
   status: "planned" as const,
@@ -501,7 +505,7 @@ describe("Today — manual intake sheet (live state)", () => {
     const event = {
       id: 1, title: "팀 회의",
       start: "2026-06-16T10:00:00+00:00", end: "2026-06-16T11:00:00+00:00",
-      threadId: null, type: null, location: null, source: "cairn" as const,
+      threadId: null, type: null, location: null, mode: null, source: "cairn" as const,
       selfImposed: 1, status: "planned" as const, createdAt: null, updatedAt: null
     };
     mockFetch({ ...BASE_SURFACE, state: "live", nextEvent: event, cards: [{ kind: "next_event", event }] });
@@ -638,7 +642,7 @@ describe("Today — needs_review card", () => {
       cards: [{ kind: "needs_review", event: REVIEW_EVENT, placement: NO_CONTEXT_PLACEMENT }]
     };
     const detail: EventDetailData = {
-      event: REVIEW_EVENT, people: [], annotations: [], thread: null
+      event: REVIEW_EVENT, people: [], annotations: [], thread: null, scheduleBrief: { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], reasonCodes: [] }
     };
     vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
       if (typeof url === "string" && url.match(/\/api\/events\/\d+$/) && !opts?.method) {
@@ -662,6 +666,7 @@ const DAY_EVENT_A = {
   start: "2026-06-16T09:00:00+09:00",
   end:   "2026-06-16T10:00:00+09:00",
   threadId: null, type: null, location: null,
+  mode: null,
   source: "cairn" as const, selfImposed: 1,
   status: "planned" as const, createdAt: null, updatedAt: null
 };
@@ -671,6 +676,7 @@ const DAY_EVENT_B = {
   start: "2026-06-16T14:00:00+09:00",
   end:   "2026-06-16T15:00:00+09:00",
   threadId: null, type: null, location: "회의실" as const,
+  mode: null,
   source: "cairn" as const, selfImposed: 1,
   status: "planned" as const, createdAt: null, updatedAt: null
 };
@@ -947,7 +953,7 @@ const UNSCHEDULED_EVENT = {
   id: 42, title: "독서", start: null, end: null, source: "cairn" as const, selfImposed: 1,
   status: "planned" as const, threadId: null, commitment: 2, reversible: 1, cancelMoney: 0,
   cancelSocial: 0, externalCalendarId: null, externalCalendarName: null,
-  type: null, location: null, createdAt: null, updatedAt: null
+  type: null, location: null, mode: null, createdAt: null, updatedAt: null
 };
 
 const SLOT_CANDIDATE = {
@@ -1066,7 +1072,8 @@ describe("Today — schedule prompt", () => {
 
   it("clicking the title opens the event detail sheet without breaking the slot button", async () => {
     const detail: EventDetailData = {
-      event: UNSCHEDULED_EVENT, people: [], annotations: [], thread: null
+      event: UNSCHEDULED_EVENT, people: [], annotations: [], thread: null,
+      scheduleBrief: { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], reasonCodes: [] }
     };
     vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
       if (typeof url === "string" && url.match(/\/api\/events\/\d+$/) && !opts?.method) {
@@ -1227,6 +1234,7 @@ describe("Today — event detail sheet", () => {
     id: 42, title: "팀 스프린트",
     start: "2026-06-20T10:00:00+09:00", end: "2026-06-20T11:00:00+09:00",
     threadId: null, type: null, location: null,
+    mode: null,
     source: "cairn" as const, selfImposed: 1,
     status: "planned" as const,
     createdAt: null, updatedAt: null
@@ -1235,7 +1243,8 @@ describe("Today — event detail sheet", () => {
     event: BASE_EVENT,
     people: [],
     annotations: [],
-    thread: null
+    thread: null,
+    scheduleBrief: { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], reasonCodes: [] }
   };
   const BASE_SURFACE_LIVE: TodaySurface = {
     ...BASE_SURFACE,
@@ -1266,6 +1275,62 @@ describe("Today — event detail sheet", () => {
     await waitFor(() => expect(screen.getByRole("dialog", { name: "일정 상세" })).toBeInTheDocument());
     const dialog = screen.getByRole("dialog", { name: "일정 상세" });
     expect(within(dialog).getByText("팀 스프린트")).toBeInTheDocument();
+  });
+
+  // ── event mode + schedule brief (FR-BRF) ──────────────────────────────────
+  it("shows no mode chip when event.mode is null", async () => {
+    mockFetchWithDetail();
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("팀 스프린트 상세 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("팀 스프린트 상세 보기"));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "일정 상세" })).toBeInTheDocument());
+    expect(screen.queryByTestId("event-mode-chip")).not.toBeInTheDocument();
+  });
+
+  it("shows mode chip copy when event.mode is present", async () => {
+    const detail = { ...BASE_DETAIL, event: { ...BASE_EVENT, mode: "remote" as const } };
+    mockFetchWithDetail(detail);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("팀 스프린트 상세 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("팀 스프린트 상세 보기"));
+    await waitFor(() => expect(screen.getByTestId("event-mode-chip")).toBeInTheDocument());
+    expect(screen.getByTestId("event-mode-chip")).toHaveTextContent("비대면");
+    expect(screen.getByTestId("event-mode-chip")).toHaveAttribute("data-mode", "remote");
+  });
+
+  it("does not render schedule brief for a quiet brief", async () => {
+    mockFetchWithDetail();
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("팀 스프린트 상세 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("팀 스프린트 상세 보기"));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "일정 상세" })).toBeInTheDocument());
+    expect(screen.queryByTestId("schedule-brief")).not.toBeInTheDocument();
+  });
+
+  it("renders schedule brief with thread, previous annotation, and people facts", async () => {
+    const detail: EventDetailData = {
+      ...BASE_DETAIL,
+      scheduleBrief: {
+        mode: "in_person",
+        thread: { id: 1, name: "발표 준비", goal: "데모", deadline: "2026-06-25" },
+        previousEvent: { id: 9, title: "리허설", start: null, end: "2026-06-19T10:00:00+09:00" },
+        previousAnnotation: { id: 3, eventId: 9, outcome: "done", reasonTags: null, reasonText: "잘 됐어", energyAtTime: null, loggedAt: "2026-06-19T11:00:00+09:00" },
+        people: [{ personId: 5, name: "Alice", relation: "동료", preferredWeekdays: ["monday"], preferredPeriods: ["evening"], leadTimeDays: 3, unavailableWeekdays: ["friday"] }],
+        reasonCodes: ["brief_mode_present", "brief_thread_present", "brief_previous_event", "brief_previous_annotation", "brief_people_present"]
+      }
+    };
+    mockFetchWithDetail(detail);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("팀 스프린트 상세 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("팀 스프린트 상세 보기"));
+    await waitFor(() => expect(screen.getByTestId("schedule-brief")).toBeInTheDocument());
+    expect(screen.getByTestId("brief-thread")).toHaveTextContent("발표 준비");
+    expect(screen.getByTestId("brief-previous")).toHaveTextContent("리허설");
+    expect(screen.getByTestId("brief-previous")).toHaveTextContent("잘 됐어");
+    const person = screen.getByTestId("brief-person");
+    expect(person).toHaveTextContent("Alice");
+    expect(person).toHaveTextContent("사전통보 3일");
+    expect(person).toHaveTextContent("불가 금");
   });
 
   it("detail sheet shows people list", async () => {
@@ -1509,7 +1574,7 @@ describe("Today — feasibility panel", () => {
   const tEvent = (id: number, title: string) => ({
     id, title, threadId: null, type: null,
     start: "2026-06-16T09:00:00+09:00", end: "2026-06-16T10:00:00+09:00",
-    location: null, source: "cairn" as const, selfImposed: 1, status: "planned" as const,
+    location: null, mode: null, source: "cairn" as const, selfImposed: 1, status: "planned" as const,
     createdAt: null, updatedAt: null
   });
 
@@ -1643,6 +1708,7 @@ describe("Today — conflict decision sheet", () => {
   const makeEvent = (id: number, title: string, start: string, end: string) => ({
     id, title, start, end,
     threadId: null, type: null, location: null,
+    mode: null,
     source: "cairn" as const, selfImposed: 1,
     status: "planned" as const,
     createdAt: null, updatedAt: null
@@ -2161,8 +2227,8 @@ describe("Today — conflict decision sheet", () => {
 // ── Today — conflict sheet people guard ───────────────────────────────────────
 
 describe("Today — conflict sheet people guard", () => {
-  const eventA = { id: 1, title: "미팅 A", start: "2026-06-20T10:00:00+09:00", end: "2026-06-20T11:00:00+09:00", source: "cairn" as const, selfImposed: 1, status: "planned" as const, threadId: null, type: null, location: null, createdAt: null, updatedAt: null };
-  const eventB = { id: 2, title: "미팅 B", start: "2026-06-20T11:00:00+09:00", end: "2026-06-20T12:00:00+09:00", source: "cairn" as const, selfImposed: 1, status: "planned" as const, threadId: null, type: null, location: null, createdAt: null, updatedAt: null };
+  const eventA = { id: 1, title: "미팅 A", start: "2026-06-20T10:00:00+09:00", end: "2026-06-20T11:00:00+09:00", source: "cairn" as const, selfImposed: 1, status: "planned" as const, threadId: null, type: null, location: null, mode: null, createdAt: null, updatedAt: null };
+  const eventB = { id: 2, title: "미팅 B", start: "2026-06-20T11:00:00+09:00", end: "2026-06-20T12:00:00+09:00", source: "cairn" as const, selfImposed: 1, status: "planned" as const, threadId: null, type: null, location: null, mode: null, createdAt: null, updatedAt: null };
 
   const BASE_SURFACE_GUARD: TodaySurface = {
     date: "2026-06-20", now: "2026-06-20T09:00:00+09:00", state: "live",
