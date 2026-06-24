@@ -4,7 +4,9 @@ import { createEventWithPeople, findEventById, findNearestPriorThreadEvent, upda
 import { findAnnotationsByEvent } from "../repositories/annotations.js";
 import { findEventWithPeople, findPeopleByIds } from "../repositories/people.js";
 import { findThreadById } from "../repositories/threads.js";
+import { findPreparationLinkData } from "../repositories/resources.js";
 import { buildScheduleBrief, pickNewestAnnotation } from "../services/scheduleBrief.js";
+import { buildPreparations } from "../services/preparationBrief.js";
 import type { CairnDatabase } from "../db/index.js";
 
 export function registerEventRoutes(app: FastifyInstance, db: CairnDatabase): void {
@@ -71,7 +73,13 @@ export function registerEventRoutes(app: FastifyInstance, db: CairnDatabase): vo
     const previousAnnotation = previousEvent
       ? pickNewestAnnotation(findAnnotationsByEvent(db, previousEvent.id))
       : null;
-    const scheduleBrief = buildScheduleBrief(result.event, thread, previousEvent, previousAnnotation, result.people);
+
+    // Preparation Brief A (cycle-45): resources linked to the event, its thread,
+    // or the nearest prior same-thread event. Read-only.
+    const preparations = buildPreparations(
+      findPreparationLinkData(db, result.event.id, result.event.threadId ?? null, previousEvent?.id ?? null)
+    );
+    const scheduleBrief = buildScheduleBrief(result.event, thread, previousEvent, previousAnnotation, result.people, preparations);
 
     return reply.send({ ok: true, data: { event: result.event, people: result.people, annotations, thread: compactThread, scheduleBrief } });
   });

@@ -207,6 +207,98 @@ export function findThreadResourceFocus(
   return { threadId, resources: items };
 }
 
+// --- Preparation brief (cycle-45 FR-BRF-04) ---
+
+// One resource link tagged with the preparation scope that matched it.
+export type PreparationScope = "event_direct" | "thread_context" | "previous_event";
+export type PreparationLinkEntry = {
+  scope: PreparationScope;
+  resourceId: number;
+  targetType: "event" | "thread";
+  targetId: number;
+  firmness: ResourceFirmness;
+  reason: string | null;
+};
+export type PreparationLinkData = {
+  links: PreparationLinkEntry[];
+  resources: ResourceRow[];
+  sourcePersons: { id: number; name: string }[];
+};
+
+// Read-only: resource links for exactly three explicit targets — the event
+// itself (event_direct), its thread (thread_context), and the nearest prior
+// same-thread event (previous_event). No broad thread resource-focus dump.
+// Returns raw (ungrouped) tagged links + the involved resources + source
+// persons; the pure service groups/sorts.
+export function findPreparationLinkData(
+  db: CairnDatabase,
+  eventId: number,
+  threadId: number | null,
+  previousEventId: number | null
+): PreparationLinkData {
+  const conditions = [
+    and(eq(resourceLinks.targetType, "event"), eq(resourceLinks.targetId, eventId)),
+    ...(threadId != null
+      ? [and(eq(resourceLinks.targetType, "thread"), eq(resourceLinks.targetId, threadId))]
+      : []),
+    ...(previousEventId != null
+      ? [and(eq(resourceLinks.targetType, "event"), eq(resourceLinks.targetId, previousEventId))]
+      : [])
+  ];
+
+  const linkRows =
+    conditions.length === 1
+      ? db.select().from(resourceLinks).where(conditions[0]).all()
+      : db.select().from(resourceLinks).where(or(...conditions)).all();
+
+  if (linkRows.length === 0) {
+    return { links: [], resources: [], sourcePersons: [] };
+  }
+
+  const scopeOf = (targetType: string, targetId: number): PreparationScope | null => {
+    if (targetType === "event" && targetId === eventId) return "event_direct";
+    if (targetType === "thread" && threadId != null && targetId === threadId) return "thread_context";
+    if (targetType === "event" && previousEventId != null && targetId === previousEventId) return "previous_event";
+    return null;
+  };
+
+  const links: PreparationLinkEntry[] = [];
+  for (const l of linkRows) {
+    const scope = scopeOf(l.targetType, l.targetId);
+    if (scope == null) continue;
+    links.push({
+      scope,
+      resourceId: l.resourceId,
+      targetType: l.targetType as "event" | "thread",
+      targetId: l.targetId,
+      firmness: l.firmness as ResourceFirmness,
+      reason: l.reason ?? null
+    });
+  }
+
+  const resourceIdList = [...new Set(links.map((l) => l.resourceId))];
+  const resourceRows = db
+    .select()
+    .from(resources)
+    .where(inArray(resources.id, resourceIdList))
+    .all()
+    .map(mapResource);
+
+  const personIdSet = new Set(
+    resourceRows.flatMap((r) => (r.sourcePersonId != null ? [r.sourcePersonId] : []))
+  );
+  const sourcePersons =
+    personIdSet.size > 0
+      ? db
+          .select({ id: people.id, name: people.name })
+          .from(people)
+          .where(inArray(people.id, [...personIdSet]))
+          .all()
+      : [];
+
+  return { links, resources: resourceRows, sourcePersons };
+}
+
 // --- Promotion suggestion sources ---
 
 // Returns candidate source nodes for extraction.

@@ -3,6 +3,7 @@ import { EventModeSchema, EventRowSchema } from "./events.js";
 import { EventStatusSchema } from "./enums.js";
 import { PersonRowSchema, PreferredPeriodSchema, WeekdaySchema } from "./people.js";
 import { AnnotationRowSchema } from "./annotations.js";
+import { ResourceFirmnessSchema, ResourceRowSchema } from "./resources.js";
 
 export const CompactThreadSchema = z.object({
   id: z.number(),
@@ -42,6 +43,35 @@ export const ScheduleBriefPersonSchema = z
   })
   .strict();
 
+// Preparation Brief A (cycle-45 FR-BRF-04). Read-only list of already-known
+// resources linked to the event, its thread, or the nearest prior same-thread
+// event. Automatic highlight only — no AI suggestion, manual entry, or
+// procurement/movement fields.
+export const ScheduleBriefPreparationScopeSchema = z.enum([
+  "event_direct",
+  "thread_context",
+  "previous_event"
+]);
+
+export const ScheduleBriefPreparationLinkSchema = z
+  .object({
+    targetType: z.enum(["event", "thread"]),
+    targetId: z.number().int().positive(),
+    scope: ScheduleBriefPreparationScopeSchema,
+    firmness: ResourceFirmnessSchema,
+    reason: z.string().nullable()
+  })
+  .strict();
+
+export const ScheduleBriefPreparationSchema = z
+  .object({
+    resource: ResourceRowSchema,
+    sourcePerson: z.object({ id: z.number(), name: z.string() }).nullable(),
+    links: z.array(ScheduleBriefPreparationLinkSchema),
+    reasonCodes: z.array(z.string())
+  })
+  .strict();
+
 export const ScheduleBriefSchema = z
   .object({
     mode: EventModeSchema.nullable(),
@@ -49,6 +79,7 @@ export const ScheduleBriefSchema = z
     previousEvent: ScheduleBriefPreviousEventSchema.nullable(),
     previousAnnotation: AnnotationRowSchema.nullable(),
     people: z.array(ScheduleBriefPersonSchema),
+    preparations: z.array(ScheduleBriefPreparationSchema),
     reasonCodes: z.array(z.string())
   })
   .strict();
@@ -73,6 +104,9 @@ export type CompactThread = z.infer<typeof CompactThreadSchema>;
 export type ScheduleBriefThread = z.infer<typeof ScheduleBriefThreadSchema>;
 export type ScheduleBriefPreviousEvent = z.infer<typeof ScheduleBriefPreviousEventSchema>;
 export type ScheduleBriefPerson = z.infer<typeof ScheduleBriefPersonSchema>;
+export type ScheduleBriefPreparationScope = z.infer<typeof ScheduleBriefPreparationScopeSchema>;
+export type ScheduleBriefPreparationLink = z.infer<typeof ScheduleBriefPreparationLinkSchema>;
+export type ScheduleBriefPreparation = z.infer<typeof ScheduleBriefPreparationSchema>;
 export type ScheduleBrief = z.infer<typeof ScheduleBriefSchema>;
 export type EventDetailData = z.infer<typeof EventDetailDataSchema>;
 export type PatchEventStatusRequest = z.infer<typeof PatchEventStatusRequestSchema>;
