@@ -251,6 +251,21 @@ function SequenceEnergySection({ seq }: { seq: DayFeasibility["sequenceEnergy"] 
   );
 }
 
+// Shared event-mode chip. Renders nothing when mode is absent. Used by both the
+// timeline rows and the event-bearing Today priority cards (FR-BRF).
+function EventModeChip({ mode, small }: { mode: EventMode | null | undefined; small?: boolean }) {
+  if (!mode) return null;
+  return (
+    <span
+      className={`event-mode-chip${small ? " event-mode-chip--sm" : ""}`}
+      data-testid="card-mode-chip"
+      data-mode={mode}
+    >
+      {EVENT_MODE_LABEL[mode]}
+    </span>
+  );
+}
+
 function ScheduleBriefSection({ brief }: { brief: ScheduleBrief }) {
   // Read-only highlight layer. Only render when Cairn actually has context to
   // show — quiet brief (no thread/previous/people facts) renders nothing.
@@ -1467,6 +1482,7 @@ export function Today() {
             return (
               <li key={`next_event-${i}`} className="today-card today-card--event" style={delay}>
                 <span className="card-chip">다음 일정</span>
+                <EventModeChip mode={card.event.mode} small />
                 <button
                   className="today-card-event-btn"
                   onClick={() => void handleOpenEventDetail(card.event.id)}
@@ -1502,6 +1518,7 @@ export function Today() {
             return (
               <li key={`review-${card.event.id}`} className="today-card today-card--review" style={delay}>
                 <span className="card-chip">기록</span>
+                <EventModeChip mode={card.event.mode} small />
                 <button
                   className="today-card-title-btn"
                   onClick={() => void handleOpenEventDetail(card.event.id)}
@@ -1566,6 +1583,7 @@ export function Today() {
             return (
               <li key={`slot-${card.event.id}`} className="today-card today-card--slot" style={delay}>
                 <span className="card-chip">날짜</span>
+                <EventModeChip mode={card.event.mode} small />
                 <button
                   className="today-card-title-btn"
                   onClick={() => void handleOpenEventDetail(card.event.id)}

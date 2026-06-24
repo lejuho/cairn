@@ -513,6 +513,34 @@ describe("Today — manual intake sheet (live state)", () => {
     await waitFor(() => expect(screen.getByText("팀 회의")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "추가" })).toBeInTheDocument();
   });
+
+  it("next_event priority card shows mode chip when event.mode is set", async () => {
+    const event = {
+      id: 1, title: "팀 회의",
+      start: "2026-06-16T10:00:00+00:00", end: "2026-06-16T11:00:00+00:00",
+      threadId: null, type: null, location: null, mode: "in_person" as const, source: "cairn" as const,
+      selfImposed: 1, status: "planned" as const, createdAt: null, updatedAt: null
+    };
+    mockFetch({ ...BASE_SURFACE, state: "live", nextEvent: event, cards: [{ kind: "next_event", event }] });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByText("팀 회의")).toBeInTheDocument());
+    const chip = screen.getByTestId("card-mode-chip");
+    expect(chip).toHaveTextContent("대면");
+    expect(chip).toHaveAttribute("data-mode", "in_person");
+  });
+
+  it("next_event priority card shows no mode chip when event.mode is null", async () => {
+    const event = {
+      id: 1, title: "팀 회의",
+      start: "2026-06-16T10:00:00+00:00", end: "2026-06-16T11:00:00+00:00",
+      threadId: null, type: null, location: null, mode: null, source: "cairn" as const,
+      selfImposed: 1, status: "planned" as const, createdAt: null, updatedAt: null
+    };
+    mockFetch({ ...BASE_SURFACE, state: "live", nextEvent: event, cards: [{ kind: "next_event", event }] });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByText("팀 회의")).toBeInTheDocument());
+    expect(screen.queryByTestId("card-mode-chip")).not.toBeInTheDocument();
+  });
 });
 
 describe("Today — needs_review card", () => {
