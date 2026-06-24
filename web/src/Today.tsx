@@ -123,6 +123,18 @@ async function fetchEventDetail(id: number): Promise<EventDetailData> {
   return body.data!;
 }
 
+// Manual one-line preparation (cycle-46). Server owns find-or-create + idempotent
+// link; a duplicate (200) is still a success. Page-level write, not inside the
+// display-only ScheduleBriefSection.
+async function addEventPreparation(eventId: number, name: string): Promise<void> {
+  const body = await apiJson<{ ok: boolean; error?: { message: string } }>(`/api/events/${eventId}/preparations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name })
+  });
+  if (!body.ok) throw new Error(body.error?.message ?? "추가 실패");
+}
+
 async function snoozeWatcher(id: number, snoozedUntil: string): Promise<void> {
   const body = await apiJson<{ ok: boolean; error?: { message: string } }>(`/api/watchers/${id}/snooze`, {
     method: "PATCH",
@@ -635,6 +647,7 @@ export function Today() {
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [eventDetail, setEventDetail] = useState<EventDetailState>({ tag: "idle" });
   const [detailNote, setDetailNote] = useState<DetailNoteState>({ text: "", submitting: false, error: null });
+  const [prepForm, setPrepForm] = useState<{ open: boolean; text: string; submitting: boolean; error: string | null }>({ open: false, text: "", submitting: false, error: null });
   const [conflictSheet, setConflictSheet] = useState<ConflictSheetState>({ open: false });
   const [watcherSnoozeError, setWatcherSnoozeError] = useState<Record<number, string>>({});
   const [feasSettings, setFeasSettings] = useState<FeasSettingsSheetState>({ open: false });
@@ -821,7 +834,25 @@ export function Today() {
     setSelectedEventId(null);
     setEventDetail({ tag: "idle" });
     setDetailNote({ text: "", submitting: false, error: null });
+    setPrepForm({ open: false, text: "", submitting: false, error: null });
   }, []);
+
+  const handleAddPreparation = useCallback(async () => {
+    if (selectedEventId == null) return;
+    const name = prepForm.text.trim();
+    if (!name || prepForm.submitting) return;
+    setPrepForm((p) => ({ ...p, submitting: true, error: null }));
+    try {
+      await addEventPreparation(selectedEventId, name); // duplicate (200) is success
+      const data = await fetchEventDetail(selectedEventId);
+      setEventDetail({ tag: "loaded", data });
+      setPrepForm({ open: false, text: "", submitting: false, error: null });
+    } catch (e) {
+      // Keep typed text; scoped error (covers both POST and refetch failure).
+      const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "추가 실패";
+      setPrepForm((p) => ({ ...p, submitting: false, error: msg }));
+    }
+  }, [selectedEventId, prepForm.text, prepForm.submitting]);
 
   const handleOpenEventDetail = useCallback(async (id: number) => {
     setSelectedEventId(id);
@@ -1068,6 +1099,44 @@ export function Today() {
               )}
             </div>
             <ScheduleBriefSection brief={eventDetail.data.scheduleBrief} />
+            <div className="event-prep-add" data-testid="event-prep-add">
+              {!prepForm.open ? (
+                <button
+                  className="action-btn action-btn--sm"
+                  data-testid="prep-add-toggle"
+                  onClick={() => setPrepForm((p) => ({ ...p, open: true, error: null }))}
+                >
+                  준비물 추가
+                </button>
+              ) : (
+                <form
+                  className="event-prep-form"
+                  onSubmit={(e) => { e.preventDefault(); void handleAddPreparation(); }}
+                  aria-label="준비물 추가"
+                >
+                  <input
+                    className="today-reply-input"
+                    data-testid="prep-input"
+                    value={prepForm.text}
+                    onChange={(e) => setPrepForm((p) => ({ ...p, text: e.target.value }))}
+                    disabled={prepForm.submitting}
+                    placeholder="준비물 한 줄"
+                    aria-label="준비물 이름"
+                    autoFocus
+                  />
+                  <button
+                    type="submit"
+                    className="today-submit-btn"
+                    data-testid="prep-submit"
+                    disabled={prepForm.submitting || !prepForm.text.trim()}
+                    aria-label="준비물 저장"
+                  >
+                    {prepForm.submitting ? "…" : "→"}
+                  </button>
+                </form>
+              )}
+              {prepForm.error && <p className="sheet-error" role="alert">{prepForm.error}</p>}
+            </div>
             {eventDetail.data.people.length > 0 && (
               <div className="event-detail-people">
                 <p className="event-detail-section-label">참석자</p>

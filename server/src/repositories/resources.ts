@@ -3,6 +3,7 @@ import type {
   PromotionOccurrence,
   ResourceFirmness,
   ResourceKind,
+  ResourceLinkRow,
   ResourceRow,
   ResourceTargetType,
   ThreadResourceFocusData,
@@ -28,6 +29,90 @@ function mapResource(r: {
     note: r.note ?? null,
     createdAt: r.createdAt ?? null
   };
+}
+
+function mapLink(r: {
+  id: number;
+  resourceId: number;
+  targetType: string;
+  targetId: number;
+  firmness: string;
+  reason: string | null;
+  createdAt: string | null;
+}): ResourceLinkRow {
+  return {
+    id: r.id,
+    resourceId: r.resourceId,
+    targetType: r.targetType as ResourceTargetType,
+    targetId: r.targetId,
+    firmness: r.firmness as ResourceFirmness,
+    reason: r.reason ?? null,
+    createdAt: r.createdAt ?? null
+  };
+}
+
+// Manual one-line preparation (cycle-46 FR-BRF-04). In one transaction:
+// find-or-create an `item` resource by exact (name, kind='item'), then
+// idempotently link it directly to the event. An existing event link is NOT
+// rewritten (firmness/reason preserved) — reusedLink reports it. The newly
+// created link uses firmness='hard', reason='직접 추가'.
+export function addEventPreparation(
+  db: CairnDatabase,
+  eventId: number,
+  name: string
+): { resource: ResourceRow; link: ResourceLinkRow; reusedResource: boolean; reusedLink: boolean } {
+  return db.transaction((tx) => {
+    let resourceRow = tx
+      .select()
+      .from(resources)
+      .where(and(eq(resources.name, name), eq(resources.kind, "item")))
+      .get();
+    const reusedResource = !!resourceRow;
+    if (!resourceRow) {
+      resourceRow = tx
+        .insert(resources)
+        .values({ name, kind: "item", sourcePersonId: null, note: null })
+        .returning()
+        .get();
+    }
+    const resourceId = resourceRow.id;
+
+    const priorLink = tx
+      .select()
+      .from(resourceLinks)
+      .where(
+        and(
+          eq(resourceLinks.resourceId, resourceId),
+          eq(resourceLinks.targetType, "event"),
+          eq(resourceLinks.targetId, eventId)
+        )
+      )
+      .get();
+    const reusedLink = !!priorLink;
+
+    if (!priorLink) {
+      // onConflictDoNothing is a UNIQUE backstop; the pre-check already gates it.
+      tx
+        .insert(resourceLinks)
+        .values({ resourceId, targetType: "event", targetId: eventId, firmness: "hard", reason: "직접 추가" })
+        .onConflictDoNothing()
+        .run();
+    }
+
+    const linkRow = tx
+      .select()
+      .from(resourceLinks)
+      .where(
+        and(
+          eq(resourceLinks.resourceId, resourceId),
+          eq(resourceLinks.targetType, "event"),
+          eq(resourceLinks.targetId, eventId)
+        )
+      )
+      .get()!;
+
+    return { resource: mapResource(resourceRow), link: mapLink(linkRow), reusedResource, reusedLink };
+  });
 }
 
 export function createResource(

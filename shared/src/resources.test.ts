@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { ResourceRow } from "./resources.js";
 import {
   ApprovePromotionRequestSchema,
+  CreateEventPreparationRequestSchema,
+  CreateEventPreparationResponseDataSchema,
   CreateResourceLinkRequestSchema,
   CreateResourceRequestSchema,
   PromotionSuggestionSchema,
@@ -268,5 +270,56 @@ describe("ApprovePromotionRequestSchema", () => {
         { targetType: "event", targetId: 2 }
       ]
     }).success).toBe(false);
+  });
+});
+
+describe("CreateEventPreparationRequestSchema", () => {
+  it("accepts a valid item name", () => {
+    expect(CreateEventPreparationRequestSchema.safeParse({ name: "노트북" }).success).toBe(true);
+  });
+
+  it("trims surrounding whitespace", () => {
+    const r = CreateEventPreparationRequestSchema.safeParse({ name: "  노트북  " });
+    expect(r.success && r.data.name).toBe("노트북");
+  });
+
+  it("rejects blank-after-trim", () => {
+    expect(CreateEventPreparationRequestSchema.safeParse({ name: "   " }).success).toBe(false);
+  });
+
+  it("rejects overlong name (>120 after trim)", () => {
+    expect(CreateEventPreparationRequestSchema.safeParse({ name: "x".repeat(121) }).success).toBe(false);
+  });
+
+  it("rejects missing name", () => {
+    expect(CreateEventPreparationRequestSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects injected kind/sourcePerson/note/firmness/aiSuggestion (strict)", () => {
+    expect(CreateEventPreparationRequestSchema.safeParse({ name: "x", kind: "knowledge" }).success).toBe(false);
+    expect(CreateEventPreparationRequestSchema.safeParse({ name: "x", sourcePersonId: 1 }).success).toBe(false);
+    expect(CreateEventPreparationRequestSchema.safeParse({ name: "x", note: "y" }).success).toBe(false);
+    expect(CreateEventPreparationRequestSchema.safeParse({ name: "x", firmness: "hard" }).success).toBe(false);
+    expect(CreateEventPreparationRequestSchema.safeParse({ name: "x", aiSuggestion: "z" }).success).toBe(false);
+  });
+});
+
+describe("CreateEventPreparationResponseDataSchema", () => {
+  const VALID = {
+    resource: { id: 7, name: "노트북", kind: "item", sourcePersonId: null, note: null, createdAt: null },
+    link: { id: 3, resourceId: 7, targetType: "event", targetId: 1, firmness: "hard", reason: "직접 추가", createdAt: null },
+    reusedResource: false,
+    reusedLink: false
+  };
+  it("accepts a full response", () => {
+    expect(CreateEventPreparationResponseDataSchema.safeParse(VALID).success).toBe(true);
+  });
+  it("requires reusedResource/reusedLink", () => {
+    const { reusedLink, ...without } = VALID;
+    void reusedLink;
+    expect(CreateEventPreparationResponseDataSchema.safeParse(without).success).toBe(false);
+  });
+  it("rejects injected fields (strict)", () => {
+    expect(CreateEventPreparationResponseDataSchema.safeParse({ ...VALID, suggestion: "x" }).success).toBe(false);
   });
 });

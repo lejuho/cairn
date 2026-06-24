@@ -1432,6 +1432,83 @@ describe("Today — event detail sheet", () => {
     expect(screen.queryByTestId("brief-thread")).not.toBeInTheDocument();
   });
 
+  // ── manual preparation entry (cycle-46 FR-BRF-04) ──────────────────────────
+  const PREP_OF = (name: string): EventDetailData => ({
+    ...BASE_DETAIL,
+    scheduleBrief: {
+      mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [],
+      preparations: [{
+        resource: { id: 7, name, kind: "item", sourcePersonId: null, note: null, createdAt: null },
+        sourcePerson: null,
+        links: [{ targetType: "event", targetId: 42, scope: "event_direct", firmness: "hard", reason: "직접 추가" }],
+        reasonCodes: ["prep_event_direct"]
+      }],
+      reasonCodes: ["brief_preparations"]
+    }
+  });
+
+  function mockPrepFlow(postOk = true) {
+    let posted = false;
+    const fetchMock = vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (typeof url === "string" && url.includes("/preparations") && opts?.method === "POST") {
+        posted = true;
+        return postOk
+          ? Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, data: {} }) })
+          : Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: false, error: { message: "추가 실패" } }) });
+      }
+      if (typeof url === "string" && url.match(/\/api\/events\/\d+$/) && !opts?.method) {
+        // refetch after POST returns the new preparation
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: posted ? PREP_OF("노트북") : BASE_DETAIL }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: BASE_SURFACE_LIVE }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  async function openSheet() {
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("팀 스프린트 상세 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("팀 스프린트 상세 보기"));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "일정 상세" })).toBeInTheDocument());
+  }
+
+  it("shows a collapsed 준비물 추가 control; tapping expands one input", async () => {
+    mockPrepFlow();
+    await openSheet();
+    expect(screen.getByTestId("prep-add-toggle")).toBeInTheDocument();
+    expect(screen.queryByTestId("prep-input")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("prep-add-toggle"));
+    expect(screen.getByTestId("prep-input")).toBeInTheDocument();
+    // submit disabled for blank input
+    expect(screen.getByTestId("prep-submit")).toBeDisabled();
+  });
+
+  it("submitting posts, clears input, refetches and renders the new preparation", async () => {
+    const fetchMock = mockPrepFlow();
+    await openSheet();
+    fireEvent.click(screen.getByTestId("prep-add-toggle"));
+    fireEvent.change(screen.getByTestId("prep-input"), { target: { value: "노트북" } });
+    fireEvent.click(screen.getByTestId("prep-submit"));
+    await waitFor(() => expect(screen.getByTestId("brief-preparations")).toBeInTheDocument());
+    expect(screen.getByTestId("prep-row")).toHaveTextContent("노트북");
+    // POST issued with the trimmed name
+    const post = fetchMock.mock.calls.find((c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/preparations") && (c[1] as { method?: string })?.method === "POST");
+    expect(JSON.parse((post![1] as { body: string }).body)).toEqual({ name: "노트북" });
+    // input collapsed back to the toggle after success
+    expect(screen.queryByTestId("prep-input")).not.toBeInTheDocument();
+  });
+
+  it("failure shows a sheet-local error and keeps typed text", async () => {
+    mockPrepFlow(false);
+    await openSheet();
+    fireEvent.click(screen.getByTestId("prep-add-toggle"));
+    fireEvent.change(screen.getByTestId("prep-input"), { target: { value: "충전기" } });
+    fireEvent.click(screen.getByTestId("prep-submit"));
+    await waitFor(() => expect(screen.getByText("추가 실패")).toBeInTheDocument());
+    expect(screen.getByTestId("prep-input")).toHaveValue("충전기"); // text kept
+  });
+
   it("detail sheet shows people list", async () => {
     const detail = {
       ...BASE_DETAIL,
