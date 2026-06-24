@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ConflictDecision, DayFeasibility, EventDetailData, EventRow, FeasibilityParamLimits, FeasibilityParamSettingsData, FeasibilityParams, NotificationDraft, SlotCandidate, SlotSuggestionContribution, ThreadSummary, TodaySurface, UpdateFeasibilityParamsRequest } from "@cairn/shared";
+import type { ConflictDecision, DayFeasibility, EventDetailData, EventRow, FeasibilityParamLimits, FeasibilityParamSettingsData, FeasibilityParams, NeedsReviewPlacement, NotificationDraft, SlotCandidate, SlotSuggestionContribution, ThreadSummary, TodaySurface, UpdateFeasibilityParamsRequest } from "@cairn/shared";
 import { ResolveConflictResponseDataSchema } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString } from "./dateUtils.js";
 import { apiJson, type AccessSessionError } from "./api.js";
@@ -151,6 +151,12 @@ async function createEvent(title: string, start: string, end: string, threadId?:
   });
   if (!body.ok) throw new Error("일정 생성 실패");
 }
+
+const PLACEMENT_TEXT: Record<NeedsReviewPlacement["mode"], string> = {
+  low_context_slot: "맥락 맞는 틈",
+  stale_due: "미루면 기억이 흐려져",
+  no_context: "짧게 확인"
+};
 
 const TRANSITION_COST_LABEL: Record<DayFeasibility["transitionCosts"][number]["costLevel"], string> = {
   none: "없음",
@@ -1441,6 +1447,13 @@ export function Today() {
                     {card.event.start?.slice(11, 16)} — {card.event.end?.slice(11, 16)}
                   </span>
                 </button>
+                <p
+                  className={`review-placement review-placement--${card.placement.mode}`}
+                  data-testid="review-placement"
+                  data-mode={card.placement.mode}
+                >
+                  {PLACEMENT_TEXT[card.placement.mode]}
+                </p>
                 <form
                   className="today-reply-form"
                   onSubmit={(e) => {
