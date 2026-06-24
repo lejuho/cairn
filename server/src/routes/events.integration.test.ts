@@ -438,16 +438,21 @@ describe("GET /api/events/:id — preparations", () => {
     expect(brief.preparations[0].sourcePerson).toMatchObject({ name: "Alice" });
   });
 
-  it("GET detail does not change resource/resource_links/people/params row counts", async () => {
+  it("GET detail does not change events/annotations/resources/resource_links/people/params row counts", async () => {
     const conn = makeTestDb();
     const threadId = insertThread(conn, "T");
     const eventId = insertEvent(conn, "발표", threadId);
     const rid = insertResource(conn, "노트북", "item");
     insertResourceLink(conn, rid, "event", eventId, "soft");
+    // Seed a params row so the read-only assertion proves params is untouched.
+    conn.sqlite.prepare("INSERT OR REPLACE INTO params (key, value) VALUES ('energy_budget', '8')").run();
     const counts = () => ({
+      events: (conn.sqlite.prepare("SELECT count(*) c FROM events").get() as { c: number }).c,
+      annotations: (conn.sqlite.prepare("SELECT count(*) c FROM annotations").get() as { c: number }).c,
       r: (conn.sqlite.prepare("SELECT count(*) c FROM resources").get() as { c: number }).c,
       rl: (conn.sqlite.prepare("SELECT count(*) c FROM resource_links").get() as { c: number }).c,
-      p: (conn.sqlite.prepare("SELECT count(*) c FROM people").get() as { c: number }).c
+      p: (conn.sqlite.prepare("SELECT count(*) c FROM people").get() as { c: number }).c,
+      params: (conn.sqlite.prepare("SELECT count(*) c FROM params").get() as { c: number }).c
     });
     const before = counts();
     const app = buildServer(conn.db);

@@ -45,8 +45,8 @@ export const ScheduleBriefPersonSchema = z
 
 // Preparation Brief A (cycle-45 FR-BRF-04). Read-only list of already-known
 // resources linked to the event, its thread, or the nearest prior same-thread
-// event. Automatic highlight only — no AI suggestion, manual entry, or
-// procurement/movement fields.
+// event. Automatic highlight only — no AI suggestion, no manual entry, no
+// purchasing or transport fields.
 export const ScheduleBriefPreparationScopeSchema = z.enum([
   "event_direct",
   "thread_context",
