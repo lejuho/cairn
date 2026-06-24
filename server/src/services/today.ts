@@ -1,4 +1,5 @@
 import type { ConflictPair, DayFeasibility, EventRow, TaskRow, TodaySurface, WatcherABubble } from "@cairn/shared";
+import { computeNeedsReviewPlacement } from "./needsReviewPlacement.js";
 
 const SCHEDULE_PROMPT_LIMIT = 3;
 
@@ -21,7 +22,11 @@ export function buildTodaySurface(
     ...watcherBubbles.map((watcher) => ({ kind: "watcher" as const, watcher })),
     ...(nextEvent ? [{ kind: "next_event" as const, event: nextEvent }] : []),
     ...twoMinuteTasks.map((task) => ({ kind: "two_minute_task" as const, task })),
-    ...needsReviewEvents.map((event) => ({ kind: "needs_review" as const, event })),
+    ...needsReviewEvents.map((event) => ({
+      kind: "needs_review" as const,
+      event,
+      placement: computeNeedsReviewPlacement(event, feasibility.transitionCosts, now)
+    })),
     ...schedulePrompts.map((event) => ({ kind: "schedule_prompt" as const, event }))
   ];
 

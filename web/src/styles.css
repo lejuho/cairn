@@ -210,6 +210,15 @@ p {
 .today-card--task     { border-left-color: var(--firm-hard); }
 .today-card--review   { border-left-color: var(--muted); }
 
+/* Needs-review placement copy (FR-FEAS-11): explanatory "why now" line. */
+.review-placement {
+  font-size: 0.75rem;
+  margin: 4px 0 0;
+  color: var(--faint);
+}
+.review-placement--stale_due { color: var(--moved); }
+.review-placement--low_context_slot { color: var(--accent); }
+
 .today-reply-form {
   display: flex;
   gap: 8px;

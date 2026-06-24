@@ -14,6 +14,23 @@ export const ConflictPairSchema = z.object({
   b: EventRowSchema
 });
 
+// Deterministic placement metadata for needs-review cards (FR-FEAS-11 A-slice).
+// Explanatory only: gives "why now" context, never hides/defers/auto-acts.
+export const NeedsReviewPlacementModeSchema = z.enum([
+  "low_context_slot",
+  "stale_due",
+  "no_context"
+]);
+
+export const NeedsReviewPlacementSchema = z
+  .object({
+    mode: NeedsReviewPlacementModeSchema,
+    anchorEventId: z.number().int().positive().nullable(),
+    ageHours: z.number().int().nonnegative().nullable(),
+    reasonCodes: z.array(z.string())
+  })
+  .strict();
+
 export const TodaySurfaceSchema = z.object({
   date: z.string(),
   now: z.string(),
@@ -31,7 +48,7 @@ export const TodaySurfaceSchema = z.object({
       z.object({ kind: z.literal("watcher"), watcher: WatcherABubbleSchema }),
       z.object({ kind: z.literal("next_event"), event: EventRowSchema }),
       z.object({ kind: z.literal("two_minute_task"), task: TaskRowSchema }),
-      z.object({ kind: z.literal("needs_review"), event: EventRowSchema }),
+      z.object({ kind: z.literal("needs_review"), event: EventRowSchema, placement: NeedsReviewPlacementSchema }),
       z.object({ kind: z.literal("schedule_prompt"), event: EventRowSchema })
     ])
   ),
@@ -40,4 +57,6 @@ export const TodaySurfaceSchema = z.object({
 
 export type TodayQuery = z.infer<typeof TodayQuerySchema>;
 export type ConflictPair = z.infer<typeof ConflictPairSchema>;
+export type NeedsReviewPlacementMode = z.infer<typeof NeedsReviewPlacementModeSchema>;
+export type NeedsReviewPlacement = z.infer<typeof NeedsReviewPlacementSchema>;
 export type TodaySurface = z.infer<typeof TodaySurfaceSchema>;

@@ -582,6 +582,67 @@ describe("GET /api/today — needs_review candidates", () => {
     expect(res.statusCode).toBe(200);
     conn.sqlite.close();
   });
+
+  it("each needs_review card carries placement metadata", async () => {
+    const conn = makeTestDb();
+    insertEndedEvent(conn); // ended 2h before NOW
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/today?date=${NR_DATE}&now=${encodeURIComponent(NR_NOW)}`
+    });
+    const card = (res.json().data.cards as Array<{ kind: string; placement?: { mode: string; ageHours: number | null } }>)
+      .find((c) => c.kind === "needs_review");
+    expect(card?.placement).toBeDefined();
+    // ended 2h ago, no transitions → no_context
+    expect(card!.placement!.mode).toBe("no_context");
+    expect(card!.placement!.ageHours).toBe(2);
+    conn.sqlite.close();
+  });
+
+  it("stale_due when reviewed event ended >= 12h before now (within 36h window)", async () => {
+    const conn = makeTestDb();
+    // ended 13h before NOW (2026-06-15T23:00Z), inside the 36h candidacy window
+    insertEndedEvent(conn, { end: "2026-06-15T23:00:00+00:00" });
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/today?date=${NR_DATE}&now=${encodeURIComponent(NR_NOW)}`
+    });
+    const card = (res.json().data.cards as Array<{ kind: string; placement?: { mode: string; ageHours: number } }>)
+      .find((c) => c.kind === "needs_review");
+    expect(card!.placement!.mode).toBe("stale_due");
+    expect(card!.placement!.ageHours).toBe(13);
+    conn.sqlite.close();
+  });
+
+  it("top-level needsReviewEvents stays event-only (no placement)", async () => {
+    const conn = makeTestDb();
+    insertEndedEvent(conn);
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/today?date=${NR_DATE}&now=${encodeURIComponent(NR_NOW)}`
+    });
+    const events = res.json().data.needsReviewEvents as Array<Record<string, unknown>>;
+    expect(events).toHaveLength(1);
+    expect(events[0]).not.toHaveProperty("placement");
+    conn.sqlite.close();
+  });
+
+  it("placement read path does not change event/annotation row counts", async () => {
+    const conn = makeTestDb();
+    insertEndedEvent(conn);
+    const eventsBefore = conn.sqlite.prepare("SELECT count(*) c FROM events").get() as { c: number };
+    const annBefore = conn.sqlite.prepare("SELECT count(*) c FROM annotations").get() as { c: number };
+    const app = buildServer(conn.db);
+    await app.inject({ method: "GET", url: `/api/today?date=${NR_DATE}&now=${encodeURIComponent(NR_NOW)}` });
+    const eventsAfter = conn.sqlite.prepare("SELECT count(*) c FROM events").get() as { c: number };
+    const annAfter = conn.sqlite.prepare("SELECT count(*) c FROM annotations").get() as { c: number };
+    expect(eventsAfter.c).toBe(eventsBefore.c);
+    expect(annAfter.c).toBe(annBefore.c);
+    conn.sqlite.close();
+  });
 });
 
 describe("GET /api/today — dayEvents", () => {

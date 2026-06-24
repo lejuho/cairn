@@ -365,6 +365,10 @@ const REVIEW_EVENT = {
   updatedAt: null
 };
 
+const NO_CONTEXT_PLACEMENT = {
+  mode: "no_context" as const, anchorEventId: null, ageHours: 2, reasonCodes: ["placement_no_context"]
+};
+
 describe("Today — manual intake sheet (quiet state)", () => {
   it("quiet state renders add CTA button", async () => {
     mockFetch({ ...BASE_SURFACE, state: "quiet" });
@@ -513,7 +517,7 @@ describe("Today — needs_review card", () => {
       ...BASE_SURFACE,
       state: "live",
       needsReviewEvents: [REVIEW_EVENT],
-      cards: [{ kind: "needs_review", event: REVIEW_EVENT }]
+      cards: [{ kind: "needs_review", event: REVIEW_EVENT, placement: NO_CONTEXT_PLACEMENT }]
     });
     render(<Today />);
     await waitFor(() => {
@@ -521,6 +525,34 @@ describe("Today — needs_review card", () => {
     });
     expect(screen.getByText("팀 회의 — 어떻게 됐어?")).toBeInTheDocument();
     expect(screen.getByLabelText("팀 회의 메모")).toBeInTheDocument();
+    // placement line (no_context)
+    const placement = screen.getByTestId("review-placement");
+    expect(placement).toHaveTextContent("짧게 확인");
+    expect(placement).toHaveAttribute("data-mode", "no_context");
+  });
+
+  it.each([
+    ["low_context_slot", "맥락 맞는 틈"],
+    ["stale_due", "미루면 기억이 흐려져"],
+    ["no_context", "짧게 확인"]
+  ])("renders placement copy for %s mode", async (mode, copy) => {
+    const placement = {
+      mode: mode as "low_context_slot" | "stale_due" | "no_context",
+      anchorEventId: mode === "low_context_slot" ? 5 : null,
+      ageHours: 13,
+      reasonCodes: [`placement_${mode}`]
+    };
+    mockFetch({
+      ...BASE_SURFACE,
+      state: "live",
+      needsReviewEvents: [REVIEW_EVENT],
+      cards: [{ kind: "needs_review", event: REVIEW_EVENT, placement }]
+    });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("review-placement")).toBeInTheDocument());
+    const node = screen.getByTestId("review-placement");
+    expect(node).toHaveTextContent(copy);
+    expect(node).toHaveAttribute("data-mode", mode);
   });
 
   it("empty reply does not call fetch", async () => {
@@ -528,10 +560,10 @@ describe("Today — needs_review card", () => {
       ...BASE_SURFACE,
       state: "live",
       needsReviewEvents: [REVIEW_EVENT],
-      cards: [{ kind: "needs_review", event: REVIEW_EVENT }]
+      cards: [{ kind: "needs_review", event: REVIEW_EVENT, placement: NO_CONTEXT_PLACEMENT }]
     });
     const fetchSpy = vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ ok: true, data: { ...BASE_SURFACE, state: "live", needsReviewEvents: [REVIEW_EVENT], cards: [{ kind: "needs_review", event: REVIEW_EVENT }] } })
+      json: () => Promise.resolve({ ok: true, data: { ...BASE_SURFACE, state: "live", needsReviewEvents: [REVIEW_EVENT], cards: [{ kind: "needs_review", event: REVIEW_EVENT, placement: NO_CONTEXT_PLACEMENT }] } })
     });
     vi.stubGlobal("fetch", fetchSpy);
 
@@ -557,7 +589,7 @@ describe("Today — needs_review card", () => {
         }
         callCount++;
         const data = callCount === 1
-          ? { ...BASE_SURFACE, state: "live" as const, needsReviewEvents: [REVIEW_EVENT], cards: [{ kind: "needs_review" as const, event: REVIEW_EVENT }] }
+          ? { ...BASE_SURFACE, state: "live" as const, needsReviewEvents: [REVIEW_EVENT], cards: [{ kind: "needs_review" as const, event: REVIEW_EVENT, placement: NO_CONTEXT_PLACEMENT }] }
           : quietSurface;
         return Promise.resolve({ json: () => Promise.resolve({ ok: true, data }) });
       })
@@ -576,7 +608,7 @@ describe("Today — needs_review card", () => {
     const liveSurface: TodaySurface = {
       ...BASE_SURFACE, state: "live",
       needsReviewEvents: [REVIEW_EVENT],
-      cards: [{ kind: "needs_review", event: REVIEW_EVENT }]
+      cards: [{ kind: "needs_review", event: REVIEW_EVENT, placement: NO_CONTEXT_PLACEMENT }]
     };
     vi.stubGlobal(
       "fetch",
@@ -603,7 +635,7 @@ describe("Today — needs_review card", () => {
     const liveSurface: TodaySurface = {
       ...BASE_SURFACE, state: "live",
       needsReviewEvents: [REVIEW_EVENT],
-      cards: [{ kind: "needs_review", event: REVIEW_EVENT }]
+      cards: [{ kind: "needs_review", event: REVIEW_EVENT, placement: NO_CONTEXT_PLACEMENT }]
     };
     const detail: EventDetailData = {
       event: REVIEW_EVENT, people: [], annotations: [], thread: null
