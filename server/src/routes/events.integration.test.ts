@@ -460,3 +460,117 @@ describe("GET /api/events/:id — preparations", () => {
     expect(counts()).toEqual(before);
   });
 });
+
+// ── POST /api/events/:id/preparations (manual entry, cycle-46 FR-BRF-04) ─────────
+
+describe("POST /api/events/:id/preparations", () => {
+  const rowCounts = (conn: SqliteConnection) => ({
+    r: (conn.sqlite.prepare("SELECT count(*) c FROM resources").get() as { c: number }).c,
+    rl: (conn.sqlite.prepare("SELECT count(*) c FROM resource_links").get() as { c: number }).c
+  });
+
+  it("creates one item resource and one direct event link (201)", async () => {
+    const conn = makeTestDb();
+    const eventId = insertEvent(conn, "발표");
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "POST", url: `/api/events/${eventId}/preparations`, payload: { name: "노트북" } });
+    expect(res.statusCode).toBe(201);
+    const body = JSON.parse(res.body);
+    expect(body.data.resource).toMatchObject({ name: "노트북", kind: "item", sourcePersonId: null });
+    expect(body.data.link).toMatchObject({ targetType: "event", targetId: eventId, firmness: "hard", reason: "직접 추가" });
+    expect(body.data.reusedResource).toBe(false);
+    expect(body.data.reusedLink).toBe(false);
+    expect(rowCounts(conn)).toEqual({ r: 1, rl: 1 });
+  });
+
+  it("trims the submitted name", async () => {
+    const conn = makeTestDb();
+    const eventId = insertEvent(conn, "발표");
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "POST", url: `/api/events/${eventId}/preparations`, payload: { name: "  충전기  " } });
+    expect(JSON.parse(res.body).data.resource.name).toBe("충전기");
+  });
+
+  it("reuses an existing item resource by exact name+kind (no duplicate resource)", async () => {
+    const conn = makeTestDb();
+    const e1 = insertEvent(conn, "발표 A");
+    const e2 = insertEvent(conn, "발표 B");
+    const app = buildServer(conn.db);
+    await app.inject({ method: "POST", url: `/api/events/${e1}/preparations`, payload: { name: "노트북" } });
+    const res = await app.inject({ method: "POST", url: `/api/events/${e2}/preparations`, payload: { name: "노트북" } });
+    expect(res.statusCode).toBe(201); // new link for e2
+    expect(JSON.parse(res.body).data.reusedResource).toBe(true);
+    expect(rowCounts(conn)).toEqual({ r: 1, rl: 2 }); // one resource, two links
+  });
+
+  it("repeat POST for the same event is idempotent (200, reusedLink) and does not duplicate", async () => {
+    const conn = makeTestDb();
+    const eventId = insertEvent(conn, "발표");
+    const app = buildServer(conn.db);
+    await app.inject({ method: "POST", url: `/api/events/${eventId}/preparations`, payload: { name: "노트북" } });
+    const res = await app.inject({ method: "POST", url: `/api/events/${eventId}/preparations`, payload: { name: "노트북" } });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).data.reusedLink).toBe(true);
+    expect(rowCounts(conn)).toEqual({ r: 1, rl: 1 });
+  });
+
+  it("does not rewrite an existing tentative link to hard on duplicate submit", async () => {
+    const conn = makeTestDb();
+    const eventId = insertEvent(conn, "발표");
+    // pre-existing tentative link from a prior suggestion
+    conn.sqlite.prepare("INSERT INTO resources (name, kind) VALUES ('노트북', 'item')").run();
+    const rid = (conn.sqlite.prepare("SELECT id FROM resources WHERE name='노트북'").get() as { id: number }).id;
+    conn.sqlite.prepare("INSERT INTO resource_links (resource_id, target_type, target_id, firmness, reason) VALUES (?, 'event', ?, 'tentative', 'suggested')").run(rid, eventId);
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "POST", url: `/api/events/${eventId}/preparations`, payload: { name: "노트북" } });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.data.reusedLink).toBe(true);
+    expect(body.data.link.firmness).toBe("tentative"); // not promoted
+    expect(body.data.link.reason).toBe("suggested");
+    const link = conn.sqlite.prepare("SELECT firmness, reason FROM resource_links WHERE resource_id=? AND target_id=?").get(rid, eventId) as { firmness: string; reason: string };
+    expect(link.firmness).toBe("tentative");
+  });
+
+  it("a name matching a knowledge resource creates a NEW item resource (no conversion)", async () => {
+    const conn = makeTestDb();
+    const eventId = insertEvent(conn, "발표");
+    conn.sqlite.prepare("INSERT INTO resources (name, kind) VALUES ('슬라이드', 'knowledge')").run();
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "POST", url: `/api/events/${eventId}/preparations`, payload: { name: "슬라이드" } });
+    expect(res.statusCode).toBe(201);
+    expect(JSON.parse(res.body).data.resource.kind).toBe("item");
+    expect(rowCounts(conn).r).toBe(2); // knowledge + new item
+  });
+
+  it("rejects blank-after-trim body and writes nothing (400)", async () => {
+    const conn = makeTestDb();
+    const eventId = insertEvent(conn, "발표");
+    const app = buildServer(conn.db);
+    const before = rowCounts(conn);
+    const res = await app.inject({ method: "POST", url: `/api/events/${eventId}/preparations`, payload: { name: "   " } });
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error.code).toBe("VALIDATION_ERROR");
+    expect(rowCounts(conn)).toEqual(before);
+  });
+
+  it("returns 404 for missing event and writes nothing", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const before = rowCounts(conn);
+    const res = await app.inject({ method: "POST", url: "/api/events/9999/preparations", payload: { name: "노트북" } });
+    expect(res.statusCode).toBe(404);
+    expect(rowCounts(conn)).toEqual(before);
+  });
+
+  it("GET detail after POST includes the new preparation with scope event_direct", async () => {
+    const conn = makeTestDb();
+    const eventId = insertEvent(conn, "발표");
+    const app = buildServer(conn.db);
+    await app.inject({ method: "POST", url: `/api/events/${eventId}/preparations`, payload: { name: "노트북" } });
+    const detail = JSON.parse((await app.inject({ method: "GET", url: `/api/events/${eventId}` })).body);
+    const prep = detail.data.scheduleBrief.preparations.find((p: { resource: { name: string } }) => p.resource.name === "노트북");
+    expect(prep).toBeDefined();
+    expect(prep.links[0]).toMatchObject({ scope: "event_direct", firmness: "hard", reason: "직접 추가" });
+  });
+});

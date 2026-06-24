@@ -1,10 +1,11 @@
 import type { FastifyInstance } from "fastify";
-import { CreateEventRequestSchema, PatchEventStatusRequestSchema } from "@cairn/shared";
+import { CreateEventPreparationRequestSchema, CreateEventRequestSchema, PatchEventStatusRequestSchema } from "@cairn/shared";
 import { createEventWithPeople, findEventById, findNearestPriorThreadEvent, updateEventStatus } from "../repositories/events.js";
 import { findAnnotationsByEvent } from "../repositories/annotations.js";
 import { findEventWithPeople, findPeopleByIds } from "../repositories/people.js";
 import { findThreadById } from "../repositories/threads.js";
-import { findPreparationLinkData } from "../repositories/resources.js";
+import { addEventPreparation, findPreparationLinkData } from "../repositories/resources.js";
+import { eventExists } from "../repositories/resources.js";
 import { buildScheduleBrief, pickNewestAnnotation } from "../services/scheduleBrief.js";
 import { buildPreparations } from "../services/preparationBrief.js";
 import type { CairnDatabase } from "../db/index.js";
@@ -103,5 +104,32 @@ export function registerEventRoutes(app: FastifyInstance, db: CairnDatabase): vo
     updateEventStatus(db, id, parsed.data.status);
     const updated = findEventById(db, id)!;
     return reply.send({ ok: true, data: { event: updated } });
+  });
+
+  // Manual one-line preparation entry (cycle-46 FR-BRF-04). Find-or-create an
+  // item resource and idempotently link it to the event in one transaction.
+  app.post("/api/events/:id/preparations", async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: "id must be a positive integer" } });
+    }
+    const parsed = CreateEventPreparationRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "VALIDATION_ERROR", message: parsed.error.message }
+      });
+    }
+    if (!eventExists(db, id)) {
+      return reply.code(404).send({ ok: false, error: { code: "NOT_FOUND", message: "event not found" } });
+    }
+    try {
+      const result = addEventPreparation(db, id, parsed.data.name);
+      // 200 when the exact event link already existed; 201 when newly created.
+      return reply.code(result.reusedLink ? 200 : 201).send({ ok: true, data: result });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return reply.code(400).send({ ok: false, error: { code: "DB_ERROR", message: msg } });
+    }
   });
 }

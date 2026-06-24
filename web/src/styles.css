@@ -271,6 +271,9 @@ p {
 .event-brief-prep-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px; font-size: 0.82rem; }
 .event-brief-prep-name { font-weight: 600; }
 
+.event-prep-add { margin: 8px 0; }
+.event-prep-form { display: flex; gap: 8px; }
+
 /* Needs-review placement copy (FR-FEAS-11): explanatory "why now" line. */
 .review-placement {
   font-size: 0.75rem;

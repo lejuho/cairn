@@ -50,6 +50,24 @@ export const ResourceLinkRowSchema = z
   })
   .strict();
 
+// Manual one-line preparation entry (cycle-46 FR-BRF-04). A submitted name is
+// stored as an `item` resource and linked directly to the event. Strict: only
+// `name` is accepted — no kind/sourcePerson/note/link or other injected fields.
+export const CreateEventPreparationRequestSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120)
+  })
+  .strict();
+
+export const CreateEventPreparationResponseDataSchema = z
+  .object({
+    resource: ResourceRowSchema,
+    link: ResourceLinkRowSchema,
+    reusedResource: z.boolean(),
+    reusedLink: z.boolean()
+  })
+  .strict();
+
 export const ThreadResourceFocusLinkSchema = z
   .object({
     targetType: ResourceTargetTypeSchema,
@@ -119,6 +137,8 @@ export type ResourceTargetType = z.infer<typeof ResourceTargetTypeSchema>;
 export type ResourceFirmness = z.infer<typeof ResourceFirmnessSchema>;
 export type ResourceRow = z.infer<typeof ResourceRowSchema>;
 export type ResourceLinkRow = z.infer<typeof ResourceLinkRowSchema>;
+export type CreateEventPreparationRequest = z.infer<typeof CreateEventPreparationRequestSchema>;
+export type CreateEventPreparationResponseData = z.infer<typeof CreateEventPreparationResponseDataSchema>;
 export type CreateResourceRequest = z.infer<typeof CreateResourceRequestSchema>;
 export type CreateResourceLinkRequest = z.infer<typeof CreateResourceLinkRequestSchema>;
 export type ThreadResourceFocusItem = z.infer<typeof ThreadResourceFocusItemSchema>;
