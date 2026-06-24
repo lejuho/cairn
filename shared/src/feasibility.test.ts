@@ -3,6 +3,7 @@ import {
   DayFeasibilitySchema,
   FeasibilityParamSettingsDataSchema,
   PreviewFeasibilityRequestSchema,
+  SequenceEnergySchema,
   TransitionCostSchema,
   UpdateFeasibilityParamsRequestSchema
 } from "./feasibility.js";
@@ -187,10 +188,15 @@ describe("DayFeasibilitySchema", () => {
     energy: { loadUnits: 2, budgetUnits: 8, remainingUnits: 6, deficit: false, confidence: "cold_start" },
     gaps: [],
     continuous: null,
-    transitionCosts: []
+    transitionCosts: [],
+    sequenceEnergy: {
+      workLoadUnits: 2, transitionLoadUnits: 0, totalLoadUnits: 2,
+      budgetUnits: 8, remainingUnits: 6, deficit: false,
+      unknownTransitionCount: 0, confidence: "cold_start", reasonCodes: ["sequence_work_only"]
+    }
   };
 
-  it("accepts a day feasibility with transitionCosts", () => {
+  it("accepts a day feasibility with transitionCosts and sequenceEnergy", () => {
     expect(DayFeasibilitySchema.safeParse(VALID_DAY).success).toBe(true);
   });
 
@@ -198,5 +204,38 @@ describe("DayFeasibilitySchema", () => {
     const { transitionCosts, ...withoutTransitions } = VALID_DAY;
     void transitionCosts;
     expect(DayFeasibilitySchema.safeParse(withoutTransitions).success).toBe(false);
+  });
+
+  it("requires sequenceEnergy", () => {
+    const { sequenceEnergy, ...withoutSequence } = VALID_DAY;
+    void sequenceEnergy;
+    expect(DayFeasibilitySchema.safeParse(withoutSequence).success).toBe(false);
+  });
+});
+
+describe("SequenceEnergySchema", () => {
+  const VALID_SEQ = {
+    workLoadUnits: 4, transitionLoadUnits: 1, totalLoadUnits: 5,
+    budgetUnits: 8, remainingUnits: 3, deficit: false,
+    unknownTransitionCount: 1, confidence: "cold_start", reasonCodes: ["sequence_transition_added"]
+  };
+
+  it("accepts valid cold-start sequence energy", () => {
+    expect(SequenceEnergySchema.safeParse(VALID_SEQ).success).toBe(true);
+  });
+
+  it("rejects non-cold_start confidence", () => {
+    expect(SequenceEnergySchema.safeParse({ ...VALID_SEQ, confidence: "calibrated" }).success).toBe(false);
+  });
+
+  it("rejects negative unknownTransitionCount", () => {
+    expect(SequenceEnergySchema.safeParse({ ...VALID_SEQ, unknownTransitionCount: -1 }).success).toBe(false);
+  });
+
+  it("rejects injected recommendation/advice/action/reorder (strict)", () => {
+    expect(SequenceEnergySchema.safeParse({ ...VALID_SEQ, recommendation: "reorder" }).success).toBe(false);
+    expect(SequenceEnergySchema.safeParse({ ...VALID_SEQ, advice: "move" }).success).toBe(false);
+    expect(SequenceEnergySchema.safeParse({ ...VALID_SEQ, action: "optimize" }).success).toBe(false);
+    expect(SequenceEnergySchema.safeParse({ ...VALID_SEQ, reorder: true }).success).toBe(false);
   });
 });

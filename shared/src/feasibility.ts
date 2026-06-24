@@ -68,6 +68,22 @@ export const TransitionCostSchema = z
   })
   .strict();
 
+// Sequence-aware energy (FR-FEAS-09): duration-only work load plus deterministic
+// context-switch load, reported separately so `energy` stays duration-only.
+export const SequenceEnergySchema = z
+  .object({
+    workLoadUnits: z.number(),
+    transitionLoadUnits: z.number(),
+    totalLoadUnits: z.number(),
+    budgetUnits: z.number(),
+    remainingUnits: z.number(),
+    deficit: z.boolean(),
+    unknownTransitionCount: z.number().int().nonnegative(),
+    confidence: z.enum(["cold_start"]),
+    reasonCodes: z.array(z.string())
+  })
+  .strict();
+
 export const DayFeasibilitySchema = z.object({
   date: z.string(),
   now: z.string(),
@@ -75,7 +91,8 @@ export const DayFeasibilitySchema = z.object({
   energy: EnergySchema,
   gaps: z.array(GapSchema),
   continuous: ContinuousSchema.nullable(),
-  transitionCosts: z.array(TransitionCostSchema)
+  transitionCosts: z.array(TransitionCostSchema),
+  sequenceEnergy: SequenceEnergySchema
 });
 
 export type FeasibilityQuery = z.infer<typeof FeasibilityQuerySchema>;
@@ -90,6 +107,7 @@ export type TransitionCostLevel = z.infer<typeof TransitionCostLevelSchema>;
 export type TransitionRelationKind = z.infer<typeof TransitionRelationKindSchema>;
 export type TransitionFirmness = z.infer<typeof TransitionFirmnessSchema>;
 export type TransitionCost = z.infer<typeof TransitionCostSchema>;
+export type SequenceEnergy = z.infer<typeof SequenceEnergySchema>;
 export type DayFeasibility = z.infer<typeof DayFeasibilitySchema>;
 
 // Full replacement body — all five keys required, ranges enforced.

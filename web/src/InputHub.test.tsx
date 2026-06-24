@@ -16,7 +16,11 @@ const QUIET_SURFACE: TodaySurface = {
     date: "2026-06-17", now: "2026-06-17T09:00:00+09:00",
     params: { energyBudget: 8, meetBufferMinutes: 15, deepBufferMinutes: 30, travelMargin: 1, maxContinuousMinutes: 600 },
     energy: { loadUnits: 0, budgetUnits: 8, remainingUnits: 8, deficit: false, confidence: "cold_start" },
-    gaps: [], continuous: null, transitionCosts: []
+    gaps: [], continuous: null, transitionCosts: [],
+    sequenceEnergy: {
+      workLoadUnits: 0, transitionLoadUnits: 0, totalLoadUnits: 0, budgetUnits: 8, remainingUnits: 8,
+      deficit: false, unknownTransitionCount: 0, confidence: "cold_start", reasonCodes: ["sequence_work_only"]
+    }
   }
 };
 

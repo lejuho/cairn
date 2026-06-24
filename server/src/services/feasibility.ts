@@ -1,6 +1,6 @@
 import type { DayFeasibility, FeasibilityParams, Gap } from "@cairn/shared";
 import type { EventRow } from "@cairn/shared";
-import { computeTransitionCosts, type ThreadLinkRow } from "./context-switch.js";
+import { computeSequenceEnergy, computeTransitionCosts, type ThreadLinkRow } from "./context-switch.js";
 
 export const DEFAULTS: FeasibilityParams = {
   energyBudget: 8,
@@ -46,8 +46,9 @@ export function computeDayFeasibility(
   const gaps = computeGaps(scheduled, now, p);
   const continuous = computeContinuous(scheduled, p);
   const transitionCosts = computeTransitionCosts(scheduled, relations);
+  const sequenceEnergy = computeSequenceEnergy(energy.loadUnits, transitionCosts, energy.budgetUnits);
 
-  return { date, now, params: p, energy, gaps, continuous, transitionCosts };
+  return { date, now, params: p, energy, gaps, continuous, transitionCosts, sequenceEnergy };
 }
 
 // Distinct positive thread ids among the day's scheduled planned/confirmed

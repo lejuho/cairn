@@ -1,6 +1,8 @@
 import type {
   EventRow,
+  SequenceEnergy,
   TransitionCost,
+  TransitionCostLevel,
   TransitionFirmness,
   TransitionRelationKind
 } from "@cairn/shared";
@@ -131,4 +133,58 @@ export function computeTransitionCosts(
   }
 
   return out;
+}
+
+// Cold-start coefficients (FR-FEAS-09 A-slice): relative pressure only, not
+// personal calibrated truth. `unknown` is left unpriced (counted, not added).
+export const TRANSITION_LOAD_UNITS: Record<Exclude<TransitionCostLevel, "unknown">, number> = {
+  none: 0,
+  low: 0.25,
+  high: 0.75
+};
+
+// Round to 4 decimals so UI/test equality is immune to future coefficient
+// changes; 0.25/0.75 multiples are already exact in binary fp.
+function round4(n: number): number {
+  return Math.round(n * 10000) / 10000;
+}
+
+// Pure: combine duration-only work load with deterministic context-switch load.
+// `energy` stays duration-only; this is the separate sequence-aware view.
+export function computeSequenceEnergy(
+  workLoadUnits: number,
+  transitionCosts: TransitionCost[],
+  budgetUnits: number
+): SequenceEnergy {
+  let transitionLoadUnits = 0;
+  let unknownTransitionCount = 0;
+  for (const t of transitionCosts) {
+    if (t.costLevel === "unknown") {
+      unknownTransitionCount += 1;
+      continue;
+    }
+    transitionLoadUnits += TRANSITION_LOAD_UNITS[t.costLevel];
+  }
+  transitionLoadUnits = round4(transitionLoadUnits);
+  const totalLoadUnits = round4(workLoadUnits + transitionLoadUnits);
+  const remainingUnits = round4(budgetUnits - totalLoadUnits);
+  const deficit = totalLoadUnits > budgetUnits;
+
+  // Fixed-order, mutually-orthogonal reason codes.
+  const reasonCodes: string[] = [];
+  reasonCodes.push(transitionLoadUnits > 0 ? "sequence_transition_added" : "sequence_work_only");
+  if (unknownTransitionCount > 0) reasonCodes.push("sequence_unknown_present");
+  if (deficit) reasonCodes.push("sequence_deficit");
+
+  return {
+    workLoadUnits,
+    transitionLoadUnits,
+    totalLoadUnits,
+    budgetUnits,
+    remainingUnits,
+    deficit,
+    unknownTransitionCount,
+    confidence: "cold_start",
+    reasonCodes
+  };
 }
