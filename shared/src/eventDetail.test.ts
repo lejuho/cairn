@@ -46,7 +46,7 @@ describe("EventRowSchema mode", () => {
 });
 
 describe("ScheduleBriefSchema", () => {
-  const QUIET = { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], preparations: [], reasonCodes: [] };
+  const QUIET = { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], preparations: [], preparationSuggestions: [], reasonCodes: [] };
 
   it("accepts a quiet brief (all null/empty)", () => {
     expect(ScheduleBriefSchema.safeParse(QUIET).success).toBe(true);
@@ -74,9 +74,47 @@ describe("ScheduleBriefSchema", () => {
         ],
         reasonCodes: ["prep_event_direct", "prep_thread_context"]
       }],
-      reasonCodes: ["brief_mode_present", "brief_thread_present", "brief_previous_event", "brief_previous_annotation", "brief_people_present", "brief_preparations"]
+      preparationSuggestions: [{
+        key: "presentation:노트북", name: "노트북", kind: "item",
+        source: "deterministic_keyword", reasonCode: "presentation_keyword",
+        reason: "발표 일정이라 보통 챙기는 준비물",
+        evidence: { field: "event_title", value: "발표 리허설" }
+      }],
+      reasonCodes: ["brief_mode_present", "brief_thread_present", "brief_previous_event", "brief_previous_annotation", "brief_people_present", "brief_preparations", "brief_preparation_suggestions"]
     };
     expect(ScheduleBriefSchema.safeParse(full).success).toBe(true);
+  });
+
+  it("requires preparationSuggestions", () => {
+    const { preparationSuggestions, ...without } = QUIET;
+    void preparationSuggestions;
+    expect(ScheduleBriefSchema.safeParse(without).success).toBe(false);
+  });
+
+  it("accepts an empty preparationSuggestions array", () => {
+    expect(ScheduleBriefSchema.safeParse({ ...QUIET, preparationSuggestions: [] }).success).toBe(true);
+  });
+
+  it("rejects injected score/action/write fields on a suggestion (strict)", () => {
+    const sug = {
+      key: "presentation:노트북", name: "노트북", kind: "item",
+      source: "deterministic_keyword", reasonCode: "presentation_keyword",
+      reason: "발표", evidence: { field: "event_title", value: "발표" }
+    };
+    expect(ScheduleBriefSchema.safeParse({ ...QUIET, preparationSuggestions: [{ ...sug, score: 9 }] }).success).toBe(false);
+    expect(ScheduleBriefSchema.safeParse({ ...QUIET, preparationSuggestions: [{ ...sug, action: "create" }] }).success).toBe(false);
+    expect(ScheduleBriefSchema.safeParse({ ...QUIET, preparationSuggestions: [{ ...sug, autoApply: true }] }).success).toBe(false);
+  });
+
+  it("rejects a suggestion with wrong kind/source/reasonCode literal or bad evidence field (strict)", () => {
+    const sug = {
+      key: "k", name: "노트북", kind: "item",
+      source: "deterministic_keyword", reasonCode: "presentation_keyword",
+      reason: "발표", evidence: { field: "event_title", value: "발표" }
+    };
+    expect(ScheduleBriefSchema.safeParse({ ...QUIET, preparationSuggestions: [{ ...sug, kind: "knowledge" }] }).success).toBe(false);
+    expect(ScheduleBriefSchema.safeParse({ ...QUIET, preparationSuggestions: [{ ...sug, source: "llm" }] }).success).toBe(false);
+    expect(ScheduleBriefSchema.safeParse({ ...QUIET, preparationSuggestions: [{ ...sug, evidence: { field: "event_body", value: "x" } }] }).success).toBe(false);
   });
 
   it("rejects injected suggestion/procurement/manual fields on preparation (strict)", () => {
@@ -120,7 +158,7 @@ describe("ScheduleBriefSchema", () => {
 describe("EventDetailDataSchema scheduleBrief", () => {
   const base = {
     event: BASE_EVENT, people: [], annotations: [], thread: null,
-    scheduleBrief: { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], preparations: [], reasonCodes: [] }
+    scheduleBrief: { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], preparations: [], preparationSuggestions: [], reasonCodes: [] }
   };
   it("accepts detail with scheduleBrief", () => {
     expect(EventDetailDataSchema.safeParse(base).success).toBe(true);

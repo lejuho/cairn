@@ -574,3 +574,62 @@ describe("POST /api/events/:id/preparations", () => {
     expect(prep.links[0]).toMatchObject({ scope: "event_direct", firmness: "hard", reason: "직접 추가" });
   });
 });
+
+// ── preparation suggestions (cycle-47 FR-BRF-04) ────────────────────────────────
+
+describe("GET /api/events/:id — preparationSuggestions", () => {
+  it("returns the three fixed suggestions for a presentation-keyword event", async () => {
+    const conn = makeTestDb();
+    const eventId = insertEvent(conn, "발표 리허설");
+    const app = buildServer(conn.db);
+    const brief = JSON.parse((await app.inject({ method: "GET", url: `/api/events/${eventId}` })).body).data.scheduleBrief;
+    expect(brief.preparationSuggestions.map((s: { name: string }) => s.name)).toEqual(["노트북", "충전기", "어댑터"]);
+    expect(brief.preparationSuggestions[0]).toMatchObject({ kind: "item", source: "deterministic_keyword", reasonCode: "presentation_keyword" });
+    expect(brief.reasonCodes).toContain("brief_preparation_suggestions");
+  });
+
+  it("returns no suggestions for a non-matching event", async () => {
+    const conn = makeTestDb();
+    const eventId = insertEvent(conn, "점심 약속");
+    const app = buildServer(conn.db);
+    const brief = JSON.parse((await app.inject({ method: "GET", url: `/api/events/${eventId}` })).body).data.scheduleBrief;
+    expect(brief.preparationSuggestions).toEqual([]);
+    expect(brief.reasonCodes).not.toContain("brief_preparation_suggestions");
+  });
+
+  it("triggers on thread name keyword", async () => {
+    const conn = makeTestDb();
+    const threadId = insertThread(conn, "데모 준비");
+    const eventId = insertEvent(conn, "회의", threadId);
+    const app = buildServer(conn.db);
+    const brief = JSON.parse((await app.inject({ method: "GET", url: `/api/events/${eventId}` })).body).data.scheduleBrief;
+    expect(brief.preparationSuggestions).toHaveLength(3);
+    expect(brief.preparationSuggestions[0].evidence).toEqual({ field: "thread_name", value: "데모 준비" });
+  });
+
+  it("GET with suggestions leaves resource/resource_links/events/annotations row counts unchanged", async () => {
+    const conn = makeTestDb();
+    const eventId = insertEvent(conn, "발표");
+    const counts = () => ({
+      r: (conn.sqlite.prepare("SELECT count(*) c FROM resources").get() as { c: number }).c,
+      rl: (conn.sqlite.prepare("SELECT count(*) c FROM resource_links").get() as { c: number }).c,
+      e: (conn.sqlite.prepare("SELECT count(*) c FROM events").get() as { c: number }).c,
+      an: (conn.sqlite.prepare("SELECT count(*) c FROM annotations").get() as { c: number }).c
+    });
+    const before = counts();
+    const app = buildServer(conn.db);
+    const brief = JSON.parse((await app.inject({ method: "GET", url: `/api/events/${eventId}` })).body).data.scheduleBrief;
+    expect(brief.preparationSuggestions).toHaveLength(3); // proves the suggestion path ran
+    expect(counts()).toEqual(before);
+  });
+
+  it("after accepting a suggestion, it no longer appears and is in preparations", async () => {
+    const conn = makeTestDb();
+    const eventId = insertEvent(conn, "발표");
+    const app = buildServer(conn.db);
+    await app.inject({ method: "POST", url: `/api/events/${eventId}/preparations`, payload: { name: "노트북" } });
+    const brief = JSON.parse((await app.inject({ method: "GET", url: `/api/events/${eventId}` })).body).data.scheduleBrief;
+    expect(brief.preparationSuggestions.map((s: { name: string }) => s.name)).toEqual(["충전기", "어댑터"]); // 노트북 suppressed
+    expect(brief.preparations.some((p: { resource: { name: string } }) => p.resource.name === "노트북")).toBe(true);
+  });
+});

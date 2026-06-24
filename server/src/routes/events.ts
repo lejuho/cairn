@@ -8,6 +8,7 @@ import { addEventPreparation, findPreparationLinkData } from "../repositories/re
 import { eventExists } from "../repositories/resources.js";
 import { buildScheduleBrief, pickNewestAnnotation } from "../services/scheduleBrief.js";
 import { buildPreparations } from "../services/preparationBrief.js";
+import { buildPreparationSuggestions } from "../services/preparationSuggestions.js";
 import type { CairnDatabase } from "../db/index.js";
 
 export function registerEventRoutes(app: FastifyInstance, db: CairnDatabase): void {
@@ -80,7 +81,10 @@ export function registerEventRoutes(app: FastifyInstance, db: CairnDatabase): vo
     const preparations = buildPreparations(
       findPreparationLinkData(db, result.event.id, result.event.threadId ?? null, previousEvent?.id ?? null)
     );
-    const scheduleBrief = buildScheduleBrief(result.event, thread, previousEvent, previousAnnotation, result.people, preparations);
+    // Preparation Suggestions A (cycle-47): deterministic keyword suggestions
+    // from already-loaded event/thread, suppressing items already prepared.
+    const preparationSuggestions = buildPreparationSuggestions(result.event, thread, preparations);
+    const scheduleBrief = buildScheduleBrief(result.event, thread, previousEvent, previousAnnotation, result.people, preparations, preparationSuggestions);
 
     return reply.send({ ok: true, data: { event: result.event, people: result.people, annotations, thread: compactThread, scheduleBrief } });
   });

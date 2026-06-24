@@ -670,7 +670,7 @@ describe("Today — needs_review card", () => {
       cards: [{ kind: "needs_review", event: REVIEW_EVENT, placement: NO_CONTEXT_PLACEMENT }]
     };
     const detail: EventDetailData = {
-      event: REVIEW_EVENT, people: [], annotations: [], thread: null, scheduleBrief: { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], preparations: [], reasonCodes: [] }
+      event: REVIEW_EVENT, people: [], annotations: [], thread: null, scheduleBrief: { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], preparations: [], preparationSuggestions: [], reasonCodes: [] }
     };
     vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
       if (typeof url === "string" && url.match(/\/api\/events\/\d+$/) && !opts?.method) {
@@ -1101,7 +1101,7 @@ describe("Today — schedule prompt", () => {
   it("clicking the title opens the event detail sheet without breaking the slot button", async () => {
     const detail: EventDetailData = {
       event: UNSCHEDULED_EVENT, people: [], annotations: [], thread: null,
-      scheduleBrief: { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], preparations: [], reasonCodes: [] }
+      scheduleBrief: { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], preparations: [], preparationSuggestions: [], reasonCodes: [] }
     };
     vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
       if (typeof url === "string" && url.match(/\/api\/events\/\d+$/) && !opts?.method) {
@@ -1272,7 +1272,7 @@ describe("Today — event detail sheet", () => {
     people: [],
     annotations: [],
     thread: null,
-    scheduleBrief: { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], preparations: [], reasonCodes: [] }
+    scheduleBrief: { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], preparations: [], preparationSuggestions: [], reasonCodes: [] }
   };
   const BASE_SURFACE_LIVE: TodaySurface = {
     ...BASE_SURFACE,
@@ -1345,6 +1345,7 @@ describe("Today — event detail sheet", () => {
         previousAnnotation: { id: 3, eventId: 9, outcome: "done", reasonTags: null, reasonText: "잘 됐어", energyAtTime: null, loggedAt: "2026-06-19T11:00:00+09:00" },
         people: [{ personId: 5, name: "Alice", relation: "동료", preferredWeekdays: ["monday"], preferredPeriods: ["evening"], leadTimeDays: 3, unavailableWeekdays: ["friday"] }],
         preparations: [],
+        preparationSuggestions: [],
         reasonCodes: ["brief_mode_present", "brief_thread_present", "brief_previous_event", "brief_previous_annotation", "brief_people_present"]
       }
     };
@@ -1382,6 +1383,7 @@ describe("Today — event detail sheet", () => {
             reasonCodes: ["prep_thread_context"]
           }
         ],
+        preparationSuggestions: [],
         reasonCodes: ["brief_preparations"]
       }
     };
@@ -1420,6 +1422,7 @@ describe("Today — event detail sheet", () => {
           links: [{ targetType: "event", targetId: 42, scope: "event_direct", firmness: "soft", reason: null }],
           reasonCodes: ["prep_event_direct"]
         }],
+        preparationSuggestions: [],
         reasonCodes: ["brief_preparations"]
       }
     };
@@ -1443,6 +1446,7 @@ describe("Today — event detail sheet", () => {
         links: [{ targetType: "event", targetId: 42, scope: "event_direct", firmness: "hard", reason: "직접 추가" }],
         reasonCodes: ["prep_event_direct"]
       }],
+      preparationSuggestions: [],
       reasonCodes: ["brief_preparations"]
     }
   });
@@ -1507,6 +1511,94 @@ describe("Today — event detail sheet", () => {
     fireEvent.click(screen.getByTestId("prep-submit"));
     await waitFor(() => expect(screen.getByText("추가 실패")).toBeInTheDocument());
     expect(screen.getByTestId("prep-input")).toHaveValue("충전기"); // text kept
+  });
+
+  // ── preparation suggestions (cycle-47 FR-BRF-04) ───────────────────────────
+  const sug = (name: string) => ({
+    key: `presentation:${name}`, name, kind: "item" as const,
+    source: "deterministic_keyword" as const, reasonCode: "presentation_keyword" as const,
+    reason: "발표 일정이라 보통 챙기는 준비물", evidence: { field: "event_title" as const, value: "발표" }
+  });
+  const SUGGEST_DETAIL = (names: string[], preps: string[] = []): EventDetailData => ({
+    ...BASE_DETAIL,
+    scheduleBrief: {
+      mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [],
+      preparations: preps.map((n) => ({
+        resource: { id: 100 + n.length, name: n, kind: "item" as const, sourcePersonId: null, note: null, createdAt: null },
+        sourcePerson: null,
+        links: [{ targetType: "event" as const, targetId: 42, scope: "event_direct" as const, firmness: "hard" as const, reason: "직접 추가" }],
+        reasonCodes: ["prep_event_direct"]
+      })),
+      preparationSuggestions: names.map(sug),
+      reasonCodes: names.length > 0 ? ["brief_preparation_suggestions"] : []
+    }
+  });
+
+  it("does not render 준비물 제안 when there are no suggestions", async () => {
+    mockFetchWithDetail(); // quiet brief, empty suggestions
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("팀 스프린트 상세 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("팀 스프린트 상세 보기"));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "일정 상세" })).toBeInTheDocument());
+    expect(screen.queryByTestId("prep-suggestions")).not.toBeInTheDocument();
+  });
+
+  it("renders suggestion buttons with name and reason; no POST on initial render", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (typeof url === "string" && url.match(/\/api\/events\/\d+$/) && !opts?.method) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: SUGGEST_DETAIL(["노트북", "충전기", "어댑터"]) }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: BASE_SURFACE_LIVE }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await openSheet();
+    expect(screen.getByTestId("prep-suggestions")).toBeInTheDocument();
+    const buttons = screen.getAllByTestId("prep-suggestion-accept");
+    expect(buttons).toHaveLength(3);
+    expect(buttons[0]!).toHaveTextContent("노트북");
+    expect(screen.getAllByText("발표 일정이라 보통 챙기는 준비물").length).toBeGreaterThan(0);
+    // no POST fired on render
+    expect(fetchMock.mock.calls.some((c: unknown[]) => (c[1] as { method?: string })?.method === "POST")).toBe(false);
+  });
+
+  it("accepting a suggestion posts {name}, refetches, and drops the accepted suggestion", async () => {
+    let accepted = false;
+    const fetchMock = vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (typeof url === "string" && url.includes("/preparations") && opts?.method === "POST") {
+        accepted = true;
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, data: {} }) });
+      }
+      if (typeof url === "string" && url.match(/\/api\/events\/\d+$/) && !opts?.method) {
+        const data = accepted ? SUGGEST_DETAIL(["충전기", "어댑터"], ["노트북"]) : SUGGEST_DETAIL(["노트북", "충전기", "어댑터"]);
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: BASE_SURFACE_LIVE }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await openSheet();
+    fireEvent.click(screen.getAllByTestId("prep-suggestion-accept")[0]!); // 노트북
+    await waitFor(() => expect(screen.getAllByTestId("prep-suggestion-accept")).toHaveLength(2));
+    const post = fetchMock.mock.calls.find((c: unknown[]) => typeof c[0] === "string" && (c[0] as string).includes("/preparations") && (c[1] as { method?: string })?.method === "POST");
+    expect(JSON.parse((post![1] as { body: string }).body)).toEqual({ name: "노트북" });
+    // accepted item moved into the 준비 list
+    expect(screen.getByTestId("brief-preparations")).toHaveTextContent("노트북");
+  });
+
+  it("failed acceptance shows a local alert and keeps the suggestion visible", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (typeof url === "string" && url.includes("/preparations") && opts?.method === "POST") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: false, error: { message: "추가 실패" } }) });
+      }
+      if (typeof url === "string" && url.match(/\/api\/events\/\d+$/) && !opts?.method) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: SUGGEST_DETAIL(["노트북", "충전기", "어댑터"]) }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: BASE_SURFACE_LIVE }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await openSheet();
+    fireEvent.click(screen.getAllByTestId("prep-suggestion-accept")[0]!);
+    await waitFor(() => expect(within(screen.getByTestId("prep-suggestions")).getByRole("alert")).toHaveTextContent("추가 실패"));
+    expect(screen.getAllByTestId("prep-suggestion-accept")).toHaveLength(3); // still visible
   });
 
   it("detail sheet shows people list", async () => {
