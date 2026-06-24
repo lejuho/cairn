@@ -74,8 +74,8 @@ export const ScheduleBriefPreparationSchema = z
 
 // Preparation Suggestions A (cycle-47 FR-BRF-04). Conservative deterministic
 // item suggestions from event/thread keywords. Tap-to-accept only — GET stays
-// read-only; acceptance reuses POST /api/events/:id/preparations. No LLM, no
-// external/movement/procurement; not auto-applied.
+// read-only; acceptance reuses POST /api/events/:id/preparations. No LLM and no
+// external/movement/buying fields; not auto-applied.
 export const ScheduleBriefSuggestionEvidenceSchema = z
   .object({
     field: z.enum(["event_title", "thread_name", "thread_goal"]),

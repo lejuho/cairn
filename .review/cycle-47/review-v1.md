@@ -45,3 +45,22 @@ BLOCKED
 - `web/src/EgoSheet.tsx` and its `docs/codebase-map.md` entry were changed, but Cycle 47 plan does not include ego-graph sheet keyboard/focus work.
 
 <!-- RESOLVED-BOUNDARY · 위=Codex immutable, 아래=Executor append-only · check-resolved-immutable.sh가 강제 -->
+
+## RESOLVED
+
+### Issue Classification
+- ISSUE-1: APPLY
+- ISSUE-2: APPLY
+
+### Applied
+
+RESOLVED: ISSUE-1 — out-of-scope EgoSheet change reverted
+- The cycle-47 diff had rewritten `web/src/EgoSheet.tsx` keyboard handling (useEffect document listener → React `onKeyDown` prop) plus its `docs/codebase-map.md` entry. This is unrelated to FR-BRF-04 preparation suggestions — it was added opportunistically to suppress a PRE-EXISTING intermittent flake in the Thread "Escape closes the ego sheet" test that broke one verify run.
+- Reverted `web/src/EgoSheet.tsx` to the master version (`git checkout master -- web/src/EgoSheet.tsx`; `git diff master -- web/src/EgoSheet.tsx` is now empty) and reverted the codebase-map EgoSheet `onKeyDown` sentence. The ego-sheet flake is a pre-existing master concern, to be handled in its own scoped cycle, not here.
+- "Changes Outside Plan" is now empty: remaining cycle-47 changes are all in-scope (suggestion schema, `preparationSuggestions` service, `buildScheduleBrief` param, route assembly, Today UI + tests, docs).
+
+RESOLVED: ISSUE-2 — static no-scope-creep command passes
+- `shared/src/eventDetail.ts`: the suggestion comment contained the literal `procurement`, which the plan's exact command flags even inside a comment. Reworded to "No LLM and no external/movement/buying fields; not auto-applied" (no banned token). Schema unchanged.
+- After committing, `git diff -U0 master..HEAD -- shared/src server/src web/src ':!**/*.test.ts' ':!**/*.test.tsx' | rg -n "procurement|proc_|vendor|venue|domain|travelOption|routeOption|manualKnowledge|rental"` returns no hits.
+
+자동 체크: lint ✅ / typecheck ✅ / test ✅ (shared 290 / server 359 / web 351) / test:integration ✅ / build ✅ / `corepack pnpm verify` EXIT=0 / `git diff --check master..HEAD` clean / db:generate no changes / static no-LLM/external + no-GET-write + no-scope-creep **0 hits** (post-commit)

@@ -47,42 +47,45 @@ export function EgoSheet({ graph, onClose }: { graph: EgoGraphData; onClose: () 
   const closeRef = useRef<HTMLButtonElement>(null);
   const openerRef = useRef<Element | null>(null);
 
-  // Initial focus + focus-return only. Key handling is a React onKeyDown prop
-  // on the backdrop (below) so it is attached synchronously at render — no
-  // passive-effect timing race when a test/user fires Escape right after open.
   useEffect(() => {
     openerRef.current = document.activeElement;
     closeRef.current?.focus();
-    return () => {
-      if (openerRef.current instanceof HTMLElement) openerRef.current.focus();
-    };
-  }, []);
-
-  // Escape closes; Tab is trapped within the backdrop. Bound via React's
-  // synthetic onKeyDown so the handler exists as soon as the sheet renders.
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === "Escape") {
+    // Escape is bound at the document level so it fires regardless of which
+    // element inside the sheet holds focus (more robust than a backdrop-only
+    // listener). Tab focus-trap stays scoped to the backdrop.
+    function onDocKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
       e.preventDefault();
       onClose();
-      return;
     }
-    if (e.key !== "Tab") return;
+    function onBackdropKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Tab") return;
+      const backdrop = backdropRef.current;
+      if (!backdrop) return;
+      const focusable = Array.from(
+        backdrop.querySelectorAll<HTMLElement>('button:not([disabled]),a[href],[tabindex="0"]')
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0]!;
+      const last = focusable[focusable.length - 1]!;
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", onDocKeyDown);
     const backdrop = backdropRef.current;
-    if (!backdrop) return;
-    const focusable = Array.from(
-      backdrop.querySelectorAll<HTMLElement>('button:not([disabled]),a[href],[tabindex="0"]')
-    );
-    if (focusable.length === 0) return;
-    const first = focusable[0]!;
-    const last = focusable[focusable.length - 1]!;
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  };
+    backdrop?.addEventListener("keydown", onBackdropKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onDocKeyDown);
+      backdrop?.removeEventListener("keydown", onBackdropKeyDown);
+      // Restore focus to the element that opened the sheet.
+      if (openerRef.current instanceof HTMLElement) openerRef.current.focus();
+    };
+  }, [onClose]);
 
   const neighbors = graph.nodes.filter((n) => n.id !== graph.center.id);
   // Includes center so edge endpoints (center-to-neighbor and neighbor-to-neighbor) resolve.
@@ -94,7 +97,6 @@ export function EgoSheet({ graph, onClose }: { graph: EgoGraphData; onClose: () 
       ref={backdropRef}
       className="sheet-backdrop"
       role="presentation"
-      onKeyDown={handleKeyDown}
       onClick={(e) => {
         if (e.target === backdropRef.current) onClose();
       }}
