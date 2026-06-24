@@ -30,6 +30,7 @@ export function createEvent(db: CairnDatabase, input: CreateEventRequest): Event
       end: input.end,
       type: input.type ?? null,
       location: input.location ?? null,
+      mode: input.mode ?? null,
       threadId: input.threadId ?? null,
       source: "cairn",
       selfImposed: 1,
@@ -54,6 +55,7 @@ export function createEventWithPeople(
         end: input.end,
         type: input.type ?? null,
         location: input.location ?? null,
+        mode: input.mode ?? null,
         threadId: input.threadId ?? null,
         source: "cairn",
         selfImposed: 1,
@@ -227,4 +229,32 @@ export function findEventWithCosts(
   id: number
 ): (typeof events.$inferSelect) | null {
   return db.select().from(events).where(eq(events.id, id)).get() ?? null;
+}
+
+// Nearest same-thread event that ENDED before `targetStartIso` begins (offset-
+// safe epoch compare via rfc3339ToMs, never SQL string compare). Excludes the
+// target event itself. Deterministic tie-break: end desc, then id desc. Returns
+// null when threadId/targetStart is absent — never guesses from creation time.
+export function findNearestPriorThreadEvent(
+  db: CairnDatabase,
+  threadId: number,
+  targetStartIso: string,
+  excludeEventId: number
+): EventRow | null {
+  const startMs = rfc3339ToMs(targetStartIso);
+  if (Number.isNaN(startMs)) return null;
+  const candidates = db
+    .select()
+    .from(events)
+    .where(and(eq(events.threadId, threadId), isNotNull(events.end), ne(events.id, excludeEventId)))
+    .all()
+    .filter((e) => {
+      const endMs = rfc3339ToMs(e.end!);
+      return !Number.isNaN(endMs) && endMs < startMs;
+    })
+    .sort((a, b) => {
+      const diff = rfc3339ToMs(b.end!) - rfc3339ToMs(a.end!);
+      return diff !== 0 ? diff : b.id - a.id;
+    });
+  return candidates.length > 0 ? (candidates[0] as EventRow) : null;
 }

@@ -26,6 +26,7 @@ const BASE_EVENT = {
   start: "2099-06-20T10:00:00+09:00",
   end: "2099-06-20T11:00:00+09:00",
   type: null, location: null,
+  mode: null,
   source: "cairn" as const, selfImposed: 1,
   status: "planned" as const, createdAt: null, updatedAt: null
 };

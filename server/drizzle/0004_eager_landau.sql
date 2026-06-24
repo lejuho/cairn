@@ -1,0 +1,1 @@
+ALTER TABLE `events` ADD COLUMN `mode` text CONSTRAINT `events_mode_check` CHECK (`mode` is null or `mode` in ('in_person', 'remote', 'async'));

@@ -18,6 +18,7 @@ const EVENT_STATUSES = [
   "late"
 ] as const;
 const EVENT_SOURCES = ["gcal", "manual", "cairn"] as const;
+const EVENT_MODES = ["in_person", "remote", "async"] as const;
 const TASK_STATUSES = ["todo", "doing", "done", "dropped"] as const;
 const LINK_FIRMNESSES = ["hard", "soft", "tentative"] as const;
 const LINK_SOURCES = ["given", "authored", "inferred"] as const;
@@ -59,6 +60,7 @@ export const events = sqliteTable(
     start: text("start"),
     end: text("end"),
     location: text("location"),
+    mode: text("mode"),
     source: text("source"),
     selfImposed: integer("self_imposed").default(0),
     status: text("status").default("planned"),
@@ -79,6 +81,7 @@ export const events = sqliteTable(
   },
   (table) => [
     check("events_source_check", sql`${table.source} in (${enumSqlList(EVENT_SOURCES)})`),
+    check("events_mode_check", sql`${table.mode} is null or ${table.mode} in (${enumSqlList(EVENT_MODES)})`),
     check("events_self_imposed_check", sql`${table.selfImposed} in (0, 1)`),
     check("events_status_check", sql`${table.status} in (${enumSqlList(EVENT_STATUSES)})`),
     check("events_commitment_check", sql`${table.commitment} between 1 and 3`),

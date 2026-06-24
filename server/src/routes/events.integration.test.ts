@@ -220,3 +220,130 @@ describe("PATCH /api/events/:id/status", () => {
     expect(JSON.parse(res.body).data.event.status).toBe("cancelled");
   });
 });
+
+// ── event mode (Schedule Brief A, FR-BRF) ───────────────────────────────────────
+
+const VALID_BODY = {
+  title: "모드 테스트",
+  start: "2026-06-20T09:00:00+09:00",
+  end: "2026-06-20T10:00:00+09:00"
+};
+
+describe("POST /api/events — mode", () => {
+  it("persists a valid mode", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "POST", url: "/api/events", payload: { ...VALID_BODY, mode: "remote" } });
+    expect(res.statusCode).toBe(201);
+    expect(JSON.parse(res.body).data.mode).toBe("remote");
+    const row = conn.sqlite.prepare("SELECT mode FROM events ORDER BY id DESC LIMIT 1").get() as { mode: string | null };
+    expect(row.mode).toBe("remote");
+  });
+
+  it("defaults mode to null when omitted (backward compatible)", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "POST", url: "/api/events", payload: VALID_BODY });
+    expect(res.statusCode).toBe(201);
+    expect(JSON.parse(res.body).data.mode).toBeNull();
+  });
+
+  it("rejects invalid mode and writes nothing", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const before = conn.sqlite.prepare("SELECT count(*) c FROM events").get() as { c: number };
+    const res = await app.inject({ method: "POST", url: "/api/events", payload: { ...VALID_BODY, mode: "hybrid" } });
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error.code).toBe("VALIDATION_ERROR");
+    const after = conn.sqlite.prepare("SELECT count(*) c FROM events").get() as { c: number };
+    expect(after.c).toBe(before.c);
+  });
+
+  it("SQLite CHECK rejects an out-of-enum mode written directly", async () => {
+    const conn = makeTestDb();
+    expect(() =>
+      conn.sqlite.prepare("INSERT INTO events (title, mode, source, self_imposed, status) VALUES ('x', 'bogus', 'cairn', 1, 'planned')").run()
+    ).toThrow();
+  });
+
+  it("SQLite accepts a legacy event with mode = null", async () => {
+    const conn = makeTestDb();
+    expect(() =>
+      conn.sqlite.prepare("INSERT INTO events (title, source, self_imposed, status) VALUES ('legacy', 'cairn', 1, 'planned')").run()
+    ).not.toThrow();
+    const row = conn.sqlite.prepare("SELECT mode FROM events WHERE title = 'legacy'").get() as { mode: string | null };
+    expect(row.mode).toBeNull();
+  });
+});
+
+describe("GET /api/events/:id — scheduleBrief", () => {
+  it("returns a quiet brief for an event with no thread/people/prior context", async () => {
+    const conn = makeTestDb();
+    const eventId = insertEvent(conn, "독립 이벤트");
+    const app = buildServer(conn.db);
+    const body = JSON.parse((await app.inject({ method: "GET", url: `/api/events/${eventId}` })).body);
+    expect(body.data.scheduleBrief).toBeDefined();
+    expect(body.data.scheduleBrief.mode).toBeNull();
+    expect(body.data.scheduleBrief.thread).toBeNull();
+    expect(body.data.scheduleBrief.previousEvent).toBeNull();
+    expect(body.data.scheduleBrief.people).toEqual([]);
+    expect(body.data.scheduleBrief.reasonCodes).toEqual([]);
+  });
+
+  it("surfaces thread, prior same-thread event + its annotation, and people facts", async () => {
+    const conn = makeTestDb();
+    const threadId = insertThread(conn, "발표 준비");
+    // prior same-thread event ended 2026-06-19T10:00 (before target start 06-20T09:00)
+    conn.sqlite
+      .prepare("INSERT INTO events (title, start, end, source, self_imposed, status, thread_id) VALUES ('리허설', '2026-06-19T09:00:00+09:00', '2026-06-19T10:00:00+09:00', 'cairn', 1, 'planned', ?)")
+      .run(threadId);
+    const priorId = (conn.sqlite.prepare("SELECT id FROM events WHERE title='리허설'").get() as { id: number }).id;
+    insertAnnotation(conn, priorId, "리허설 메모");
+    // target event
+    const targetId = insertEvent(conn, "본 발표", threadId);
+    const personId = insertPerson(conn, "Alice");
+    conn.sqlite.prepare("INSERT INTO event_people (event_id, person_id) VALUES (?, ?)").run(targetId, personId);
+    conn.sqlite.prepare("UPDATE people SET lead_time = ? WHERE id = ?").run(JSON.stringify({ days: 3, firmness: "hard" }), personId);
+
+    const app = buildServer(conn.db);
+    const body = JSON.parse((await app.inject({ method: "GET", url: `/api/events/${targetId}` })).body);
+    const brief = body.data.scheduleBrief;
+    expect(brief.thread).toMatchObject({ id: threadId, name: "발표 준비" });
+    expect(brief.previousEvent).toMatchObject({ id: priorId, title: "리허설" });
+    expect(brief.previousAnnotation.reasonText).toBe("리허설 메모");
+    expect(brief.people).toHaveLength(1);
+    expect(brief.people[0]).toMatchObject({ name: "Alice", leadTimeDays: 3 });
+    expect(brief.reasonCodes).toContain("brief_thread_present");
+    expect(brief.reasonCodes).toContain("brief_previous_event");
+    expect(brief.reasonCodes).toContain("brief_previous_annotation");
+    expect(brief.reasonCodes).toContain("brief_people_present");
+  });
+
+  it("ignores later same-thread events as previous context", async () => {
+    const conn = makeTestDb();
+    const threadId = insertThread(conn, "T");
+    const targetId = insertEvent(conn, "타깃", threadId); // start 06-20T10:00
+    // a LATER same-thread event (ends after target start) must not be picked
+    conn.sqlite
+      .prepare("INSERT INTO events (title, start, end, source, self_imposed, status, thread_id) VALUES ('미래', '2026-06-21T09:00:00+09:00', '2026-06-21T10:00:00+09:00', 'cairn', 1, 'planned', ?)")
+      .run(threadId);
+    const app = buildServer(conn.db);
+    const body = JSON.parse((await app.inject({ method: "GET", url: `/api/events/${targetId}` })).body);
+    expect(body.data.scheduleBrief.previousEvent).toBeNull();
+  });
+
+  it("GET detail does not change event/annotation row counts (read-only)", async () => {
+    const conn = makeTestDb();
+    const threadId = insertThread(conn, "T");
+    const eventId = insertEvent(conn, "E", threadId);
+    insertAnnotation(conn, eventId, "메모");
+    const evBefore = conn.sqlite.prepare("SELECT count(*) c FROM events").get() as { c: number };
+    const anBefore = conn.sqlite.prepare("SELECT count(*) c FROM annotations").get() as { c: number };
+    const app = buildServer(conn.db);
+    await app.inject({ method: "GET", url: `/api/events/${eventId}` });
+    const evAfter = conn.sqlite.prepare("SELECT count(*) c FROM events").get() as { c: number };
+    const anAfter = conn.sqlite.prepare("SELECT count(*) c FROM annotations").get() as { c: number };
+    expect(evAfter.c).toBe(evBefore.c);
+    expect(anAfter.c).toBe(anBefore.c);
+  });
+});

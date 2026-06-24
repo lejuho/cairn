@@ -11,6 +11,7 @@ function ev(id: number, threadId: number | null, start: string, end: string): Ev
     start,
     end,
     location: null,
+    mode: null,
     source: "cairn",
     selfImposed: 1,
     status: "planned",

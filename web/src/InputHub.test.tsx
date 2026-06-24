@@ -27,6 +27,7 @@ const QUIET_SURFACE: TodaySurface = {
 const UNSCHEDULED_EVENT: EventRow = {
   id: 42, title: "독서", start: null, end: null, source: "cairn", selfImposed: 1,
   status: "planned", threadId: null, type: null, location: null,
+  mode: null,
   createdAt: null, updatedAt: null
 };
 
@@ -246,6 +247,45 @@ describe("InputHub — event form", () => {
     fireEvent.click(screen.getByLabelText("일정 저장"));
     await waitFor(() => {
       expect(screen.getByRole("alert")).toBeInTheDocument();
+    });
+  });
+
+  it("posts selected event mode and omits mode when none selected", async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (url.includes("/api/threads")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url.includes("/api/today")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("일정 제목"), { target: { value: "발표" } });
+    fireEvent.change(screen.getByLabelText("시작 시간"), { target: { value: "2026-06-20T10:00" } });
+    fireEvent.change(screen.getByLabelText("종료 시간"), { target: { value: "2026-06-20T11:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "비대면" }));
+    fireEvent.click(screen.getByLabelText("일정 저장"));
+    await waitFor(() => {
+      const body = JSON.parse(getCalls(fetchMock).find(([u]) => u === "/api/events")![1]!.body as string);
+      expect(body.mode).toBe("remote");
+    });
+  });
+
+  it("omits mode from payload when no chip selected", async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (url.includes("/api/threads")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url.includes("/api/today")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("일정 제목"), { target: { value: "발표" } });
+    fireEvent.change(screen.getByLabelText("시작 시간"), { target: { value: "2026-06-20T10:00" } });
+    fireEvent.change(screen.getByLabelText("종료 시간"), { target: { value: "2026-06-20T11:00" } });
+    fireEvent.click(screen.getByLabelText("일정 저장"));
+    await waitFor(() => {
+      const body = JSON.parse(getCalls(fetchMock).find(([u]) => u === "/api/events")![1]!.body as string);
+      expect("mode" in body).toBe(false);
     });
   });
 });
