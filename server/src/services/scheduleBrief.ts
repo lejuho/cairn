@@ -4,6 +4,7 @@ import type {
   PersonRow,
   ScheduleBrief,
   ScheduleBriefPerson,
+  ScheduleBriefPreparation,
   ThreadRow
 } from "@cairn/shared";
 
@@ -32,7 +33,8 @@ export function buildScheduleBrief(
   thread: ThreadRow | null,
   previousEvent: EventRow | null,
   previousAnnotation: AnnotationRow | null,
-  people: PersonRow[]
+  people: PersonRow[],
+  preparations: ScheduleBriefPreparation[] = []
 ): ScheduleBrief {
   const briefPeople = people.map(toBriefPerson);
 
@@ -42,6 +44,7 @@ export function buildScheduleBrief(
   if (previousEvent != null) reasonCodes.push("brief_previous_event");
   if (previousAnnotation != null) reasonCodes.push("brief_previous_annotation");
   if (briefPeople.length > 0) reasonCodes.push("brief_people_present");
+  if (preparations.length > 0) reasonCodes.push("brief_preparations");
 
   return {
     mode: event.mode ?? null,
@@ -53,6 +56,7 @@ export function buildScheduleBrief(
       : null,
     previousAnnotation,
     people: briefPeople,
+    preparations,
     reasonCodes
   };
 }

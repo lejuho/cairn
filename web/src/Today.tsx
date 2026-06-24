@@ -266,13 +266,18 @@ function EventModeChip({ mode, small }: { mode: EventMode | null | undefined; sm
   );
 }
 
+const PREP_KIND_LABEL: Record<ScheduleBrief["preparations"][number]["resource"]["kind"], string> = {
+  item: "준비물",
+  knowledge: "참고"
+};
+
 function ScheduleBriefSection({ brief }: { brief: ScheduleBrief }) {
   // Read-only highlight layer. Only render when Cairn actually has context to
-  // show — quiet brief (no thread/previous/people facts) renders nothing.
+  // show — quiet brief (no thread/previous/people/preparation facts) renders nothing.
   const hasPeopleFacts = brief.people.some(
     (p) => p.preferredWeekdays.length > 0 || p.preferredPeriods.length > 0 || p.leadTimeDays != null || p.unavailableWeekdays.length > 0
   );
-  const show = brief.thread != null || brief.previousEvent != null || brief.previousAnnotation != null || hasPeopleFacts;
+  const show = brief.thread != null || brief.previousEvent != null || brief.previousAnnotation != null || hasPeopleFacts || brief.preparations.length > 0;
   if (!show) return null;
 
   return (
@@ -307,6 +312,26 @@ function ScheduleBriefSection({ brief }: { brief: ScheduleBrief }) {
           )}
         </div>
       ))}
+      {brief.preparations.length > 0 && (
+        <div className="event-brief-prep" data-testid="brief-preparations">
+          <p className="event-detail-section-label">준비</p>
+          <ul className="event-brief-prep-list" role="list">
+            {brief.preparations.map((prep) => {
+              // Per-link firmness preserved; show the firmest as the row chip.
+              const firmness = prep.links[0]?.firmness ?? "soft";
+              const reason = prep.links.find((l) => l.reason)?.reason ?? null;
+              return (
+                <li key={prep.resource.id} className="event-brief-prep-row" data-testid="prep-row" data-kind={prep.resource.kind}>
+                  <span className={`resource-firmness resource-firmness--${firmness}`}>{PREP_KIND_LABEL[prep.resource.kind]}</span>
+                  <span className="event-brief-prep-name">{prep.resource.name}</span>
+                  {prep.sourcePerson && <span className="card-meta"> · 출처 {prep.sourcePerson.name}</span>}
+                  {reason && <span className="card-meta"> · {reason}</span>}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
     </section>
   );
 }

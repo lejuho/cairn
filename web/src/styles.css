@@ -266,6 +266,11 @@ p {
 .event-brief-person-name { font-weight: 600; font-size: 0.85rem; }
 .event-brief-prev-note { font-style: italic; }
 
+.event-brief-prep { margin-top: 6px; }
+.event-brief-prep-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.event-brief-prep-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px; font-size: 0.82rem; }
+.event-brief-prep-name { font-weight: 600; }
+
 /* Needs-review placement copy (FR-FEAS-11): explanatory "why now" line. */
 .review-placement {
   font-size: 0.75rem;

@@ -347,3 +347,116 @@ describe("GET /api/events/:id — scheduleBrief", () => {
     expect(anAfter.c).toBe(anBefore.c);
   });
 });
+
+// ── preparation brief (cycle-45 FR-BRF-04) ──────────────────────────────────────
+
+function insertResource(conn: SqliteConnection, name: string, kind: "item" | "knowledge", sourcePersonId: number | null = null): number {
+  const r = conn.sqlite
+    .prepare("INSERT INTO resources (name, kind, source_person_id) VALUES (?, ?, ?)")
+    .run(name, kind, sourcePersonId);
+  return Number(r.lastInsertRowid);
+}
+
+function insertResourceLink(conn: SqliteConnection, resourceId: number, targetType: "event" | "task" | "thread", targetId: number, firmness = "soft", reason: string | null = null): void {
+  conn.sqlite
+    .prepare("INSERT INTO resource_links (resource_id, target_type, target_id, firmness, reason) VALUES (?, ?, ?, ?, ?)")
+    .run(resourceId, targetType, targetId, firmness, reason);
+}
+
+function getBrief(conn: SqliteConnection, eventId: number) {
+  const app = buildServer(conn.db);
+  return app.inject({ method: "GET", url: `/api/events/${eventId}` }).then((r) => JSON.parse(r.body).data.scheduleBrief);
+}
+
+describe("GET /api/events/:id — preparations", () => {
+  it("returns empty preparations when no resources are linked", async () => {
+    const conn = makeTestDb();
+    const eventId = insertEvent(conn, "독립");
+    const brief = await getBrief(conn, eventId);
+    expect(brief.preparations).toEqual([]);
+    expect(brief.reasonCodes).not.toContain("brief_preparations");
+  });
+
+  it("direct event resource link appears with scope event_direct", async () => {
+    const conn = makeTestDb();
+    const eventId = insertEvent(conn, "발표");
+    const rid = insertResource(conn, "노트북", "item");
+    insertResourceLink(conn, rid, "event", eventId, "hard", "발표용");
+    const brief = await getBrief(conn, eventId);
+    expect(brief.preparations).toHaveLength(1);
+    expect(brief.preparations[0].resource.name).toBe("노트북");
+    expect(brief.preparations[0].links[0]).toMatchObject({ scope: "event_direct", firmness: "hard", reason: "발표용" });
+    expect(brief.reasonCodes).toContain("brief_preparations");
+  });
+
+  it("thread-level resource link appears with scope thread_context", async () => {
+    const conn = makeTestDb();
+    const threadId = insertThread(conn, "발표 준비");
+    const eventId = insertEvent(conn, "발표", threadId);
+    const rid = insertResource(conn, "슬라이드", "knowledge");
+    insertResourceLink(conn, rid, "thread", threadId, "soft");
+    const brief = await getBrief(conn, eventId);
+    expect(brief.preparations).toHaveLength(1);
+    expect(brief.preparations[0].links[0].scope).toBe("thread_context");
+  });
+
+  it("prior same-thread event resource link appears with scope previous_event", async () => {
+    const conn = makeTestDb();
+    const threadId = insertThread(conn, "발표 준비");
+    // prior event ended before target start (target start = 06-20T10:00)
+    conn.sqlite
+      .prepare("INSERT INTO events (title, start, end, source, self_imposed, status, thread_id) VALUES ('리허설', '2026-06-19T09:00:00+09:00', '2026-06-19T10:00:00+09:00', 'cairn', 1, 'planned', ?)")
+      .run(threadId);
+    const priorId = (conn.sqlite.prepare("SELECT id FROM events WHERE title='리허설'").get() as { id: number }).id;
+    const eventId = insertEvent(conn, "본 발표", threadId);
+    const rid = insertResource(conn, "발표 노트", "knowledge");
+    insertResourceLink(conn, rid, "event", priorId, "soft");
+    const brief = await getBrief(conn, eventId);
+    const prep = brief.preparations.find((p: { resource: { name: string } }) => p.resource.name === "발표 노트");
+    expect(prep.links[0].scope).toBe("previous_event");
+  });
+
+  it("a resource linked to both event and thread is grouped once with two scoped links", async () => {
+    const conn = makeTestDb();
+    const threadId = insertThread(conn, "T");
+    const eventId = insertEvent(conn, "발표", threadId);
+    const rid = insertResource(conn, "노트북", "item");
+    insertResourceLink(conn, rid, "event", eventId, "hard");
+    insertResourceLink(conn, rid, "thread", threadId, "soft");
+    const brief = await getBrief(conn, eventId);
+    expect(brief.preparations).toHaveLength(1);
+    expect(brief.preparations[0].links.map((l: { scope: string }) => l.scope)).toEqual(["event_direct", "thread_context"]);
+  });
+
+  it("includes source person name when resource has a source person", async () => {
+    const conn = makeTestDb();
+    const personId = insertPerson(conn, "Alice");
+    const eventId = insertEvent(conn, "발표");
+    const rid = insertResource(conn, "노트북", "item", personId);
+    insertResourceLink(conn, rid, "event", eventId, "soft");
+    const brief = await getBrief(conn, eventId);
+    expect(brief.preparations[0].sourcePerson).toMatchObject({ name: "Alice" });
+  });
+
+  it("GET detail does not change events/annotations/resources/resource_links/people/params row counts", async () => {
+    const conn = makeTestDb();
+    const threadId = insertThread(conn, "T");
+    const eventId = insertEvent(conn, "발표", threadId);
+    const rid = insertResource(conn, "노트북", "item");
+    insertResourceLink(conn, rid, "event", eventId, "soft");
+    // Seed a params row so the read-only assertion proves params is untouched.
+    conn.sqlite.prepare("INSERT OR REPLACE INTO params (key, value) VALUES ('energy_budget', '8')").run();
+    const counts = () => ({
+      events: (conn.sqlite.prepare("SELECT count(*) c FROM events").get() as { c: number }).c,
+      annotations: (conn.sqlite.prepare("SELECT count(*) c FROM annotations").get() as { c: number }).c,
+      r: (conn.sqlite.prepare("SELECT count(*) c FROM resources").get() as { c: number }).c,
+      rl: (conn.sqlite.prepare("SELECT count(*) c FROM resource_links").get() as { c: number }).c,
+      p: (conn.sqlite.prepare("SELECT count(*) c FROM people").get() as { c: number }).c,
+      params: (conn.sqlite.prepare("SELECT count(*) c FROM params").get() as { c: number }).c
+    });
+    const before = counts();
+    const app = buildServer(conn.db);
+    await app.inject({ method: "GET", url: `/api/events/${eventId}` });
+    expect(counts()).toEqual(before);
+  });
+});

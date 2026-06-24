@@ -46,10 +46,16 @@ describe("EventRowSchema mode", () => {
 });
 
 describe("ScheduleBriefSchema", () => {
-  const QUIET = { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], reasonCodes: [] };
+  const QUIET = { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], preparations: [], reasonCodes: [] };
 
   it("accepts a quiet brief (all null/empty)", () => {
     expect(ScheduleBriefSchema.safeParse(QUIET).success).toBe(true);
+  });
+
+  it("requires preparations", () => {
+    const { preparations, ...without } = QUIET;
+    void preparations;
+    expect(ScheduleBriefSchema.safeParse(without).success).toBe(false);
   });
 
   it("accepts a full brief", () => {
@@ -59,9 +65,40 @@ describe("ScheduleBriefSchema", () => {
       previousEvent: { id: 9, title: "리허설", start: "2026-06-19T09:00:00+09:00", end: "2026-06-19T10:00:00+09:00" },
       previousAnnotation: { id: 3, eventId: 9, outcome: "done", reasonTags: null, reasonText: "잘 됐어", energyAtTime: null, loggedAt: "2026-06-19T11:00:00+09:00" },
       people: [{ personId: 5, name: "Alice", relation: "동료", preferredWeekdays: ["monday"], preferredPeriods: ["evening"], leadTimeDays: 3, unavailableWeekdays: ["friday"] }],
-      reasonCodes: ["brief_mode_present", "brief_thread_present", "brief_previous_event", "brief_previous_annotation", "brief_people_present"]
+      preparations: [{
+        resource: { id: 7, name: "노트북", kind: "item", sourcePersonId: 5, note: null, createdAt: null },
+        sourcePerson: { id: 5, name: "Alice" },
+        links: [
+          { targetType: "event", targetId: 1, scope: "event_direct", firmness: "hard", reason: "발표용" },
+          { targetType: "thread", targetId: 1, scope: "thread_context", firmness: "soft", reason: null }
+        ],
+        reasonCodes: ["prep_event_direct", "prep_thread_context"]
+      }],
+      reasonCodes: ["brief_mode_present", "brief_thread_present", "brief_previous_event", "brief_previous_annotation", "brief_people_present", "brief_preparations"]
     };
     expect(ScheduleBriefSchema.safeParse(full).success).toBe(true);
+  });
+
+  it("rejects injected suggestion/procurement/manual fields on preparation (strict)", () => {
+    const prep = {
+      resource: { id: 7, name: "노트북", kind: "item", sourcePersonId: null, note: null, createdAt: null },
+      sourcePerson: null,
+      links: [{ targetType: "event", targetId: 1, scope: "event_direct", firmness: "soft", reason: null }],
+      reasonCodes: []
+    };
+    expect(ScheduleBriefSchema.safeParse({ ...QUIET, preparations: [{ ...prep, aiSuggestion: "노트북?" }] }).success).toBe(false);
+    expect(ScheduleBriefSchema.safeParse({ ...QUIET, preparations: [{ ...prep, manualEntry: "x" }] }).success).toBe(false);
+    expect(ScheduleBriefSchema.safeParse({ ...QUIET, preparations: [{ ...prep, procurement: {} }] }).success).toBe(false);
+  });
+
+  it("rejects invalid preparation scope and out-of-set targetType (strict)", () => {
+    const prep = {
+      resource: { id: 7, name: "노트북", kind: "item", sourcePersonId: null, note: null, createdAt: null },
+      sourcePerson: null,
+      reasonCodes: []
+    };
+    expect(ScheduleBriefSchema.safeParse({ ...QUIET, preparations: [{ ...prep, links: [{ targetType: "event", targetId: 1, scope: "deep_context", firmness: "soft", reason: null }] }] }).success).toBe(false);
+    expect(ScheduleBriefSchema.safeParse({ ...QUIET, preparations: [{ ...prep, links: [{ targetType: "task", targetId: 1, scope: "event_direct", firmness: "soft", reason: null }] }] }).success).toBe(false);
   });
 
   it("rejects injected movement/procurement/domain fields (strict)", () => {
@@ -83,7 +120,7 @@ describe("ScheduleBriefSchema", () => {
 describe("EventDetailDataSchema scheduleBrief", () => {
   const base = {
     event: BASE_EVENT, people: [], annotations: [], thread: null,
-    scheduleBrief: { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], reasonCodes: [] }
+    scheduleBrief: { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], preparations: [], reasonCodes: [] }
   };
   it("accepts detail with scheduleBrief", () => {
     expect(EventDetailDataSchema.safeParse(base).success).toBe(true);

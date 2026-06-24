@@ -670,7 +670,7 @@ describe("Today — needs_review card", () => {
       cards: [{ kind: "needs_review", event: REVIEW_EVENT, placement: NO_CONTEXT_PLACEMENT }]
     };
     const detail: EventDetailData = {
-      event: REVIEW_EVENT, people: [], annotations: [], thread: null, scheduleBrief: { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], reasonCodes: [] }
+      event: REVIEW_EVENT, people: [], annotations: [], thread: null, scheduleBrief: { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], preparations: [], reasonCodes: [] }
     };
     vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
       if (typeof url === "string" && url.match(/\/api\/events\/\d+$/) && !opts?.method) {
@@ -1101,7 +1101,7 @@ describe("Today — schedule prompt", () => {
   it("clicking the title opens the event detail sheet without breaking the slot button", async () => {
     const detail: EventDetailData = {
       event: UNSCHEDULED_EVENT, people: [], annotations: [], thread: null,
-      scheduleBrief: { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], reasonCodes: [] }
+      scheduleBrief: { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], preparations: [], reasonCodes: [] }
     };
     vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
       if (typeof url === "string" && url.match(/\/api\/events\/\d+$/) && !opts?.method) {
@@ -1272,7 +1272,7 @@ describe("Today — event detail sheet", () => {
     people: [],
     annotations: [],
     thread: null,
-    scheduleBrief: { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], reasonCodes: [] }
+    scheduleBrief: { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], preparations: [], reasonCodes: [] }
   };
   const BASE_SURFACE_LIVE: TodaySurface = {
     ...BASE_SURFACE,
@@ -1344,6 +1344,7 @@ describe("Today — event detail sheet", () => {
         previousEvent: { id: 9, title: "리허설", start: null, end: "2026-06-19T10:00:00+09:00" },
         previousAnnotation: { id: 3, eventId: 9, outcome: "done", reasonTags: null, reasonText: "잘 됐어", energyAtTime: null, loggedAt: "2026-06-19T11:00:00+09:00" },
         people: [{ personId: 5, name: "Alice", relation: "동료", preferredWeekdays: ["monday"], preferredPeriods: ["evening"], leadTimeDays: 3, unavailableWeekdays: ["friday"] }],
+        preparations: [],
         reasonCodes: ["brief_mode_present", "brief_thread_present", "brief_previous_event", "brief_previous_annotation", "brief_people_present"]
       }
     };
@@ -1359,6 +1360,76 @@ describe("Today — event detail sheet", () => {
     expect(person).toHaveTextContent("Alice");
     expect(person).toHaveTextContent("사전통보 3일");
     expect(person).toHaveTextContent("불가 금");
+  });
+
+  // ── preparation brief (FR-BRF-04) ─────────────────────────────────────────
+  it("renders preparation rows with item/knowledge labels, source person and reason", async () => {
+    const detail: EventDetailData = {
+      ...BASE_DETAIL,
+      scheduleBrief: {
+        mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [],
+        preparations: [
+          {
+            resource: { id: 7, name: "노트북", kind: "item", sourcePersonId: 5, note: null, createdAt: null },
+            sourcePerson: { id: 5, name: "Alice" },
+            links: [{ targetType: "event", targetId: 42, scope: "event_direct", firmness: "hard", reason: "발표용" }],
+            reasonCodes: ["prep_event_direct"]
+          },
+          {
+            resource: { id: 8, name: "발표 노트", kind: "knowledge", sourcePersonId: null, note: null, createdAt: null },
+            sourcePerson: null,
+            links: [{ targetType: "thread", targetId: 1, scope: "thread_context", firmness: "soft", reason: null }],
+            reasonCodes: ["prep_thread_context"]
+          }
+        ],
+        reasonCodes: ["brief_preparations"]
+      }
+    };
+    mockFetchWithDetail(detail);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("팀 스프린트 상세 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("팀 스프린트 상세 보기"));
+    await waitFor(() => expect(screen.getByTestId("brief-preparations")).toBeInTheDocument());
+    const rows = screen.getAllByTestId("prep-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!).toHaveTextContent("준비물");
+    expect(rows[0]!).toHaveTextContent("노트북");
+    expect(rows[0]!).toHaveTextContent("출처 Alice");
+    expect(rows[0]!).toHaveTextContent("발표용");
+    expect(rows[1]!).toHaveTextContent("참고");
+    expect(rows[1]!).toHaveTextContent("발표 노트");
+  });
+
+  it("does not render preparation section when preparations is empty", async () => {
+    mockFetchWithDetail(); // BASE_DETAIL has empty preparations + quiet brief
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("팀 스프린트 상세 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("팀 스프린트 상세 보기"));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "일정 상세" })).toBeInTheDocument());
+    expect(screen.queryByTestId("brief-preparations")).not.toBeInTheDocument();
+  });
+
+  it("shows brief section for a prep-only brief (no thread/people)", async () => {
+    const detail: EventDetailData = {
+      ...BASE_DETAIL,
+      scheduleBrief: {
+        mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [],
+        preparations: [{
+          resource: { id: 7, name: "노트북", kind: "item", sourcePersonId: null, note: null, createdAt: null },
+          sourcePerson: null,
+          links: [{ targetType: "event", targetId: 42, scope: "event_direct", firmness: "soft", reason: null }],
+          reasonCodes: ["prep_event_direct"]
+        }],
+        reasonCodes: ["brief_preparations"]
+      }
+    };
+    mockFetchWithDetail(detail);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("팀 스프린트 상세 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("팀 스프린트 상세 보기"));
+    await waitFor(() => expect(screen.getByTestId("schedule-brief")).toBeInTheDocument());
+    expect(screen.getByTestId("brief-preparations")).toBeInTheDocument();
+    expect(screen.queryByTestId("brief-thread")).not.toBeInTheDocument();
   });
 
   it("detail sheet shows people list", async () => {
