@@ -81,3 +81,25 @@ export function findMovedCancelledAnnotations(db: CairnDatabase): MirrorSourceRo
     .orderBy(desc(annotations.loggedAt), desc(annotations.id))
     .all() as MirrorSourceRow[];
 }
+
+// Read-only annotation rows for the transition-friction surface (cycle-49):
+// outcome + energyAtTime + loggedAt only. A focused read because the broader
+// MirrorSourceRow does not carry energyAtTime; grouping by logged date happens
+// in the pure service.
+export type FrictionAnnotationRow = {
+  outcome: string | null;
+  energyAtTime: number | null;
+  loggedAt: string | null;
+};
+
+export function findFrictionAnnotations(db: CairnDatabase): FrictionAnnotationRow[] {
+  return db
+    .select({
+      outcome: annotations.outcome,
+      energyAtTime: annotations.energyAtTime,
+      loggedAt: annotations.loggedAt
+    })
+    .from(annotations)
+    .orderBy(desc(annotations.loggedAt), desc(annotations.id))
+    .all();
+}

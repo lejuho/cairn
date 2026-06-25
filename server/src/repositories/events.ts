@@ -212,6 +212,23 @@ export function findPlannedAndConfirmedAll(db: CairnDatabase): EventRow[] {
     .filter((e) => e.status === "planned" || e.status === "confirmed") as EventRow[];
 }
 
+// Read-only: scheduled events (planned|confirmed|done) with a non-null start,
+// ordered by start asc then id asc so transition-pair counting is stable for
+// equal start times. Date-range filtering is deferred to the pure service
+// (mirror-transition-friction), consistent with findPlannedAndConfirmedAll.
+export function findScheduledEventsForFriction(db: CairnDatabase): EventRow[] {
+  return db
+    .select()
+    .from(events)
+    .orderBy(asc(events.start), asc(events.id))
+    .all()
+    .filter(
+      (e) =>
+        e.start != null &&
+        (e.status === "planned" || e.status === "confirmed" || e.status === "done")
+    ) as EventRow[];
+}
+
 export function findEventsWithCostsForDate(
   db: CairnDatabase,
   date: string

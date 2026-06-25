@@ -7,6 +7,9 @@ import {
   MirrorEnergyTrendDataSchema,
   MirrorEnergyTrendDaySchema,
   MirrorEnergyTrendQuerySchema,
+  MirrorTransitionFrictionQuerySchema,
+  MirrorTransitionFrictionDataSchema,
+  MirrorTransitionFrictionDaySchema,
   MirrorEnergyTrendSummarySchema,
   MirrorLedgerCostSchema,
   MirrorLedgerDataSchema,
@@ -418,5 +421,63 @@ describe("MirrorDiaryQuerySchema", () => {
 
   it("rejects 91 inclusive days (diff=90)", () => {
     expect(MirrorDiaryQuerySchema.safeParse({ from: "2026-01-01", to: "2026-04-01" }).success).toBe(false);
+  });
+});
+
+describe("MirrorTransitionFrictionQuerySchema", () => {
+  it("accepts empty (defaults applied downstream)", () => {
+    expect(MirrorTransitionFrictionQuerySchema.safeParse({}).success).toBe(true);
+  });
+  it("accepts a valid from<=to range", () => {
+    expect(MirrorTransitionFrictionQuerySchema.safeParse({ from: "2026-06-01", to: "2026-06-20" }).success).toBe(true);
+  });
+  it("rejects reversed range", () => {
+    expect(MirrorTransitionFrictionQuerySchema.safeParse({ from: "2026-06-20", to: "2026-06-01" }).success).toBe(false);
+  });
+  it("rejects malformed date", () => {
+    expect(MirrorTransitionFrictionQuerySchema.safeParse({ from: "2026-6-1", to: "2026-06-20" }).success).toBe(false);
+  });
+  it("rejects a range longer than 90 inclusive days", () => {
+    expect(MirrorTransitionFrictionQuerySchema.safeParse({ from: "2026-01-01", to: "2026-06-01" }).success).toBe(false);
+  });
+});
+
+describe("MirrorTransitionFrictionDaySchema / DataSchema (strict)", () => {
+  const DAY = {
+    date: "2026-06-20", eventCount: 3, transitionPairs: 2,
+    sameThreadPairs: 1, contextPairs: 0, unrelatedPairs: 1, missingThreadPairs: 0,
+    lowTransitionPairs: 0, highTransitionPairs: 1, unknownTransitionPairs: 0,
+    outcomes: { done: 1, moved: 0, cancelled: 0, late: 0 },
+    energy: { entryCount: 1, averageEnergyAtTime: 3.5 },
+    sampleStatus: "ok", reasonCodes: ["friction_high_present"]
+  };
+
+  it("accepts a valid day", () => {
+    expect(MirrorTransitionFrictionDaySchema.safeParse(DAY).success).toBe(true);
+  });
+  it("accepts null averageEnergyAtTime when no energy entries", () => {
+    expect(MirrorTransitionFrictionDaySchema.safeParse({ ...DAY, energy: { entryCount: 0, averageEnergyAtTime: null } }).success).toBe(true);
+  });
+  it("rejects injected score/recommendation/coefficient/tune/apply fields (strict)", () => {
+    for (const inj of [{ score: 9 }, { riskScore: 1 }, { recommendation: "x" }, { advice: "y" }, { action: "apply" }, { apply: true }, { tune: 1 }, { coefficient: 0.5 }]) {
+      expect(MirrorTransitionFrictionDaySchema.safeParse({ ...DAY, ...inj }).success).toBe(false);
+    }
+  });
+
+  it("accepts a full data envelope", () => {
+    const data = {
+      range: { from: "2026-05-21", to: "2026-06-20" },
+      summary: { days: 31, activeDays: 1, totalTransitionPairs: 2, lowTransitionPairs: 0, highTransitionPairs: 1, unknownTransitionPairs: 0, lowSampleDays: 0, sampleStatus: "ok" },
+      days: [DAY]
+    };
+    expect(MirrorTransitionFrictionDataSchema.safeParse(data).success).toBe(true);
+  });
+  it("rejects injected top-level score field (strict)", () => {
+    const data = {
+      range: { from: "2026-05-21", to: "2026-06-20" },
+      summary: { days: 31, activeDays: 1, totalTransitionPairs: 2, lowTransitionPairs: 0, highTransitionPairs: 1, unknownTransitionPairs: 0, lowSampleDays: 0, sampleStatus: "ok" },
+      days: [DAY], riskScore: 5
+    };
+    expect(MirrorTransitionFrictionDataSchema.safeParse(data).success).toBe(false);
   });
 });

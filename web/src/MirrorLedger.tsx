@@ -11,7 +11,9 @@ import type {
   MirrorLedgerEntry,
   MirrorPatternBucket,
   MirrorPatternThreadBucket,
-  MirrorPatternsData
+  MirrorPatternsData,
+  MirrorTransitionFrictionData,
+  MirrorTransitionFrictionDay
 } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
 
@@ -21,6 +23,7 @@ type MirrorData = {
   energy: MirrorEnergyTrendData;
   automationNeeds: MirrorAutomationNeedsData | null;
   diary: MirrorDiaryData | null;
+  transitionFriction: MirrorTransitionFrictionData | null;
 };
 
 type ViewState =
@@ -31,12 +34,13 @@ type ViewState =
   | { tag: "access_session_required" };
 
 async function loadMirrorData(): Promise<MirrorData> {
-  const [ledgerBody, patternsBody, energyBody, automationBody, diaryBody] = await Promise.all([
+  const [ledgerBody, patternsBody, energyBody, automationBody, diaryBody, frictionBody] = await Promise.all([
     apiJson<{ ok: boolean; data?: MirrorLedgerData; error?: { message: string } }>("/api/mirror/ledger"),
     apiJson<{ ok: boolean; data?: MirrorPatternsData; error?: { message: string } }>("/api/mirror/patterns"),
     apiJson<{ ok: boolean; data?: MirrorEnergyTrendData; error?: { message: string } }>("/api/mirror/energy-trends"),
     apiJson<{ ok: boolean; data?: MirrorAutomationNeedsData; error?: { message: string } }>("/api/mirror/automation-needs").catch(() => ({ ok: false as const, data: undefined })),
-    apiJson<{ ok: boolean; data?: MirrorDiaryData; error?: { message: string } }>("/api/mirror/diary").catch(() => ({ ok: false as const, data: undefined }))
+    apiJson<{ ok: boolean; data?: MirrorDiaryData; error?: { message: string } }>("/api/mirror/diary").catch(() => ({ ok: false as const, data: undefined })),
+    apiJson<{ ok: boolean; data?: MirrorTransitionFrictionData; error?: { message: string } }>("/api/mirror/transition-friction").catch(() => ({ ok: false as const, data: undefined }))
   ]);
   if (!ledgerBody.ok) throw new Error(ledgerBody.error?.message ?? "알 수 없는 오류");
   if (!patternsBody.ok) throw new Error(patternsBody.error?.message ?? "알 수 없는 오류");
@@ -50,6 +54,9 @@ async function loadMirrorData(): Promise<MirrorData> {
       : null,
     diary: (diaryBody.ok && Array.isArray((diaryBody.data as MirrorDiaryData | undefined)?.days))
       ? (diaryBody.data as MirrorDiaryData)
+      : null,
+    transitionFriction: (frictionBody.ok && Array.isArray((frictionBody.data as MirrorTransitionFrictionData | undefined)?.days))
+      ? (frictionBody.data as MirrorTransitionFrictionData)
       : null
   };
 }
@@ -79,11 +86,13 @@ export function MirrorLedger() {
           (i) => i.level !== "quiet"
         ) ?? false;
         const hasDiaryEntries = (data.diary?.days.reduce((s, d) => s + d.entries.length, 0) ?? 0) > 0;
+        const hasFriction = (data.transitionFriction?.summary.activeDays ?? 0) > 0;
         const isEmpty =
           data.patterns.totals.annotations === 0 &&
           data.energy.summary.scheduledDays === 0 &&
           !hasActionableAutomation &&
-          !hasDiaryEntries;
+          !hasDiaryEntries &&
+          !hasFriction;
         setView(isEmpty ? { tag: "quiet", data } : { tag: "live", data });
       })
       .catch((e: unknown) => {
@@ -158,7 +167,7 @@ export function MirrorLedger() {
   }
 
   const { data } = view;
-  const { ledger, patterns, energy, automationNeeds, diary } = data;
+  const { ledger, patterns, energy, automationNeeds, diary, transitionFriction } = data;
   return (
     <main className="app-shell today-live" aria-labelledby="mirror-title">
       <header style={{ width: "min(100%, 480px)", marginBottom: "12px" }}>
@@ -170,6 +179,9 @@ export function MirrorLedger() {
       </header>
 
       <MirrorEnergyTrend energy={energy} />
+      {transitionFriction && transitionFriction.summary.activeDays > 0 && (
+        <MirrorTransitionFriction data={transitionFriction} />
+      )}
       <MirrorPatterns patterns={patterns} />
       {automationNeeds && automationNeeds.items.length > 0 && (
         <MirrorAutomationNeeds data={automationNeeds} />
@@ -247,6 +259,63 @@ function MirrorEnergyDayRow({ day, budgetUnits }: { day: MirrorEnergyTrendDay; b
       <span className="card-chip">{day.loadUnits}시간 / {budgetUnits}시간</span>
       {day.deficit && <span className="card-chip" data-testid={`energy-deficit-${day.date}`}>예산 초과</span>}
       {day.continuousExceeded && <span className="card-chip">연속 초과</span>}
+    </li>
+  );
+}
+
+// Transition Friction (cycle-49 FR-MIR-09). Read-only retrospective evidence:
+// per-day thread transition counts + nearby outcome/energy. Descriptive copy
+// only — no scalar verdict, no suggestion, no auto action.
+function MirrorTransitionFriction({ data }: { data: MirrorTransitionFrictionData }) {
+  const s = data.summary;
+  const recentDays = data.days.slice(0, 7);
+  return (
+    <section
+      className="quiet-card warm"
+      aria-label="전환 마찰"
+      data-testid="mirror-transition-friction"
+      style={{ width: "min(100%, 480px)", marginBottom: "12px" }}
+    >
+      <p className="eyebrow" style={{ margin: "0 0 8px" }}>전환 마찰</p>
+
+      {s.sampleStatus === "low_sample" && (
+        <p className="card-meta" role="note" data-testid="friction-low-sample" style={{ margin: "0 0 8px", opacity: 0.7 }}>
+          표본이 적어 패턴으로 보긴 이르다
+        </p>
+      )}
+
+      <p className="card-meta" style={{ display: "flex", flexWrap: "wrap", gap: "6px", margin: "0 0 8px" }}>
+        <span className="card-chip">전환 {s.totalTransitionPairs}회</span>
+        <span className="card-chip">높은 전환 {s.highTransitionPairs}회</span>
+        <span className="card-chip">불확실 {s.unknownTransitionPairs}회</span>
+        <span className="card-chip">기록된 날 {s.activeDays}일</span>
+      </p>
+
+      <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+        {recentDays.map((d) => (
+          <MirrorFrictionDayRow key={d.date} day={d} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function MirrorFrictionDayRow({ day }: { day: MirrorTransitionFrictionDay }) {
+  const slips = day.outcomes.moved + day.outcomes.cancelled + day.outcomes.late;
+  return (
+    <li className="card-meta" data-testid={`friction-day-${day.date}`} style={{ margin: "2px 0", display: "flex", flexWrap: "wrap", gap: "4px", alignItems: "center" }}>
+      <span style={{ minWidth: "90px" }}>{day.date}</span>
+      <span className="card-chip">전환 {day.transitionPairs}회</span>
+      {day.highTransitionPairs > 0 && (
+        <span className="card-chip" data-testid={`friction-high-${day.date}`}>높은 전환 {day.highTransitionPairs}</span>
+      )}
+      {day.unknownTransitionPairs > 0 && (
+        <span className="card-chip" data-testid={`friction-unknown-${day.date}`}>불확실 {day.unknownTransitionPairs}</span>
+      )}
+      {slips > 0 && <span className="card-chip">이동·취소·지연 {slips}</span>}
+      {day.energy.averageEnergyAtTime != null && (
+        <span className="card-chip">평균 에너지 {day.energy.averageEnergyAtTime}</span>
+      )}
     </li>
   );
 }
