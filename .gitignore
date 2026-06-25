@@ -58,6 +58,10 @@ dist/
 coverage/
 .vite/
 
+# Local generated runtime/agent output
+/logs/
+/scripts/
+
 # Local environment and databases
 .env
 .env.*

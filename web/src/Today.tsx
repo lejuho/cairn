@@ -648,6 +648,7 @@ export function Today() {
   const [eventDetail, setEventDetail] = useState<EventDetailState>({ tag: "idle" });
   const [detailNote, setDetailNote] = useState<DetailNoteState>({ text: "", submitting: false, error: null });
   const [prepForm, setPrepForm] = useState<{ open: boolean; text: string; submitting: boolean; error: string | null }>({ open: false, text: "", submitting: false, error: null });
+  const [suggestAccept, setSuggestAccept] = useState<{ pending: string | null; error: string | null }>({ pending: null, error: null });
   const [conflictSheet, setConflictSheet] = useState<ConflictSheetState>({ open: false });
   const [watcherSnoozeError, setWatcherSnoozeError] = useState<Record<number, string>>({});
   const [feasSettings, setFeasSettings] = useState<FeasSettingsSheetState>({ open: false });
@@ -835,7 +836,25 @@ export function Today() {
     setEventDetail({ tag: "idle" });
     setDetailNote({ text: "", submitting: false, error: null });
     setPrepForm({ open: false, text: "", submitting: false, error: null });
+    setSuggestAccept({ pending: null, error: null });
   }, []);
+
+  // Accept a deterministic preparation suggestion (cycle-47). Reuses the existing
+  // page-level manual POST; on success refetch and duplicate-filtering removes the
+  // accepted suggestion. On failure keep the suggestion visible with a scoped error.
+  const handleAcceptSuggestion = useCallback(async (name: string) => {
+    if (selectedEventId == null || suggestAccept.pending) return;
+    setSuggestAccept({ pending: name, error: null });
+    try {
+      await addEventPreparation(selectedEventId, name); // duplicate (200) is success
+      const data = await fetchEventDetail(selectedEventId);
+      setEventDetail({ tag: "loaded", data });
+      setSuggestAccept({ pending: null, error: null });
+    } catch (e) {
+      const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "추가 실패";
+      setSuggestAccept({ pending: null, error: msg });
+    }
+  }, [selectedEventId, suggestAccept.pending]);
 
   const handleAddPreparation = useCallback(async () => {
     if (selectedEventId == null) return;
@@ -1099,6 +1118,28 @@ export function Today() {
               )}
             </div>
             <ScheduleBriefSection brief={eventDetail.data.scheduleBrief} />
+            {eventDetail.data.scheduleBrief.preparationSuggestions.length > 0 && (
+              <div className="event-prep-suggest" data-testid="prep-suggestions" aria-label="준비물 제안">
+                <p className="event-detail-section-label">준비물 제안</p>
+                <ul className="event-prep-suggest-list" role="list">
+                  {eventDetail.data.scheduleBrief.preparationSuggestions.map((sug) => (
+                    <li key={sug.key} className="event-prep-suggest-row" data-testid="prep-suggestion">
+                      <button
+                        className="action-btn action-btn--sm"
+                        data-testid="prep-suggestion-accept"
+                        disabled={suggestAccept.pending != null}
+                        onClick={() => void handleAcceptSuggestion(sug.name)}
+                        aria-label={`${sug.name} 추가`}
+                      >
+                        {suggestAccept.pending === sug.name ? "추가 중…" : `+ ${sug.name}`}
+                      </button>
+                      <span className="card-meta event-prep-suggest-reason">{sug.reason}</span>
+                    </li>
+                  ))}
+                </ul>
+                {suggestAccept.error && <p className="sheet-error" role="alert">{suggestAccept.error}</p>}
+              </div>
+            )}
             <div className="event-prep-add" data-testid="event-prep-add">
               {!prepForm.open ? (
                 <button

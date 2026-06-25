@@ -72,6 +72,29 @@ export const ScheduleBriefPreparationSchema = z
   })
   .strict();
 
+// Preparation Suggestions A (cycle-47 FR-BRF-04). Conservative deterministic
+// item suggestions from event/thread keywords. Tap-to-accept only — GET stays
+// read-only; acceptance reuses POST /api/events/:id/preparations. No LLM and no
+// external/movement/buying fields; not auto-applied.
+export const ScheduleBriefSuggestionEvidenceSchema = z
+  .object({
+    field: z.enum(["event_title", "thread_name", "thread_goal"]),
+    value: z.string()
+  })
+  .strict();
+
+export const ScheduleBriefPreparationSuggestionSchema = z
+  .object({
+    key: z.string(),
+    name: z.string(),
+    kind: z.literal("item"),
+    source: z.literal("deterministic_keyword"),
+    reasonCode: z.literal("presentation_keyword"),
+    reason: z.string(),
+    evidence: ScheduleBriefSuggestionEvidenceSchema
+  })
+  .strict();
+
 export const ScheduleBriefSchema = z
   .object({
     mode: EventModeSchema.nullable(),
@@ -80,6 +103,7 @@ export const ScheduleBriefSchema = z
     previousAnnotation: AnnotationRowSchema.nullable(),
     people: z.array(ScheduleBriefPersonSchema),
     preparations: z.array(ScheduleBriefPreparationSchema),
+    preparationSuggestions: z.array(ScheduleBriefPreparationSuggestionSchema),
     reasonCodes: z.array(z.string())
   })
   .strict();
@@ -107,6 +131,8 @@ export type ScheduleBriefPerson = z.infer<typeof ScheduleBriefPersonSchema>;
 export type ScheduleBriefPreparationScope = z.infer<typeof ScheduleBriefPreparationScopeSchema>;
 export type ScheduleBriefPreparationLink = z.infer<typeof ScheduleBriefPreparationLinkSchema>;
 export type ScheduleBriefPreparation = z.infer<typeof ScheduleBriefPreparationSchema>;
+export type ScheduleBriefSuggestionEvidence = z.infer<typeof ScheduleBriefSuggestionEvidenceSchema>;
+export type ScheduleBriefPreparationSuggestion = z.infer<typeof ScheduleBriefPreparationSuggestionSchema>;
 export type ScheduleBrief = z.infer<typeof ScheduleBriefSchema>;
 export type EventDetailData = z.infer<typeof EventDetailDataSchema>;
 export type PatchEventStatusRequest = z.infer<typeof PatchEventStatusRequestSchema>;
