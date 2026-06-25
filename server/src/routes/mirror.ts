@@ -1,12 +1,14 @@
 import type { FastifyInstance } from "fastify";
-import { MirrorAutomationNeedsQuerySchema, MirrorDiaryQuerySchema, MirrorEnergyTrendQuerySchema, MirrorLedgerQuerySchema, MirrorPatternsQuerySchema } from "@cairn/shared";
-import { findPlannedAndConfirmedAll } from "../repositories/events.js";
-import { findAllOutcomeAnnotations, findMovedCancelledAnnotations } from "../repositories/mirror.js";
+import { MirrorAutomationNeedsQuerySchema, MirrorDiaryQuerySchema, MirrorEnergyTrendQuerySchema, MirrorLedgerQuerySchema, MirrorPatternsQuerySchema, MirrorTransitionFrictionQuerySchema } from "@cairn/shared";
+import { findPlannedAndConfirmedAll, findScheduledEventsForFriction } from "../repositories/events.js";
+import { findAllOutcomeAnnotations, findFrictionAnnotations, findMovedCancelledAnnotations } from "../repositories/mirror.js";
+import { findThreadLinksAmong } from "../repositories/threads.js";
 import { readNumericParam } from "../repositories/params.js";
 import { findAllWatchers, findWatcherLogsInRange } from "../repositories/watchers.js";
 import { buildMirrorLedger } from "../services/mirror-ledger.js";
 import { buildMirrorPatterns } from "../services/mirror-patterns.js";
 import { buildMirrorEnergyTrends, resolveTrendRange } from "../services/mirror-energy-trends.js";
+import { buildMirrorTransitionFriction } from "../services/mirror-transition-friction.js";
 import { buildAutomationNeeds } from "../services/mirror-automation-needs.js";
 import { buildMirrorDiary } from "../services/mirror-diary.js";
 import type { CairnDatabase } from "../db/index.js";
@@ -82,6 +84,39 @@ export function registerMirrorRoutes(app: FastifyInstance, db: CairnDatabase): v
       to: parsed.data.to,
       today,
       paramOverrides
+    });
+    return reply.send({ ok: true, data });
+  });
+
+  app.get("/api/mirror/transition-friction", async (req, reply) => {
+    const parsed = MirrorTransitionFrictionQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "VALIDATION_ERROR", message: parsed.error.message }
+      });
+    }
+
+    const today = serverLocalToday();
+    const resolved = resolveTrendRange(parsed.data.from, parsed.data.to, today);
+    const fromMs = Date.parse(`${resolved.from}T00:00:00Z`);
+    const toMs = Date.parse(`${resolved.to}T00:00:00Z`);
+    const diff = (toMs - fromMs) / 86_400_000;
+    if (diff < 0 || diff > 89) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "VALIDATION_ERROR", message: "range must not exceed 90 days" }
+      });
+    }
+
+    const events = findScheduledEventsForFriction(db);
+    const involvedThreadIds = [...new Set(events.flatMap((e) => (e.threadId != null ? [e.threadId] : [])))];
+    const threadLinks = findThreadLinksAmong(db, involvedThreadIds);
+    const annotations = findFrictionAnnotations(db);
+    const data = buildMirrorTransitionFriction(events, threadLinks, annotations, {
+      from: parsed.data.from,
+      to: parsed.data.to,
+      today
     });
     return reply.send({ ok: true, data });
   });

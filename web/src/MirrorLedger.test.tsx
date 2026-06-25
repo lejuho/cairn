@@ -1,6 +1,6 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { MirrorAutomationNeedsData, MirrorDiaryData, MirrorEnergyTrendData, MirrorLedgerData, MirrorPatternsData } from "@cairn/shared";
+import type { MirrorAutomationNeedsData, MirrorDiaryData, MirrorEnergyTrendData, MirrorLedgerData, MirrorPatternsData, MirrorTransitionFrictionData } from "@cairn/shared";
 import { MirrorLedger } from "./MirrorLedger.js";
 
 afterEach(() => {
@@ -26,6 +26,27 @@ const EMPTY_PATTERNS: MirrorPatternsData = {
   type: [],
   thread: [],
   sampleStatus: "low_sample"
+};
+
+const EMPTY_FRICTION: MirrorTransitionFrictionData = {
+  range: { from: "2026-05-23", to: "2026-06-22" },
+  summary: { days: 31, activeDays: 0, totalTransitionPairs: 0, lowTransitionPairs: 0, highTransitionPairs: 0, unknownTransitionPairs: 0, lowSampleDays: 0, sampleStatus: "low_sample" },
+  days: []
+};
+
+const LIVE_FRICTION: MirrorTransitionFrictionData = {
+  range: { from: "2026-06-20", to: "2026-06-22" },
+  summary: { days: 3, activeDays: 1, totalTransitionPairs: 2, lowTransitionPairs: 0, highTransitionPairs: 1, unknownTransitionPairs: 1, lowSampleDays: 0, sampleStatus: "ok" },
+  days: [
+    {
+      date: "2026-06-20", eventCount: 3, transitionPairs: 2,
+      sameThreadPairs: 0, contextPairs: 0, unrelatedPairs: 1, missingThreadPairs: 1,
+      lowTransitionPairs: 0, highTransitionPairs: 1, unknownTransitionPairs: 1,
+      outcomes: { done: 1, moved: 1, cancelled: 0, late: 0 },
+      energy: { entryCount: 1, averageEnergyAtTime: 3 },
+      sampleStatus: "ok", reasonCodes: ["friction_high_present", "friction_unknown_present"]
+    }
+  ]
 };
 
 const EMPTY_ENERGY: MirrorEnergyTrendData = {
@@ -177,7 +198,8 @@ function stubFetch(
   patternsData: MirrorPatternsData = EMPTY_PATTERNS,
   energyData: MirrorEnergyTrendData = EMPTY_ENERGY,
   automationData: MirrorAutomationNeedsData = EMPTY_AUTOMATION,
-  diaryData: MirrorDiaryData = EMPTY_DIARY
+  diaryData: MirrorDiaryData = EMPTY_DIARY,
+  frictionData: MirrorTransitionFrictionData = EMPTY_FRICTION
 ) {
   vi.stubGlobal(
     "fetch",
@@ -193,6 +215,9 @@ function stubFetch(
       }
       if (url.includes("/api/mirror/diary")) {
         return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: diaryData }) });
+      }
+      if (url.includes("/api/mirror/transition-friction")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: frictionData }) });
       }
       return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: ledgerData }) });
     })
@@ -523,5 +548,42 @@ describe("MirrorLedger — diary section", () => {
     expect(screen.getByTestId("mirror-diary")).toBeInTheDocument();
     expect(screen.getByTestId("mirror-patterns")).toBeInTheDocument();
     expect(screen.getByTestId("mirror-energy-trend")).toBeInTheDocument();
+  });
+});
+
+describe("MirrorLedger — transition friction section (FR-MIR-09)", () => {
+  it("renders summary chips and a day row with descriptive (not prescriptive) labels", async () => {
+    stubFetch(ledger({}), EMPTY_PATTERNS, EMPTY_ENERGY, EMPTY_AUTOMATION, EMPTY_DIARY, LIVE_FRICTION);
+    render(<MirrorLedger />);
+    const section = await screen.findByTestId("mirror-transition-friction");
+    expect(section).toHaveTextContent("전환 마찰");
+    expect(section).toHaveTextContent("전환 2회");
+    expect(section).toHaveTextContent("높은 전환 1회");
+    expect(section).toHaveTextContent("불확실 1회");
+    // day row evidence
+    const row = screen.getByTestId("friction-day-2026-06-20");
+    expect(row).toHaveTextContent("이동·취소·지연 1");
+    expect(row).toHaveTextContent("평균 에너지 3");
+    expect(screen.getByTestId("friction-high-2026-06-20")).toBeInTheDocument();
+    expect(screen.getByTestId("friction-unknown-2026-06-20")).toBeInTheDocument();
+    // no imperative recommendation / apply control
+    expect(section).not.toHaveTextContent(/추천|권장|적용|조정해/);
+    expect(screen.queryByRole("button", { name: /적용|조정|순서/ })).not.toBeInTheDocument();
+  });
+
+  it("shows the low-sample note when sampleStatus is low_sample", async () => {
+    const lowSample = { ...LIVE_FRICTION, summary: { ...LIVE_FRICTION.summary, sampleStatus: "low_sample" as const } };
+    stubFetch(ledger({}), EMPTY_PATTERNS, EMPTY_ENERGY, EMPTY_AUTOMATION, EMPTY_DIARY, lowSample);
+    render(<MirrorLedger />);
+    await screen.findByTestId("mirror-transition-friction");
+    expect(screen.getByTestId("friction-low-sample")).toBeInTheDocument();
+  });
+
+  it("hides the section when there are no active days (page still live via other data)", async () => {
+    // LIVE_ENERGY forces the live view; EMPTY_FRICTION must keep the section hidden.
+    stubFetch(ledger({}), EMPTY_PATTERNS, LIVE_ENERGY, EMPTY_AUTOMATION, EMPTY_DIARY, EMPTY_FRICTION);
+    render(<MirrorLedger />);
+    await waitFor(() => expect(screen.getByTestId("mirror-energy-trend")).toBeInTheDocument());
+    expect(screen.queryByTestId("mirror-transition-friction")).not.toBeInTheDocument();
   });
 });

@@ -338,3 +338,87 @@ export type MirrorDiaryDepth = z.infer<typeof MirrorDiaryDepthSchema>;
 export type MirrorDiaryEntry = z.infer<typeof MirrorDiaryEntrySchema>;
 export type MirrorDiaryDay = z.infer<typeof MirrorDiaryDaySchema>;
 export type MirrorDiaryData = z.infer<typeof MirrorDiaryDataSchema>;
+
+// Mirror Transition Friction A (cycle-49 FR-MIR-09). Read-only retrospective
+// evidence: per-day thread transition counts + nearby outcome/energy.
+// Descriptive only — strict schemas reject any injected scalar/suggestion field.
+export const MirrorTransitionFrictionQuerySchema = MirrorRangeQuerySchema.refine(
+  (q) => q.from == null || q.to == null || q.from <= q.to,
+  { message: "from must be <= to", path: ["from"] }
+).refine(
+  (q) => {
+    if (q.from == null || q.to == null) return true;
+    const fromMs = Date.parse(`${q.from}T00:00:00Z`);
+    const toMs = Date.parse(`${q.to}T00:00:00Z`);
+    return (toMs - fromMs) / 86_400_000 <= 89;
+  },
+  { message: "range must not exceed 90 days", path: ["from"] }
+);
+
+export const MirrorTransitionFrictionOutcomeCountsSchema = z
+  .object({
+    done: z.number().int().nonnegative(),
+    moved: z.number().int().nonnegative(),
+    cancelled: z.number().int().nonnegative(),
+    late: z.number().int().nonnegative()
+  })
+  .strict();
+
+export const MirrorTransitionFrictionEnergySchema = z
+  .object({
+    entryCount: z.number().int().nonnegative(),
+    averageEnergyAtTime: z.number().nullable()
+  })
+  .strict();
+
+export const MirrorTransitionFrictionDaySchema = z
+  .object({
+    date: z.string(),
+    eventCount: z.number().int().nonnegative(),
+    transitionPairs: z.number().int().nonnegative(),
+    sameThreadPairs: z.number().int().nonnegative(),
+    contextPairs: z.number().int().nonnegative(),
+    unrelatedPairs: z.number().int().nonnegative(),
+    missingThreadPairs: z.number().int().nonnegative(),
+    lowTransitionPairs: z.number().int().nonnegative(),
+    highTransitionPairs: z.number().int().nonnegative(),
+    unknownTransitionPairs: z.number().int().nonnegative(),
+    outcomes: MirrorTransitionFrictionOutcomeCountsSchema,
+    energy: MirrorTransitionFrictionEnergySchema,
+    sampleStatus: MirrorSampleStatusSchema,
+    reasonCodes: z.array(z.string())
+  })
+  .strict();
+
+export const MirrorTransitionFrictionSummarySchema = z
+  .object({
+    days: z.number().int().nonnegative(),
+    activeDays: z.number().int().nonnegative(),
+    totalTransitionPairs: z.number().int().nonnegative(),
+    lowTransitionPairs: z.number().int().nonnegative(),
+    highTransitionPairs: z.number().int().nonnegative(),
+    unknownTransitionPairs: z.number().int().nonnegative(),
+    lowSampleDays: z.number().int().nonnegative(),
+    sampleStatus: MirrorSampleStatusSchema
+  })
+  .strict();
+
+export const MirrorTransitionFrictionDataSchema = z
+  .object({
+    range: MirrorLedgerRangeSchema,
+    summary: MirrorTransitionFrictionSummarySchema,
+    days: z.array(MirrorTransitionFrictionDaySchema)
+  })
+  .strict();
+
+export const MirrorTransitionFrictionResponseSchema = z.object({
+  ok: z.literal(true),
+  data: MirrorTransitionFrictionDataSchema
+});
+
+export type MirrorTransitionFrictionQuery = z.infer<typeof MirrorTransitionFrictionQuerySchema>;
+export type MirrorTransitionFrictionOutcomeCounts = z.infer<typeof MirrorTransitionFrictionOutcomeCountsSchema>;
+export type MirrorTransitionFrictionEnergy = z.infer<typeof MirrorTransitionFrictionEnergySchema>;
+export type MirrorTransitionFrictionDay = z.infer<typeof MirrorTransitionFrictionDaySchema>;
+export type MirrorTransitionFrictionSummary = z.infer<typeof MirrorTransitionFrictionSummarySchema>;
+export type MirrorTransitionFrictionData = z.infer<typeof MirrorTransitionFrictionDataSchema>;
