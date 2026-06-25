@@ -263,6 +263,60 @@ function SequenceEnergySection({ seq }: { seq: DayFeasibility["sequenceEnergy"] 
   );
 }
 
+// Sequence-ordering diagnostics (FR-FEAS-10). Read-only explanation/preview —
+// display only, with no mutate control. Renders nothing for a quiet equal order.
+function SequenceOrderSection({ order, events }: { order: DayFeasibility["sequenceOrder"]; events: EventRow[] }) {
+  if (!order) return null;
+  const hasEdges = order.hardEdges.length > 0 || order.softEdges.length > 0;
+  const show = hasEdges || order.violations.length > 0 || order.orderChanged || order.cycleDetected;
+  if (!show) return null;
+
+  const titleOf = (id: number) => events.find((e) => e.id === id)?.title ?? `이벤트 ${id}`;
+  const seq = (ids: number[]) => ids.map(titleOf).join(" → ");
+  // Soft/tentative edges are evidence only — shown so a soft-only day still
+  // explains its dependency, never presented as a hard constraint.
+  const softEvidence = order.softEdges;
+
+  return (
+    <div className="feas-seqorder" aria-label="순서 힌트" data-testid="sequence-order">
+      <p className="feas-seqorder-head">순서 힌트</p>
+      {order.cycleDetected && (
+        <p className="feas-seqorder-cycle card-meta" role="status" data-testid="seqorder-cycle">
+          순환 의존이 있어 순서를 정리하지 못했어
+        </p>
+      )}
+      {!order.cycleDetected && order.violations.length > 0 && (
+        <ul className="feas-seqorder-violations" role="list">
+          {order.violations.map((v, i) => (
+            <li key={i} className="feas-seqorder-violation" data-testid="seqorder-violation">
+              ⚠ {titleOf(v.from)} 이(가) {titleOf(v.to)} 보다 먼저여야 해
+            </li>
+          ))}
+        </ul>
+      )}
+      {!order.cycleDetected && order.orderChanged && (
+        <p className="feas-seqorder-candidate card-meta" data-testid="seqorder-candidate">
+          제안 순서: {seq(order.candidateOrder)}
+        </p>
+      )}
+      {!order.cycleDetected && order.criticalPath.length > 0 && (
+        <p className="feas-seqorder-critical card-meta" data-testid="seqorder-critical">
+          핵심 경로: {seq(order.criticalPath)}
+        </p>
+      )}
+      {softEvidence.length > 0 && (
+        <ul className="feas-seqorder-soft" role="list" data-testid="seqorder-soft">
+          {softEvidence.map((e, i) => (
+            <li key={i} className="feas-seqorder-soft-edge card-meta" data-testid="seqorder-soft-edge">
+              참고: {titleOf(e.from)} → {titleOf(e.to)} (약한 의존)
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // Shared event-mode chip. Renders nothing when mode is absent. Used by both the
 // timeline rows and the event-bearing Today priority cards (FR-BRF).
 function EventModeChip({ mode, small }: { mode: EventMode | null | undefined; small?: boolean }) {
@@ -349,7 +403,7 @@ function ScheduleBriefSection({ brief }: { brief: ScheduleBrief }) {
 }
 
 function FeasibilityPanel({ f, events = [], onAdjust }: { f: DayFeasibility; events?: EventRow[]; onAdjust?: () => void }) {
-  const { energy, gaps, continuous, transitionCosts, sequenceEnergy } = f;
+  const { energy, gaps, continuous, transitionCosts, sequenceEnergy, sequenceOrder } = f;
   const pct = Math.min(100, Math.round((energy.loadUnits / energy.budgetUnits) * 100));
   const warningGaps = gaps.filter((g) => g.status !== "ok");
   return (
@@ -379,6 +433,7 @@ function FeasibilityPanel({ f, events = [], onAdjust }: { f: DayFeasibility; eve
       )}
       <TransitionCostsSection transitions={transitionCosts} events={events} />
       <SequenceEnergySection seq={sequenceEnergy} />
+      <SequenceOrderSection order={sequenceOrder} events={events} />
       {onAdjust && (
         <button className="feas-adjust-btn" onClick={onAdjust} aria-label="feasibility 파라미터 조정">
           조정

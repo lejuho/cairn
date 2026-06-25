@@ -4,6 +4,7 @@ import {
   FeasibilityParamSettingsDataSchema,
   PreviewFeasibilityRequestSchema,
   SequenceEnergySchema,
+  SequenceOrderSchema,
   TransitionCostSchema,
   UpdateFeasibilityParamsRequestSchema
 } from "./feasibility.js";
@@ -193,6 +194,11 @@ describe("DayFeasibilitySchema", () => {
       workLoadUnits: 2, transitionLoadUnits: 0, totalLoadUnits: 2,
       budgetUnits: 8, remainingUnits: 6, deficit: false,
       unknownTransitionCount: 0, confidence: "cold_start", reasonCodes: ["sequence_work_only"]
+    },
+    sequenceOrder: {
+      scope: "day_scheduled_events", currentOrder: [], candidateOrder: [], orderChanged: false,
+      hardEdges: [], softEdges: [], violations: [], parallelGroups: [], criticalPath: [],
+      cycleDetected: false, reasonCodes: []
     }
   };
 
@@ -210,6 +216,61 @@ describe("DayFeasibilitySchema", () => {
     const { sequenceEnergy, ...withoutSequence } = VALID_DAY;
     void sequenceEnergy;
     expect(DayFeasibilitySchema.safeParse(withoutSequence).success).toBe(false);
+  });
+
+  it("requires sequenceOrder", () => {
+    const { sequenceOrder, ...withoutOrder } = VALID_DAY;
+    void sequenceOrder;
+    expect(DayFeasibilitySchema.safeParse(withoutOrder).success).toBe(false);
+  });
+});
+
+describe("SequenceOrderSchema", () => {
+  const QUIET = {
+    scope: "day_scheduled_events", currentOrder: [], candidateOrder: [], orderChanged: false,
+    hardEdges: [], softEdges: [], violations: [], parallelGroups: [], criticalPath: [],
+    cycleDetected: false, reasonCodes: []
+  };
+
+  it("accepts a quiet sequence order", () => {
+    expect(SequenceOrderSchema.safeParse(QUIET).success).toBe(true);
+  });
+
+  it("accepts a full sequence order with edges/violations/groups/critical path", () => {
+    const full = {
+      ...QUIET,
+      currentOrder: [1, 2], candidateOrder: [2, 1], orderChanged: true,
+      hardEdges: [{ from: 2, to: 1, kind: "requires", firmness: "hard" }],
+      softEdges: [{ from: 1, to: 2, kind: "blocks", firmness: "soft" }],
+      violations: [{ from: 2, to: 1, kind: "requires" }],
+      parallelGroups: [{ eventIds: [2] }, { eventIds: [1] }],
+      criticalPath: [2, 1],
+      reasonCodes: ["sequence_order_has_dependencies", "sequence_order_changed"]
+    };
+    expect(SequenceOrderSchema.safeParse(full).success).toBe(true);
+  });
+
+  it("accepts a cycle-detected shape", () => {
+    expect(SequenceOrderSchema.safeParse({ ...QUIET, currentOrder: [1, 2], candidateOrder: [1, 2], cycleDetected: true, reasonCodes: ["sequence_order_cycle_detected"] }).success).toBe(true);
+  });
+
+  it("rejects an invalid scope literal", () => {
+    expect(SequenceOrderSchema.safeParse({ ...QUIET, scope: "all_events" }).success).toBe(false);
+  });
+
+  it("rejects an invalid edge kind/firmness (strict)", () => {
+    expect(SequenceOrderSchema.safeParse({ ...QUIET, hardEdges: [{ from: 1, to: 2, kind: "triggers", firmness: "hard" }] }).success).toBe(false);
+    expect(SequenceOrderSchema.safeParse({ ...QUIET, hardEdges: [{ from: 1, to: 2, kind: "requires", firmness: "given" }] }).success).toBe(false);
+  });
+
+  it("rejects injected recommendation/advice/action/apply/delayUntil/score fields (strict)", () => {
+    for (const inj of [{ recommendation: "x" }, { advice: "x" }, { action: "apply" }, { apply: true }, { delayUntil: "2026-06-23" }, { score: 9 }]) {
+      expect(SequenceOrderSchema.safeParse({ ...QUIET, ...inj }).success).toBe(false);
+    }
+  });
+
+  it("rejects injected fields on an edge (strict)", () => {
+    expect(SequenceOrderSchema.safeParse({ ...QUIET, hardEdges: [{ from: 1, to: 2, kind: "requires", firmness: "hard", apply: true }] }).success).toBe(false);
   });
 });
 
