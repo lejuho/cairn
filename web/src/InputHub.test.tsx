@@ -20,7 +20,8 @@ const QUIET_SURFACE: TodaySurface = {
     sequenceEnergy: {
       workLoadUnits: 0, transitionLoadUnits: 0, totalLoadUnits: 0, budgetUnits: 8, remainingUnits: 8,
       deficit: false, unknownTransitionCount: 0, confidence: "cold_start", reasonCodes: ["sequence_work_only"]
-    }
+    },
+    sequenceOrder: { scope: "day_scheduled_events", currentOrder: [], candidateOrder: [], orderChanged: false, hardEdges: [], softEdges: [], violations: [], parallelGroups: [], criticalPath: [], cycleDetected: false, reasonCodes: [] }
   }
 };
 

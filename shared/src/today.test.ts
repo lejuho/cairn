@@ -16,6 +16,11 @@ const FEASIBILITY = {
   sequenceEnergy: {
     workLoadUnits: 1, transitionLoadUnits: 0, totalLoadUnits: 1, budgetUnits: 8, remainingUnits: 7,
     deficit: false, unknownTransitionCount: 0, confidence: "cold_start", reasonCodes: ["sequence_work_only"]
+  },
+  sequenceOrder: {
+    scope: "day_scheduled_events", currentOrder: [], candidateOrder: [], orderChanged: false,
+    hardEdges: [], softEdges: [], violations: [], parallelGroups: [], criticalPath: [],
+    cycleDetected: false, reasonCodes: []
   }
 };
 

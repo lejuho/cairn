@@ -7,8 +7,9 @@ import {
 import { readNumericParam } from "../repositories/params.js";
 import { findPlannedAndConfirmedByDate } from "../repositories/events.js";
 import { findThreadLinksAmong } from "../repositories/threads.js";
+import { findEventDependencyLinks } from "../repositories/links.js";
 import { buildFeasibilityParams, computeDayFeasibility } from "../services/feasibility.js";
-import { dayThreadIds } from "../services/feasibility.js";
+import { dayEventIds, dayThreadIds } from "../services/feasibility.js";
 import {
   readFeasibilityParamSettings,
   writeFeasibilityParams
@@ -37,7 +38,8 @@ export function registerFeasibilityRoutes(app: FastifyInstance, db: CairnDatabas
     const p = buildFeasibilityParams(paramOverrides);
     const events = findPlannedAndConfirmedByDate(db, date);
     const relations = findThreadLinksAmong(db, dayThreadIds(events, date));
-    const feasibility = computeDayFeasibility(date, now, events, p, relations);
+    const dependencyLinks = findEventDependencyLinks(db, dayEventIds(events, date));
+    const feasibility = computeDayFeasibility(date, now, events, p, relations, dependencyLinks);
 
     return reply.send({ ok: true, data: feasibility });
   });
@@ -69,10 +71,12 @@ export function registerFeasibilityRoutes(app: FastifyInstance, db: CairnDatabas
       });
     }
     const { date, now, params: reqParams } = parsed.data;
-    // Use supplied params directly — no param write. thread_links is a read.
+    // Use supplied params directly — no param write. thread_links + dependency
+    // links are reads only.
     const events = findPlannedAndConfirmedByDate(db, date);
     const relations = findThreadLinksAmong(db, dayThreadIds(events, date));
-    const feasibility = computeDayFeasibility(date, now, events, reqParams, relations);
+    const dependencyLinks = findEventDependencyLinks(db, dayEventIds(events, date));
+    const feasibility = computeDayFeasibility(date, now, events, reqParams, relations, dependencyLinks);
     return reply.send({ ok: true, data: feasibility });
   });
 }

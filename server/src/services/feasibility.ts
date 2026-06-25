@@ -1,6 +1,7 @@
 import type { DayFeasibility, FeasibilityParams, Gap } from "@cairn/shared";
 import type { EventRow } from "@cairn/shared";
 import { computeSequenceEnergy, computeTransitionCosts, type ThreadLinkRow } from "./context-switch.js";
+import { computeSequenceOrder, type DependencyLinkRow } from "./sequence-order.js";
 
 export const DEFAULTS: FeasibilityParams = {
   energyBudget: 8,
@@ -30,7 +31,11 @@ export function computeDayFeasibility(
   // thread_links among the day's threads. Optional: callers that only read
   // energy/continuous (slotCandidates, mirror-energy-trends) omit it, yielding
   // an explanatory transitionCosts array they ignore. Routes pass real rows.
-  relations: ThreadLinkRow[] = []
+  relations: ThreadLinkRow[] = [],
+  // event-event requires/blocks links among the day's events (cycle-48). Optional:
+  // internal callers omit it → a quiet sequenceOrder they ignore. Routes pass
+  // real rows. Read-only diagnostics; never constrains energy/gaps.
+  dependencyLinks: DependencyLinkRow[] = []
 ): DayFeasibility {
   // Only scheduled planned/confirmed events with both start and end on this date
   const scheduled = events
@@ -47,8 +52,9 @@ export function computeDayFeasibility(
   const continuous = computeContinuous(scheduled, p);
   const transitionCosts = computeTransitionCosts(scheduled, relations);
   const sequenceEnergy = computeSequenceEnergy(energy.loadUnits, transitionCosts, energy.budgetUnits);
+  const sequenceOrder = computeSequenceOrder(scheduled, dependencyLinks, relations);
 
-  return { date, now, params: p, energy, gaps, continuous, transitionCosts, sequenceEnergy };
+  return { date, now, params: p, energy, gaps, continuous, transitionCosts, sequenceEnergy, sequenceOrder };
 }
 
 // Distinct positive thread ids among the day's scheduled planned/confirmed
@@ -68,6 +74,24 @@ export function dayThreadIds(events: EventRow[], date: string): number[] {
     }
   }
   return [...ids];
+}
+
+// Day-scheduled event ids (planned/confirmed, start/end on date). Mirrors the
+// internal `scheduled` filter so routes load exactly the dependency links the
+// sequence-order service will consider. (cycle-48)
+export function dayEventIds(events: EventRow[], date: string): number[] {
+  const ids: number[] = [];
+  for (const e of events) {
+    if (
+      (e.status === "planned" || e.status === "confirmed") &&
+      e.start != null &&
+      e.end != null &&
+      e.start.startsWith(date)
+    ) {
+      ids.push(e.id);
+    }
+  }
+  return ids;
 }
 
 function computeEnergy(scheduled: EventRow[], p: FeasibilityParams) {

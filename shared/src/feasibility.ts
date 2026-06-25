@@ -84,6 +84,53 @@ export const SequenceEnergySchema = z
   })
   .strict();
 
+// Sequence Ordering Diagnostics (FR-FEAS-10 A-slice). Read-only evidence about
+// the day's scheduled event order: hard dependency edges, current-order
+// violations, a deterministic topological candidate order, parallel groups, and
+// critical path. Explanatory only — never an instruction or auto-reschedule.
+export const SequenceOrderDependencyKindSchema = z.enum(["requires", "blocks"]);
+export const SequenceOrderFirmnessSchema = z.enum(["hard", "soft", "tentative"]);
+
+// A normalized "must come before" directed edge: `from` must precede `to`.
+export const SequenceOrderEdgeSchema = z
+  .object({
+    from: z.number().int().positive(),
+    to: z.number().int().positive(),
+    kind: SequenceOrderDependencyKindSchema,
+    firmness: SequenceOrderFirmnessSchema
+  })
+  .strict();
+
+export const SequenceOrderViolationSchema = z
+  .object({
+    from: z.number().int().positive(),
+    to: z.number().int().positive(),
+    kind: SequenceOrderDependencyKindSchema
+  })
+  .strict();
+
+export const SequenceOrderGroupSchema = z
+  .object({
+    eventIds: z.array(z.number().int().positive())
+  })
+  .strict();
+
+export const SequenceOrderSchema = z
+  .object({
+    scope: z.literal("day_scheduled_events"),
+    currentOrder: z.array(z.number().int().positive()),
+    candidateOrder: z.array(z.number().int().positive()),
+    orderChanged: z.boolean(),
+    hardEdges: z.array(SequenceOrderEdgeSchema),
+    softEdges: z.array(SequenceOrderEdgeSchema),
+    violations: z.array(SequenceOrderViolationSchema),
+    parallelGroups: z.array(SequenceOrderGroupSchema),
+    criticalPath: z.array(z.number().int().positive()),
+    cycleDetected: z.boolean(),
+    reasonCodes: z.array(z.string())
+  })
+  .strict();
+
 export const DayFeasibilitySchema = z.object({
   date: z.string(),
   now: z.string(),
@@ -92,7 +139,8 @@ export const DayFeasibilitySchema = z.object({
   gaps: z.array(GapSchema),
   continuous: ContinuousSchema.nullable(),
   transitionCosts: z.array(TransitionCostSchema),
-  sequenceEnergy: SequenceEnergySchema
+  sequenceEnergy: SequenceEnergySchema,
+  sequenceOrder: SequenceOrderSchema
 });
 
 export type FeasibilityQuery = z.infer<typeof FeasibilityQuerySchema>;
@@ -108,6 +156,12 @@ export type TransitionRelationKind = z.infer<typeof TransitionRelationKindSchema
 export type TransitionFirmness = z.infer<typeof TransitionFirmnessSchema>;
 export type TransitionCost = z.infer<typeof TransitionCostSchema>;
 export type SequenceEnergy = z.infer<typeof SequenceEnergySchema>;
+export type SequenceOrderDependencyKind = z.infer<typeof SequenceOrderDependencyKindSchema>;
+export type SequenceOrderFirmness = z.infer<typeof SequenceOrderFirmnessSchema>;
+export type SequenceOrderEdge = z.infer<typeof SequenceOrderEdgeSchema>;
+export type SequenceOrderViolation = z.infer<typeof SequenceOrderViolationSchema>;
+export type SequenceOrderGroup = z.infer<typeof SequenceOrderGroupSchema>;
+export type SequenceOrder = z.infer<typeof SequenceOrderSchema>;
 export type DayFeasibility = z.infer<typeof DayFeasibilitySchema>;
 
 // Full replacement body — all five keys required, ranges enforced.

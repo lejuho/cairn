@@ -584,3 +584,101 @@ describe("GET /api/feasibility/day — sequence energy", () => {
     expect(linksAfter.c).toBe(linksBefore.c);
   });
 });
+
+// ── sequence order (FR-FEAS-10) ─────────────────────────────────────────────────
+
+function insertDependencyLink(conn: SqliteConnection, fromId: number, toId: number, kind: string, firmness = "hard", source = "authored"): void {
+  conn.sqlite
+    .prepare("INSERT INTO links (from_id, from_kind, to_id, to_kind, kind, firmness, source) VALUES (?, 'event', ?, 'event', ?, ?, ?)")
+    .run(fromId, toId, kind, firmness, source);
+}
+
+const S3 = "2026-06-20T12:00:00+09:00";
+const E3 = "2026-06-20T13:00:00+09:00";
+
+describe("GET /api/feasibility/day — sequence order", () => {
+  it("always returns a quiet sequenceOrder when there are no dependency links", async () => {
+    const conn = makeTestDb();
+    insertEventWithThread(conn, null, S1, E1);
+    insertEventWithThread(conn, null, S2, E2);
+    const so = (await get(conn)).json().data.sequenceOrder;
+    expect(so.scope).toBe("day_scheduled_events");
+    expect(so.candidateOrder).toEqual(so.currentOrder);
+    expect(so.orderChanged).toBe(false);
+    expect(so.hardEdges).toEqual([]);
+    expect(so.cycleDetected).toBe(false);
+  });
+
+  it("hard requires link produces a before-edge and reports a current-order violation", async () => {
+    const conn = makeTestDb();
+    const e1 = insertEventWithThread(conn, null, S1, E1); // earliest
+    const e2 = insertEventWithThread(conn, null, S2, E2);
+    // e1 requires e2 → e2 must precede e1, but current order is e1,e2 → violation
+    insertDependencyLink(conn, e1, e2, "requires", "hard");
+    const so = (await get(conn)).json().data.sequenceOrder;
+    expect(so.hardEdges).toEqual([{ from: e2, to: e1, kind: "requires", firmness: "hard" }]);
+    expect(so.violations).toEqual([{ from: e2, to: e1, kind: "requires" }]);
+    expect(so.candidateOrder).toEqual([e2, e1]);
+    expect(so.orderChanged).toBe(true);
+  });
+
+  it("soft dependency stays evidence-only and does not reorder", async () => {
+    const conn = makeTestDb();
+    const e1 = insertEventWithThread(conn, null, S1, E1);
+    const e2 = insertEventWithThread(conn, null, S2, E2);
+    insertDependencyLink(conn, e1, e2, "requires", "soft", "inferred");
+    const so = (await get(conn)).json().data.sequenceOrder;
+    expect(so.softEdges).toEqual([{ from: e2, to: e1, kind: "requires", firmness: "soft" }]);
+    expect(so.hardEdges).toEqual([]);
+    expect(so.candidateOrder).toEqual([e1, e2]);
+  });
+
+  it("critical path uses real SQLite links + durations", async () => {
+    const conn = makeTestDb();
+    const e1 = insertEventWithThread(conn, null, S1, E1); // 1h
+    const e2 = insertEventWithThread(conn, null, S2, E2); // 1h
+    const e3 = insertEventWithThread(conn, null, S3, E3); // 1h
+    insertDependencyLink(conn, e1, e2, "blocks", "hard"); // e1 before e2
+    insertDependencyLink(conn, e2, e3, "blocks", "hard"); // e2 before e3
+    const so = (await get(conn)).json().data.sequenceOrder;
+    expect(so.criticalPath).toEqual([e1, e2, e3]);
+    expect(so.cycleDetected).toBe(false);
+  });
+
+  it("GET /api/today exposes the same sequenceOrder under data.feasibility", async () => {
+    const conn = makeTestDb();
+    const e1 = insertEventWithThread(conn, null, S1, E1);
+    const e2 = insertEventWithThread(conn, null, S2, E2);
+    insertDependencyLink(conn, e1, e2, "requires", "hard");
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "GET", url: `/api/today?date=${DATE}&now=${encodeURIComponent(NOW_MORNING)}` });
+    expect(res.json().data.feasibility.sequenceOrder.violations).toHaveLength(1);
+  });
+
+  it("POST preview returns sequenceOrder and does not change row counts", async () => {
+    const conn = makeTestDb();
+    const e1 = insertEventWithThread(conn, null, S1, E1);
+    const e2 = insertEventWithThread(conn, null, S2, E2);
+    insertDependencyLink(conn, e1, e2, "requires", "hard");
+    const before = {
+      events: (conn.sqlite.prepare("SELECT count(*) c FROM events").get() as { c: number }).c,
+      links: (conn.sqlite.prepare("SELECT count(*) c FROM links").get() as { c: number }).c,
+      threadLinks: (conn.sqlite.prepare("SELECT count(*) c FROM thread_links").get() as { c: number }).c,
+      params: (conn.sqlite.prepare("SELECT count(*) c FROM params").get() as { c: number }).c
+    };
+    const app = buildServer(conn.db);
+    const res = await app.inject({
+      method: "POST", url: "/api/feasibility/day/preview",
+      payload: { date: DATE, now: NOW_MORNING, params: { energyBudget: 8, meetBufferMinutes: 15, deepBufferMinutes: 30, travelMargin: 1, maxContinuousMinutes: 600 } }
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.sequenceOrder.candidateOrder).toEqual([e2, e1]);
+    const after = {
+      events: (conn.sqlite.prepare("SELECT count(*) c FROM events").get() as { c: number }).c,
+      links: (conn.sqlite.prepare("SELECT count(*) c FROM links").get() as { c: number }).c,
+      threadLinks: (conn.sqlite.prepare("SELECT count(*) c FROM thread_links").get() as { c: number }).c,
+      params: (conn.sqlite.prepare("SELECT count(*) c FROM params").get() as { c: number }).c
+    };
+    expect(after).toEqual(before);
+  });
+});

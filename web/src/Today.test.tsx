@@ -8,6 +8,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+const QUIET_SEQUENCE_ORDER = {
+  scope: "day_scheduled_events" as const, currentOrder: [], candidateOrder: [], orderChanged: false,
+  hardEdges: [], softEdges: [], violations: [], parallelGroups: [], criticalPath: [],
+  cycleDetected: false, reasonCodes: []
+};
+
 const BASE_FEASIBILITY = {
   date: "2026-06-16",
   now: "2026-06-16T09:00:00.000Z",
@@ -20,7 +26,8 @@ const BASE_FEASIBILITY = {
     workLoadUnits: 0, transitionLoadUnits: 0, totalLoadUnits: 0,
     budgetUnits: 8, remainingUnits: 8, deficit: false,
     unknownTransitionCount: 0, confidence: "cold_start" as const, reasonCodes: ["sequence_work_only"]
-  }
+  },
+  sequenceOrder: QUIET_SEQUENCE_ORDER
 };
 
 const BASE_SURFACE: TodaySurface = {
@@ -1750,7 +1757,8 @@ describe("Today — feasibility panel", () => {
       workLoadUnits: 3, transitionLoadUnits: 0, totalLoadUnits: 3,
       budgetUnits: 8, remainingUnits: 5, deficit: false,
       unknownTransitionCount: 0, confidence: "cold_start" as const, reasonCodes: ["sequence_work_only"]
-    }
+    },
+    sequenceOrder: QUIET_SEQUENCE_ORDER
   };
 
   it("renders energy gauge in quiet state", async () => {
@@ -1969,6 +1977,93 @@ describe("Today — feasibility panel", () => {
     // duration-only energy row shows no 초과 (loadUnits < budget)
     const node = screen.getByTestId("sequence-energy");
     expect(node).toHaveTextContent("합계 8.25h / 8h");
+  });
+
+  // ── sequence order (순서 힌트, FR-FEAS-10) ──────────────────────────────────
+  const order = (over: Partial<DayFeasibility["sequenceOrder"]>): DayFeasibility["sequenceOrder"] => ({
+    ...QUIET_SEQUENCE_ORDER, ...over
+  });
+
+  it("does not render 순서 힌트 for a quiet equal order", async () => {
+    mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: FEAS_BASE, dayEvents: [tEvent(1, "회의")] });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("일정 부하")).toBeInTheDocument());
+    expect(screen.queryByTestId("sequence-order")).not.toBeInTheDocument();
+  });
+
+  it("renders a dependency violation in clear copy", async () => {
+    const feas = {
+      ...FEAS_BASE,
+      sequenceOrder: order({
+        currentOrder: [1, 2], candidateOrder: [2, 1], orderChanged: true,
+        hardEdges: [{ from: 2, to: 1, kind: "requires", firmness: "hard" }],
+        violations: [{ from: 2, to: 1, kind: "requires" }],
+        reasonCodes: ["sequence_order_violations_present", "sequence_order_changed"]
+      })
+    };
+    mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: feas, dayEvents: [tEvent(1, "발표"), tEvent(2, "리허설")] });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("순서 힌트")).toBeInTheDocument());
+    const v = screen.getByTestId("seqorder-violation");
+    expect(v).toHaveTextContent("리허설");
+    expect(v).toHaveTextContent("발표");
+    // candidate preview shown, no apply/reschedule control
+    expect(screen.getByTestId("seqorder-candidate")).toHaveTextContent("제안 순서: 리허설 → 발표");
+    expect(screen.queryByRole("button", { name: /적용|순서/ })).not.toBeInTheDocument();
+  });
+
+  it("renders the critical path", async () => {
+    const feas = {
+      ...FEAS_BASE,
+      sequenceOrder: order({
+        currentOrder: [1, 2], candidateOrder: [1, 2],
+        hardEdges: [{ from: 1, to: 2, kind: "blocks", firmness: "hard" }],
+        criticalPath: [1, 2], reasonCodes: ["sequence_order_has_dependencies"]
+      })
+    };
+    mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: feas, dayEvents: [tEvent(1, "준비"), tEvent(2, "발표")] });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("sequence-order")).toBeInTheDocument());
+    expect(screen.getByTestId("seqorder-critical")).toHaveTextContent("핵심 경로: 준비 → 발표");
+  });
+
+  it("renders soft-only dependency evidence (non-quiet, no empty section)", async () => {
+    const feas = {
+      ...FEAS_BASE,
+      sequenceOrder: order({
+        currentOrder: [1, 2], candidateOrder: [1, 2], orderChanged: false,
+        softEdges: [{ from: 2, to: 1, kind: "requires", firmness: "soft" }],
+        reasonCodes: ["sequence_order_has_dependencies"]
+      })
+    };
+    mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: feas, dayEvents: [tEvent(1, "발표"), tEvent(2, "리허설")] });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("sequence-order")).toBeInTheDocument());
+    // soft edge shown as evidence — section is not just a bare heading
+    const soft = screen.getByTestId("seqorder-soft-edge");
+    expect(soft).toHaveTextContent("리허설 → 발표");
+    expect(soft).toHaveTextContent("약한 의존");
+    // soft never reorders, so no candidate/violation copy
+    expect(screen.queryByTestId("seqorder-candidate")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("seqorder-violation")).not.toBeInTheDocument();
+  });
+
+  it("renders a cycle warning without crashing", async () => {
+    const feas = {
+      ...FEAS_BASE,
+      sequenceOrder: order({
+        currentOrder: [1, 2], candidateOrder: [1, 2],
+        hardEdges: [{ from: 1, to: 2, kind: "blocks", firmness: "hard" }, { from: 2, to: 1, kind: "blocks", firmness: "hard" }],
+        cycleDetected: true, reasonCodes: ["sequence_order_cycle_detected"]
+      })
+    };
+    mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: feas, dayEvents: [tEvent(1, "A"), tEvent(2, "B")] });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("seqorder-cycle")).toBeInTheDocument());
+    expect(screen.getByTestId("seqorder-cycle")).toHaveTextContent("순환 의존");
+    // no candidate/critical shown on cycle
+    expect(screen.queryByTestId("seqorder-candidate")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("seqorder-critical")).not.toBeInTheDocument();
   });
 });
 
@@ -2511,7 +2606,8 @@ describe("Today — conflict sheet people guard", () => {
       sequenceEnergy: {
         workLoadUnits: 0, transitionLoadUnits: 0, totalLoadUnits: 0, budgetUnits: 8, remainingUnits: 8,
         deficit: false, unknownTransitionCount: 0, confidence: "cold_start", reasonCodes: ["sequence_work_only"]
-      }
+      },
+      sequenceOrder: { scope: "day_scheduled_events", currentOrder: [], candidateOrder: [], orderChanged: false, hardEdges: [], softEdges: [], violations: [], parallelGroups: [], criticalPath: [], cycleDetected: false, reasonCodes: [] }
     }
   };
 
