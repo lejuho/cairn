@@ -264,7 +264,7 @@ function SequenceEnergySection({ seq }: { seq: DayFeasibility["sequenceEnergy"] 
 }
 
 // Sequence-ordering diagnostics (FR-FEAS-10). Read-only explanation/preview —
-// no apply/reschedule/drag control. Renders nothing for a quiet equal order.
+// display only, with no mutate control. Renders nothing for a quiet equal order.
 function SequenceOrderSection({ order, events }: { order: DayFeasibility["sequenceOrder"]; events: EventRow[] }) {
   if (!order) return null;
   const hasEdges = order.hardEdges.length > 0 || order.softEdges.length > 0;

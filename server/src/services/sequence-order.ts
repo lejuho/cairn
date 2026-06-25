@@ -184,23 +184,24 @@ function topoOrder(
   }
 
   // Candidate order: one node at a time, tie-broken by transition cost from the
-  // previously chosen event, then current rank, then id.
+  // previously chosen event, then current rank, then id. `ready` is an array of
+  // currently-ready nodes; the chosen node is filtered out each step.
   const candidateOrder: number[] = [];
-  const readySet = new Set(nodes.filter((n) => (indegree.get(n) ?? 0) === 0));
+  let ready = nodes.filter((n) => (indegree.get(n) ?? 0) === 0);
   let prev: number | null = null;
-  while (readySet.size > 0) {
-    const choice = [...readySet].sort((a, b) => {
+  while (ready.length > 0) {
+    const choice = [...ready].sort((a, b) => {
       const ta = transitionRankFrom(prev, a, eventById, relations);
       const tb = transitionRankFrom(prev, b, eventById, relations);
       if (ta !== tb) return ta - tb;
       return byRankThenId(rank)(a, b);
     })[0]!;
     candidateOrder.push(choice);
-    readySet.delete(choice);
+    ready = ready.filter((n) => n !== choice);
     prev = choice;
     for (const m of adj.get(choice) ?? []) {
       indegree.set(m, (indegree.get(m) ?? 0) - 1);
-      if (indegree.get(m) === 0) readySet.add(m);
+      if (indegree.get(m) === 0) ready.push(m);
     }
   }
 

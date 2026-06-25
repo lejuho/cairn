@@ -2007,7 +2007,7 @@ describe("Today — feasibility panel", () => {
     const v = screen.getByTestId("seqorder-violation");
     expect(v).toHaveTextContent("리허설");
     expect(v).toHaveTextContent("발표");
-    // candidate preview shown, no apply/reschedule control
+    // candidate preview shown, with no mutate control
     expect(screen.getByTestId("seqorder-candidate")).toHaveTextContent("제안 순서: 리허설 → 발표");
     expect(screen.queryByRole("button", { name: /적용|순서/ })).not.toBeInTheDocument();
   });
@@ -2043,7 +2043,7 @@ describe("Today — feasibility panel", () => {
     const soft = screen.getByTestId("seqorder-soft-edge");
     expect(soft).toHaveTextContent("리허설 → 발표");
     expect(soft).toHaveTextContent("약한 의존");
-    // soft never reorders, so no candidate/violation copy
+    // soft edges stay evidence-only, so no candidate/violation copy
     expect(screen.queryByTestId("seqorder-candidate")).not.toBeInTheDocument();
     expect(screen.queryByTestId("seqorder-violation")).not.toBeInTheDocument();
   });

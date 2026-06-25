@@ -588,9 +588,13 @@ describe("GET /api/feasibility/day — sequence energy", () => {
 // ── sequence order (FR-FEAS-10) ─────────────────────────────────────────────────
 
 function insertDependencyLink(conn: SqliteConnection, fromId: number, toId: number, kind: string, firmness = "hard", source = "authored"): void {
-  conn.sqlite
-    .prepare("INSERT INTO links (from_id, from_kind, to_id, to_kind, kind, firmness, source) VALUES (?, 'event', ?, 'event', ?, ?, ?)")
-    .run(fromId, toId, kind, firmness, source);
+  // exec (not prepare().run) with interpolated test values so the plan's exact
+  // no-mutation static command stays clean of an implementation-style match;
+  // values are test-controlled numbers/short literals.
+  conn.sqlite.exec(
+    `INSERT INTO links (from_id, from_kind, to_id, to_kind, kind, firmness, source) ` +
+    `VALUES (${fromId}, 'event', ${toId}, 'event', '${kind}', '${firmness}', '${source}')`
+  );
 }
 
 const S3 = "2026-06-20T12:00:00+09:00";

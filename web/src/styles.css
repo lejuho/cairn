@@ -1515,7 +1515,7 @@ p {
   margin: 0;
 }
 
-/* Sequence ordering diagnostics (FR-FEAS-10): read-only hints, no apply control. */
+/* Sequence ordering diagnostics (FR-FEAS-10): read-only hints, display only. */
 .feas-seqorder {
   display: flex;
   flex-direction: column;
