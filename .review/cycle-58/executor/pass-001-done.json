@@ -1,0 +1,9 @@
+{
+  "cycle": 58,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-26T16:14:35Z",
+  "summary": "Resume Export File Actions A (FR-CV-02): frontend-only copy-to-clipboard + client-side Blob file download for the cycle-57 JSON/Markdown export. Controls render only in the export ready branch; deterministic filename/MIME via resumeExportFile helper (numeric id only); object URL revoked in finally; scoped non-fatal copy/save failure; no backend/schema/DB/LLM/Typst/pcli/score/apply/resume mutation.",
+  "checks": ["corepack pnpm verify (EXIT=0; web 412, server 635 integration)", "git diff --check master..HEAD", "out-of-scope (typst/pcli/score/apply/backend-mutation) scan clean"]
+}
