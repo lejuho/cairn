@@ -10,6 +10,7 @@ import { events, links, tasks, threads } from "../db/schema.js";
 import type { LlmGateway } from "../llm/gateway.js";
 import { parseThreadDraft } from "../llm/threadDraftParser.js";
 import { findThreadNodeLinks } from "../repositories/links.js";
+import { THREAD_ROW_COLUMNS } from "../repositories/threads.js";
 
 const DEFAULT_TIMEZONE = process.env.CAIRN_TIME_ZONE ?? "Asia/Seoul";
 
@@ -78,7 +79,7 @@ export async function createThreadDraft(
           deadline: draft.thread.deadline ?? null,
           status: "active"
         })
-        .returning()
+        .returning(THREAD_ROW_COLUMNS)
         .all();
       const thread = threadRow as ThreadRow;
 

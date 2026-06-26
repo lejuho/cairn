@@ -117,6 +117,21 @@ describe("PATCH /api/threads/:id/resume + GET resume (cycle-56)", () => {
     expect(counts(conn)).toEqual(before);
   });
 
+  it("does not leak raw resume columns onto detail.thread or the summary thread (ISSUE-1)", async () => {
+    const conn = makeTestDb();
+    const t = insertThread(conn, "여행", "done");
+    const app = buildServer(conn.db);
+    // save resume so the columns are non-null in storage
+    await app.inject({ method: "PATCH", url: `/api/threads/${t}/resume`, payload: { resumeRelevant: true, starSituation: "상황", skillsTags: ["계획"] } });
+    const leakKeys = ["resumeRelevant", "starSituation", "starAction", "starResult", "skillsTags"];
+    const detail = (await app.inject({ method: "GET", url: `/api/threads/${t}` })).json().data;
+    for (const k of leakKeys) expect(detail.thread).not.toHaveProperty(k);
+    // resume data still exposed via the explicit contract
+    expect(detail.resume.starSituation).toBe("상황");
+    const summaries = (await app.inject({ method: "GET", url: "/api/threads" })).json().data;
+    for (const s of summaries) for (const k of leakKeys) expect(s.thread).not.toHaveProperty(k);
+  });
+
   it("GET fails open to [] for legacy corrupt skills_tags JSON", async () => {
     const conn = makeTestDb();
     const t = insertThread(conn, "여행", "done");

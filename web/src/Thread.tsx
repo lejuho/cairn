@@ -1006,6 +1006,17 @@ function ResumeSection({ threadId, resume, onSaved }: { threadId: number; resume
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Re-sync the editable inputs when the saved resume props change (e.g. after a
+  // STAR draft is saved to the resume fields and the parent refreshes detail).
+  // The instance stays mounted, so without this the inputs would show stale text.
+  const skillsJoined = resume.skillsTags.join(", ");
+  useEffect(() => {
+    setSituation(resume.starSituation ?? "");
+    setAction(resume.starAction ?? "");
+    setResult(resume.starResult ?? "");
+    setSkills(skillsJoined);
+  }, [resume.starSituation, resume.starAction, resume.starResult, skillsJoined]);
+
   async function save() {
     if (saving) return;
     setSaving(true); setError(null);
@@ -1297,6 +1308,9 @@ type EgoSheetState =
 
 function ResourceFocusDetail({ item }: { item: ThreadResourceFocusItem | null }) {
   const [egoState, setEgoState] = useState<EgoSheetState>({ tag: "closed" });
+  // Stable identity so the EgoSheet's document-keydown effect (keyed on onClose)
+  // subscribes once instead of churning the listener + focus on every render.
+  const closeEgo = useCallback(() => setEgoState({ tag: "closed" }), []);
 
   if (!item) return null;
 
@@ -1341,7 +1355,7 @@ function ResourceFocusDetail({ item }: { item: ThreadResourceFocusItem | null })
         </button>
         {egoState.tag === "error" && <span className="card-meta" style={{ color: "var(--color-error)", marginLeft: "8px" }}>{egoState.message}</span>}
         {egoState.tag === "open" && (
-          <EgoSheet graph={egoState.graph} onClose={() => setEgoState({ tag: "closed" })} />
+          <EgoSheet graph={egoState.graph} onClose={closeEgo} />
         )}
       </div>
     </div>

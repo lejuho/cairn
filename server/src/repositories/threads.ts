@@ -15,6 +15,22 @@ import type { CairnDatabase } from "../db/index.js";
 import type { ThreadLinkRow as TransitionLinkRow } from "../services/context-switch.js";
 import { events, tasks, threadLinks, threads } from "../db/schema.js";
 
+// Stable `ThreadRow` projection (cycle-56). The threads table also holds resume/
+// CV columns (resume_relevant/star_*/skills_tags); those are intentionally NOT
+// part of ThreadRow and are read separately via `findThreadResume`. Selecting
+// only these columns keeps GET /api/threads and thread detail from leaking raw
+// resume storage outside the explicit `resume: ThreadResumeData` contract.
+export const THREAD_ROW_COLUMNS = {
+  id: threads.id,
+  name: threads.name,
+  kind: threads.kind,
+  goal: threads.goal,
+  definitionOfDone: threads.definitionOfDone,
+  deadline: threads.deadline,
+  status: threads.status,
+  createdAt: threads.createdAt
+} as const;
+
 export function createThread(db: CairnDatabase, input: CreateThreadRequest): ThreadRow {
   const [row] = db
     .insert(threads)
@@ -25,21 +41,21 @@ export function createThread(db: CairnDatabase, input: CreateThreadRequest): Thr
       deadline: input.deadline ?? null,
       status: "active"
     })
-    .returning()
+    .returning(THREAD_ROW_COLUMNS)
     .all();
   return row as ThreadRow;
 }
 
 export function listThreads(db: CairnDatabase): ThreadRow[] {
   return db
-    .select()
+    .select(THREAD_ROW_COLUMNS)
     .from(threads)
     .orderBy(desc(threads.createdAt), desc(threads.id))
     .all() as ThreadRow[];
 }
 
 export function findThreadById(db: CairnDatabase, id: number): ThreadRow | null {
-  const row = db.select().from(threads).where(eq(threads.id, id)).get();
+  const row = db.select(THREAD_ROW_COLUMNS).from(threads).where(eq(threads.id, id)).get();
   return row ? (row as ThreadRow) : null;
 }
 
@@ -102,7 +118,7 @@ export function updateThreadResume(db: CairnDatabase, id: number, patch: PatchTh
 export function findThreadsByIds(db: CairnDatabase, ids: number[]): ThreadRow[] {
   if (ids.length === 0) return [];
   return db
-    .select()
+    .select(THREAD_ROW_COLUMNS)
     .from(threads)
     .all()
     .filter((r) => ids.includes(r.id)) as ThreadRow[];
@@ -164,7 +180,7 @@ export type ThreadNodeTitleRow = { threadId: number; title: string | null; statu
 // Other completed threads with the exact same kind, excluding the current id.
 export function findCompletedThreadsByKind(db: CairnDatabase, kind: string, excludeId: number): ThreadRow[] {
   return db
-    .select()
+    .select(THREAD_ROW_COLUMNS)
     .from(threads)
     .where(and(eq(threads.status, "done"), eq(threads.kind, kind), ne(threads.id, excludeId)))
     .orderBy(asc(threads.id))

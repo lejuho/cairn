@@ -1179,6 +1179,27 @@ describe("Thread — resume save/edit (cycle-56)", () => {
     expect(body).toMatchObject({ starSituation: "새 상황", skillsTags: ["계획", "조율"] });
   });
 
+  it("re-syncs the editor inputs after a save refreshes detail with new resume (ISSUE-2)", async () => {
+    // First GET returns empty resume; after a PATCH the next GET returns the
+    // saved STAR fields. The mounted editor must update to the saved values.
+    let getCount = 0;
+    const SAVED = { resumeRelevant: false, starSituation: "갱신된 상황", starAction: "갱신된 행동", starResult: "갱신된 결과", skillsTags: ["새스킬"] };
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (opts?.method === "PATCH" && url.includes("/resume")) return Promise.resolve(makeResponse({ ok: true, data: SAVED }, url));
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
+      if (url.includes("promotion-suggestions")) return Promise.resolve(makeResponse({ ok: true, data: { suggestions: [] } }, url));
+      if (url.includes("/api/threads/1")) { getCount++; return Promise.resolve(makeResponse({ ok: true, data: detail({ resume: getCount === 1 ? EMPTY_RESUME_T : SAVED }) }, url)); }
+      return Promise.resolve(makeResponse({ ok: true, data: [] }, url));
+    }));
+    render(<Thread id={1} />);
+    const situation = await screen.findByLabelText("Situation");
+    expect(situation).toHaveValue(""); // initial empty resume
+    fireEvent.click(screen.getByTestId("resume-save-btn"));
+    // after save → refresh → GET returns SAVED → inputs re-sync
+    await waitFor(() => expect(screen.getByLabelText("Situation")).toHaveValue("갱신된 상황"));
+    expect(screen.getByLabelText("Skills (쉼표로 구분, 최대 8)")).toHaveValue("새스킬");
+  });
+
   it("save STAR draft to resume maps situation/action/result/skills (not task)", async () => {
     const STAR_DATA = {
       draft: { situation: "STAR 상황", task: "STAR 과업", action: "STAR 행동", result: "STAR 결과", skills: ["스킬"], confidence: "draft" as const, reasonCodes: ["star_from_completed_thread", "star_user_must_edit", "star_result_uses_settlement"] },
