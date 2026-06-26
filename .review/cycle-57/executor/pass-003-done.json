@@ -1,0 +1,9 @@
+{
+  "cycle": 57,
+  "pass": 3,
+  "kind": "fix",
+  "review": ".review/cycle-57/review-v2.md",
+  "createdAt": "2026-06-26T10:32:33Z",
+  "summary": "review-v2 ISSUE-3: added automated a11y tests (native focusable export buttons, 44px tap-target class, keyboard-focused activation) to close the automatable portion of the manual UI checklist; restated code-level evidence (semantic tokens, no motion, <pre> text preview, single-column). The irreducibly-visual live checks (light/dark appearance, on-device mobile/wide rendering, focus walk) are recorded as a checklist requiring explicit user sign-off before merge — a headless executor cannot render or visually approve them. ISSUE-1/ISSUE-2 already RESOLVED.",
+  "checks": ["corepack pnpm verify (EXIT=0, 635 tests)", "git diff --check master..HEAD"]
+}
