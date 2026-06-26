@@ -1230,10 +1230,101 @@ describe("Thread — resume save/edit (cycle-56)", () => {
     await waitFor(() => expect(screen.getByTestId("resume-error")).toHaveTextContent("저장 못함"));
   });
 
-  it("the resume section has no export/download/score controls", async () => {
+  it("the resume section has no download/apply/score controls", async () => {
+    // Export (JSON/Markdown preview) is a cycle-57 feature; download-file,
+    // apply, score, and Typst/pcli affordances remain out of scope.
     stub(detail({ resume: RESUME }));
     render(<Thread id={1} />);
     const section = await screen.findByTestId("thread-resume");
-    expect(section.textContent).not.toMatch(/내보내기|export|download|다운로드|점수|score/i);
+    expect(section.textContent).not.toMatch(/download|다운로드|점수|score|typst|pcli|적용하기/i);
+    expect(screen.queryByRole("button", { name: /다운로드|download|적용|점수/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("Thread — resume export (cycle-57)", () => {
+  const DONE_THREAD = { ...BASE_THREAD, status: "done" as const };
+  const RESUME: ThreadResumeData = { resumeRelevant: true, starSituation: "저장된 상황", starAction: "저장된 행동", starResult: "저장된 결과", skillsTags: ["계획", "조율"] };
+  const EXPORT_JSON = { format: "json" as const, content: '{\n  "thread": {}\n}', warnings: ["Cairn에는 STAR의 Task 항목이 저장되지 않아 — 참고용."], json: { thread: { id: 1, name: "t", kind: null, goal: null, deadline: null }, star: { situation: "저장된 상황", action: null, result: null }, skills: ["계획"] } };
+  const EXPORT_MD = { format: "markdown" as const, content: "# t\n\n## Situation\n저장된 상황", warnings: [] };
+  function detail(over: Partial<ThreadDetail> = {}): ThreadDetail {
+    return {
+      thread: DONE_THREAD, events: [BASE_EVENT], tasks: [BASE_TASK],
+      progress: { done: 2, total: 2 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP,
+      nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: RESUME, ...over
+    } as ThreadDetail;
+  }
+  function stub(d: ThreadDetail, onExport?: (url: string) => unknown) {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (opts?.method === "GET" && url.includes("resume-export")) return Promise.resolve(makeResponse(onExport?.(url) ?? { ok: true, data: url.includes("markdown") ? EXPORT_MD : EXPORT_JSON }, url));
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
+      if (url.includes("promotion-suggestions")) return Promise.resolve(makeResponse({ ok: true, data: { suggestions: [] } }, url));
+      if (url.includes("/api/threads/1")) return Promise.resolve(makeResponse({ ok: true, data: d }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: [] }, url));
+    }));
+  }
+
+  it("shows export controls on a completed resume-relevant thread with content", async () => {
+    stub(detail());
+    render(<Thread id={1} />);
+    expect(await screen.findByTestId("resume-export-json-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("resume-export-md-btn")).toBeInTheDocument();
+  });
+
+  it("hides export controls when not resume-relevant", async () => {
+    stub(detail({ resume: { ...RESUME, resumeRelevant: false } }));
+    render(<Thread id={1} />);
+    await screen.findByTestId("thread-resume");
+    expect(screen.queryByTestId("resume-export")).not.toBeInTheDocument();
+  });
+
+  it("hides export controls when marked but no saved content", async () => {
+    stub(detail({ resume: { resumeRelevant: true, starSituation: null, starAction: null, starResult: null, skillsTags: [] } }));
+    render(<Thread id={1} />);
+    await screen.findByTestId("thread-resume");
+    expect(screen.queryByTestId("resume-export")).not.toBeInTheDocument();
+  });
+
+  it("hides export controls on a non-done thread (whole resume section hidden)", async () => {
+    stub(detail({ thread: BASE_THREAD }));
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByTestId("thread-relations")).toBeInTheDocument());
+    expect(screen.queryByTestId("resume-export")).not.toBeInTheDocument();
+  });
+
+  it("taps JSON → fetches export and renders a scoped preview with the task warning", async () => {
+    const urls: string[] = [];
+    stub(detail(), (url) => { urls.push(url); return { ok: true, data: EXPORT_JSON }; });
+    render(<Thread id={1} />);
+    fireEvent.click(await screen.findByTestId("resume-export-json-btn"));
+    const preview = await screen.findByTestId("resume-export-preview");
+    expect(urls.some((u) => u.includes("format=json"))).toBe(true);
+    expect(preview).toHaveTextContent('"thread"');
+    expect(screen.getByTestId("resume-export-warning")).toHaveTextContent("Task");
+  });
+
+  it("taps Markdown → fetches markdown export", async () => {
+    const urls: string[] = [];
+    stub(detail(), (url) => { urls.push(url); return { ok: true, data: EXPORT_MD }; });
+    render(<Thread id={1} />);
+    fireEvent.click(await screen.findByTestId("resume-export-md-btn"));
+    await screen.findByTestId("resume-export-preview");
+    expect(urls.some((u) => u.includes("format=markdown"))).toBe(true);
+    expect(screen.getByTestId("resume-export-preview")).toHaveTextContent("## Situation");
+  });
+
+  it("shows a scoped error when export fails without breaking the page", async () => {
+    stub(detail(), () => ({ ok: false, error: { code: "RESUME_EMPTY", message: "내보낼 내용이 없어" } }));
+    render(<Thread id={1} />);
+    fireEvent.click(await screen.findByTestId("resume-export-json-btn"));
+    await waitFor(() => expect(screen.getByTestId("resume-export-error")).toHaveTextContent("내보낼 내용이 없어"));
+    expect(screen.getByTestId("thread-resume")).toBeInTheDocument();
+    expect(screen.queryByTestId("resume-export-preview")).not.toBeInTheDocument();
+  });
+
+  it("has no download/apply/score/typst controls in the export area", async () => {
+    stub(detail());
+    render(<Thread id={1} />);
+    const area = await screen.findByTestId("resume-export");
+    expect(area.textContent).not.toMatch(/다운로드|download|적용|점수|score|typst|pcli/i);
   });
 });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ApprovePromotionRequest, EgoGraphData, EventMode, EventRow, PromotionSuggestion, TaskRow, ThreadDetail, ThreadLinkKind, ThreadMissingNodeSuggestion, ThreadNodeLink, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadResumeData, ThreadRollup, ThreadRow, ThreadSettlement, ThreadStarDraftResponseData, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
+import type { ApprovePromotionRequest, EgoGraphData, EventMode, EventRow, PromotionSuggestion, TaskRow, ThreadDetail, ThreadLinkKind, ThreadMissingNodeSuggestion, ThreadNodeLink, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadResumeData, ThreadResumeExportData, ThreadResumeExportFormat, ThreadRollup, ThreadRow, ThreadSettlement, ThreadStarDraftResponseData, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
 import { EgoSheet, loadEgoGraph } from "./EgoSheet.js";
 
@@ -30,6 +30,12 @@ async function postStarDraft(threadId: number) {
 async function patchThreadResume(threadId: number, body: Record<string, unknown>) {
   return apiJson<{ ok: boolean; data?: ThreadResumeData; error?: { code: string; message: string } }>(`/api/threads/${threadId}/resume`, {
     method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+  });
+}
+// Resume export (cycle-57 FR-CV-02). Deterministic read-only GET; no body.
+async function getThreadResumeExport(threadId: number, format: ThreadResumeExportFormat) {
+  return apiJson<{ ok: boolean; data?: ThreadResumeExportData; error?: { code: string; message: string } }>(`/api/threads/${threadId}/resume-export?format=${format}`, {
+    method: "GET"
   });
 }
 
@@ -1047,6 +1053,35 @@ function ResumeSection({ threadId, resume, onSaved }: { threadId: number; resume
     }
   }
 
+  // Export (cycle-57 FR-CV-02): tap-driven, scoped preview. The server is the
+  // single source of truth for eligibility; client gating only hides controls
+  // that would obviously 409, and any server rejection shows a scoped error.
+  type ExportState =
+    | { tag: "idle" }
+    | { tag: "loading" }
+    | { tag: "error"; message: string }
+    | { tag: "ready"; data: ThreadResumeExportData };
+  const [exportState, setExportState] = useState<ExportState>({ tag: "idle" });
+  const hasSavedContent =
+    resume.starSituation != null || resume.starAction != null || resume.starResult != null ||
+    resume.skillsTags.some((s) => s.trim() !== "");
+  const canExport = resume.resumeRelevant && hasSavedContent;
+
+  async function runExport(format: ThreadResumeExportFormat) {
+    if (exportState.tag === "loading") return;
+    setExportState({ tag: "loading" });
+    try {
+      const res = await getThreadResumeExport(threadId, format);
+      if (!res.ok || !res.data) {
+        setExportState({ tag: "error", message: res.error?.message ?? "내보내기 실패" });
+        return;
+      }
+      setExportState({ tag: "ready", data: res.data });
+    } catch {
+      setExportState({ tag: "error", message: "내보내기 실패" });
+    }
+  }
+
   return (
     <section className="quiet-card warm thread-resume" aria-labelledby="thread-resume-title" data-testid="thread-resume" style={{ width: "min(100%, 480px)", marginTop: "24px" }}>
       <p className="eyebrow" style={{ margin: "0 0 8px" }}>이력서 칸</p>
@@ -1076,6 +1111,26 @@ function ResumeSection({ threadId, resume, onSaved }: { threadId: number; resume
           {saving ? "저장 중…" : "저장"}
         </button>
       </div>
+
+      {canExport && (
+        <div className="thread-resume-export" data-testid="resume-export" style={{ marginTop: "16px", borderTop: "1px solid var(--border)", paddingTop: "12px" }}>
+          <p className="eyebrow" style={{ margin: "0 0 8px" }}>내보내기</p>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            <button className="thread-node-save-btn" data-testid="resume-export-json-btn" onClick={() => void runExport("json")} disabled={exportState.tag === "loading"}>JSON</button>
+            <button className="thread-node-save-btn" data-testid="resume-export-md-btn" onClick={() => void runExport("markdown")} disabled={exportState.tag === "loading"}>Markdown</button>
+          </div>
+          {exportState.tag === "loading" && <p className="card-meta" data-testid="resume-export-loading" style={{ marginTop: "8px", opacity: 0.7 }}>내보내는 중…</p>}
+          {exportState.tag === "error" && <p className="card-meta" role="alert" data-testid="resume-export-error" style={{ marginTop: "8px", color: "var(--moved)" }}>{exportState.message}</p>}
+          {exportState.tag === "ready" && (
+            <div data-testid="resume-export-preview" style={{ marginTop: "8px" }}>
+              {exportState.data.warnings.map((w, i) => (
+                <p key={i} className="card-meta" data-testid="resume-export-warning" style={{ color: "var(--moved)", margin: "0 0 6px" }}>{w}</p>
+              ))}
+              <pre className="thread-resume-export-pre" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: "320px", overflow: "auto", margin: 0, fontSize: "0.85em" }}>{exportState.data.content}</pre>
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }

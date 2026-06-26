@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { CreateThreadLinkRequestSchema, CreateThreadRequestSchema, PatchThreadResumeRequestSchema } from "@cairn/shared";
+import { CreateThreadLinkRequestSchema, CreateThreadRequestSchema, PatchThreadResumeRequestSchema, ThreadResumeExportQuerySchema } from "@cairn/shared";
 import {
   createThread,
   createThreadLink,
@@ -9,6 +9,7 @@ import {
 } from "../services/threads.js";
 import { confirmThreadNodeLink } from "../repositories/links.js";
 import { findThreadById, updateThreadResume } from "../repositories/threads.js";
+import { exportThreadResume } from "../services/threadResumeExport.js";
 import type { CairnDatabase } from "../db/index.js";
 
 export function registerThreadRoutes(app: FastifyInstance, db: CairnDatabase): void {
@@ -147,5 +148,30 @@ export function registerThreadRoutes(app: FastifyInstance, db: CairnDatabase): v
     } catch (err) {
       return reply.code(400).send({ ok: false, error: { code: "DB_ERROR", message: err instanceof Error ? err.message : String(err) } });
     }
+  });
+
+  // Resume export A (cycle-57 FR-CV-02). Deterministic, read-only export of the
+  // saved resume fields as JSON or Markdown. No DB write, no LLM gateway.
+  app.get("/api/threads/:id/resume-export", async (req, reply) => {
+    const id = parseInt((req.params as { id: string }).id, 10);
+    if (!Number.isFinite(id) || id <= 0) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: "id must be a positive integer" } });
+    }
+    const query = ThreadResumeExportQuerySchema.safeParse(req.query);
+    if (!query.success) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: "format must be json or markdown" } });
+    }
+    const result = exportThreadResume(db, id, query.data.format);
+    if (result.status === "ok") return reply.send({ ok: true, data: result.data });
+    if (result.status === "not_found") {
+      return reply.code(404).send({ ok: false, error: { code: "NOT_FOUND", message: "thread not found" } });
+    }
+    if (result.status === "not_done") {
+      return reply.code(409).send({ ok: false, error: { code: "THREAD_NOT_DONE", message: "thread is not complete" } });
+    }
+    if (result.status === "not_marked") {
+      return reply.code(409).send({ ok: false, error: { code: "RESUME_NOT_MARKED", message: "thread is not marked resume-relevant" } });
+    }
+    return reply.code(409).send({ ok: false, error: { code: "RESUME_EMPTY", message: "no saved resume content to export" } });
   });
 }

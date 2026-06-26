@@ -8,6 +8,9 @@ import {
   ThreadMissingNodeSuggestionSchema,
   ThreadResumeDataSchema,
   PatchThreadResumeRequestSchema,
+  ThreadResumeExportFormatSchema,
+  ThreadResumeExportDataSchema,
+  ThreadResumeExportQuerySchema,
   ConfirmThreadNodeLinkResponseDataSchema,
   ThreadLinkRowSchema,
   ThreadLinkViewSchema,
@@ -481,6 +484,33 @@ describe("ThreadResumeDataSchema / PatchThreadResumeRequestSchema (cycle-56)", (
   it("PATCH rejects injected task/starTask/score/recommendation/apply/exportPath/persist/saved/format fields (strict)", () => {
     for (const inj of [{ task: "x" }, { starTask: "x" }, { score: 1 }, { recommendation: "x" }, { advice: "y" }, { autoApply: true }, { apply: true }, { claim: "x" }, { exportPath: "/x" }, { persist: true }, { saved: true }, { format: "pdf" }]) {
       expect(PatchThreadResumeRequestSchema.safeParse({ resumeRelevant: true, ...inj }).success).toBe(false);
+    }
+  });
+});
+
+describe("ThreadResumeExport schemas (cycle-57)", () => {
+  it("format accepts json/markdown and rejects others", () => {
+    expect(ThreadResumeExportFormatSchema.safeParse("json").success).toBe(true);
+    expect(ThreadResumeExportFormatSchema.safeParse("markdown").success).toBe(true);
+    expect(ThreadResumeExportFormatSchema.safeParse("pdf").success).toBe(false);
+    expect(ThreadResumeExportFormatSchema.safeParse("typst").success).toBe(false);
+  });
+  it("query requires a valid format and rejects extras", () => {
+    expect(ThreadResumeExportQuerySchema.safeParse({ format: "json" }).success).toBe(true);
+    expect(ThreadResumeExportQuerySchema.safeParse({}).success).toBe(false);
+    expect(ThreadResumeExportQuerySchema.safeParse({ format: "json", download: true }).success).toBe(false);
+  });
+  it("export data accepts json payload with structured json and markdown without it", () => {
+    const json = {
+      format: "json" as const, content: "{}", warnings: [],
+      json: { thread: { id: 1, name: "t", kind: null, goal: null, deadline: null }, star: { situation: "s", action: null, result: null }, skills: ["계획"] }
+    };
+    expect(ThreadResumeExportDataSchema.safeParse(json).success).toBe(true);
+    expect(ThreadResumeExportDataSchema.safeParse({ format: "markdown", content: "# t", warnings: ["w"] }).success).toBe(true);
+  });
+  it("export data rejects injected download/score/apply/typst fields (strict)", () => {
+    for (const inj of [{ download: "/x" }, { score: 1 }, { apply: true }, { typst: "x" }, { pcli: true }]) {
+      expect(ThreadResumeExportDataSchema.safeParse({ format: "markdown", content: "x", warnings: [], ...inj }).success).toBe(false);
     }
   });
 });

@@ -300,6 +300,45 @@ export const PatchThreadResumeRequestSchema = z
 
 export const PatchThreadResumeResponseDataSchema = ThreadResumeDataSchema;
 
+// Resume export A (cycle-57 FR-CV-02). Deterministic, read-only export of the
+// SAVED resume fields as JSON or Markdown. No LLM, no DB write, no star_task.
+export const ThreadResumeExportFormatSchema = z.enum(["json", "markdown"]);
+
+export const ThreadResumeExportJsonSchema = z
+  .object({
+    thread: z
+      .object({
+        id: z.number().int().positive(),
+        name: z.string(),
+        kind: z.string().nullable(),
+        goal: z.string().nullable(),
+        deadline: z.string().nullable()
+      })
+      .strict(),
+    star: z
+      .object({
+        situation: z.string().nullable(),
+        action: z.string().nullable(),
+        result: z.string().nullable()
+      })
+      .strict(),
+    skills: z.array(z.string())
+  })
+  .strict();
+
+export const ThreadResumeExportDataSchema = z
+  .object({
+    format: ThreadResumeExportFormatSchema,
+    content: z.string(),
+    json: ThreadResumeExportJsonSchema.optional(),
+    warnings: z.array(z.string())
+  })
+  .strict();
+
+export const ThreadResumeExportQuerySchema = z
+  .object({ format: ThreadResumeExportFormatSchema })
+  .strict();
+
 export const ThreadDetailSchema = z.object({
   thread: ThreadRowSchema,
   events: z.array(EventRowSchema),
@@ -329,6 +368,9 @@ export type ThreadDetail = z.infer<typeof ThreadDetailSchema>;
 export type ThreadResumeData = z.infer<typeof ThreadResumeDataSchema>;
 export type PatchThreadResumeRequest = z.infer<typeof PatchThreadResumeRequestSchema>;
 export type PatchThreadResumeResponseData = z.infer<typeof PatchThreadResumeResponseDataSchema>;
+export type ThreadResumeExportFormat = z.infer<typeof ThreadResumeExportFormatSchema>;
+export type ThreadResumeExportJson = z.infer<typeof ThreadResumeExportJsonSchema>;
+export type ThreadResumeExportData = z.infer<typeof ThreadResumeExportDataSchema>;
 export type ThreadNodeKind = z.infer<typeof ThreadNodeKindSchema>;
 export type ThreadNodeRef = z.infer<typeof ThreadNodeRefSchema>;
 export type ThreadNodeLink = z.infer<typeof ThreadNodeLinkSchema>;

@@ -600,6 +600,14 @@ p {
   height: 20px;
 }
 
+/* Resume export preview (cycle-57): read-only JSON/Markdown text. */
+.thread-resume-export-pre {
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+}
+
 .thread-divider {
   display: flex;
   align-items: center;
