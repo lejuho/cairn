@@ -920,7 +920,7 @@ function StarDraftSection({ threadId }: { threadId: number }) {
   }
 
   return (
-    <section className="quiet-card thread-star" aria-labelledby="thread-star-title" data-testid="thread-star" style={{ width: "min(100%, 480px)", marginTop: "24px" }}>
+    <section className="quiet-card warm thread-star" aria-labelledby="thread-star-title" data-testid="thread-star" style={{ width: "min(100%, 480px)", marginTop: "24px" }}>
       <p className="eyebrow" style={{ margin: "0 0 8px" }}>STAR 회고</p>
       <h2 id="thread-star-title" className="card-title" style={{ margin: "0 0 8px" }}>완료한 일을 STAR로 정리</h2>
       <p className="card-meta" style={{ margin: "0 0 12px", opacity: 0.7 }}>완료된 스레드의 증거로 초안을 만들어 — 저장은 안 하고, 직접 다듬어 쓰면 돼.</p>

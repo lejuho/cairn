@@ -1077,10 +1077,12 @@ describe("Thread — STAR draft (cycle-55)", () => {
     }));
   }
 
-  it("shows the STAR action on a completed thread", async () => {
+  it("shows the STAR action on a completed thread with a B-temperature (warm) surface", async () => {
     stub(detail());
     render(<Thread id={1} />);
     expect(await screen.findByTestId("star-generate-btn")).toHaveTextContent("STAR 초안 만들기");
+    // B-temperature reflection surface uses the design-system `warm` class.
+    expect(screen.getByTestId("thread-star")).toHaveClass("quiet-card", "warm");
   });
 
   it("hides the STAR action on a non-done thread", async () => {
