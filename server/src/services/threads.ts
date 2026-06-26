@@ -15,13 +15,16 @@ import {
   countLinksForAllThreads,
   createThread as repoCreate,
   deleteLinkById,
+  findCompletedThreadsByKind,
   findContainsAdjacency,
   findDuplicateLink,
+  findEventTitlesByThreadIds,
   findEventsByThreadId,
   findEventsSlimByThreadIds,
   findHardContainsEdges,
   findHardContainsParent,
   findLinksWithPeers,
+  findTaskTitlesByThreadIds,
   findTasksByThreadId,
   findTasksSlimByThreadIds,
   findThreadById,
@@ -34,6 +37,7 @@ import { findThreadNodeLinks } from "../repositories/links.js";
 import { findEventsWithCostsByThreadId } from "../repositories/events.js";
 import { computeThreadUnknownBlockers } from "./thread-unknown-blockers.js";
 import { computeThreadSettlement } from "./thread-settlement.js";
+import { computeThreadMissingNodeSuggestions } from "./thread-missing-node-suggestions.js";
 import { wouldCreateContainsCycle } from "./thread-links.js";
 import { computeRollup } from "./thread-rollup.js";
 import type { CreateThreadRequest } from "@cairn/shared";
@@ -86,7 +90,25 @@ export function getThreadDetail(db: CairnDatabase, id: number): ThreadDetail | n
   const nodeLinks = findThreadNodeLinks(db, id);
   const unknownBlockers = computeThreadUnknownBlockers(threadEvents, threadTasks, nodeLinks);
   const settlement = computeThreadSettlement(thread, findEventsWithCostsByThreadId(db, thread.id), threadTasks);
-  return { thread, events: threadEvents, tasks: threadTasks, progress, relations, rollup, nodeLinks, unknownBlockers, settlement };
+
+  // Missing-node suggestions (cycle-54): only load historical evidence for an
+  // eligible target (non-empty kind, not done/dropped); else skip the reads.
+  const kind = thread.kind?.trim();
+  let missingNodeSuggestions: ThreadDetail["missingNodeSuggestions"] = [];
+  if (kind && thread.status !== "done" && thread.status !== "dropped") {
+    const evidenceThreads = findCompletedThreadsByKind(db, kind, thread.id);
+    const evidenceIds = evidenceThreads.map((t) => t.id);
+    missingNodeSuggestions = computeThreadMissingNodeSuggestions(
+      thread,
+      threadEvents,
+      threadTasks,
+      evidenceThreads,
+      findEventTitlesByThreadIds(db, evidenceIds),
+      findTaskTitlesByThreadIds(db, evidenceIds)
+    );
+  }
+
+  return { thread, events: threadEvents, tasks: threadTasks, progress, relations, rollup, nodeLinks, unknownBlockers, settlement, missingNodeSuggestions };
 }
 
 function buildRollup(db: CairnDatabase, rootId: number): ThreadRollup {

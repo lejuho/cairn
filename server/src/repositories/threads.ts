@@ -1,5 +1,5 @@
 import { alias } from "drizzle-orm/sqlite-core";
-import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import type {
   CreateThreadRequest,
   EventRow,
@@ -98,6 +98,39 @@ export function findTasksByThreadId(db: CairnDatabase, threadId: number): TaskRo
     .where(eq(tasks.threadId, threadId))
     .orderBy(asc(tasks.createdAt))
     .all() as TaskRow[];
+}
+
+// Missing-node evidence reads (cycle-54 FR-THR-08). All read-only.
+export type ThreadNodeTitleRow = { threadId: number; title: string | null; status: string | null };
+
+// Other completed threads with the exact same kind, excluding the current id.
+export function findCompletedThreadsByKind(db: CairnDatabase, kind: string, excludeId: number): ThreadRow[] {
+  return db
+    .select()
+    .from(threads)
+    .where(and(eq(threads.status, "done"), eq(threads.kind, kind), ne(threads.id, excludeId)))
+    .orderBy(asc(threads.id))
+    .all() as ThreadRow[];
+}
+
+export function findEventTitlesByThreadIds(db: CairnDatabase, threadIds: number[]): ThreadNodeTitleRow[] {
+  if (threadIds.length === 0) return [];
+  return db
+    .select({ threadId: events.threadId, title: events.title, status: events.status })
+    .from(events)
+    .where(inArray(events.threadId, threadIds))
+    .orderBy(asc(events.id))
+    .all() as ThreadNodeTitleRow[];
+}
+
+export function findTaskTitlesByThreadIds(db: CairnDatabase, threadIds: number[]): ThreadNodeTitleRow[] {
+  if (threadIds.length === 0) return [];
+  return db
+    .select({ threadId: tasks.threadId, title: tasks.title, status: tasks.status })
+    .from(tasks)
+    .where(inArray(tasks.threadId, threadIds))
+    .orderBy(asc(tasks.id))
+    .all() as ThreadNodeTitleRow[];
 }
 
 // Returns incoming and outgoing link counts per thread as a single-pass aggregate.

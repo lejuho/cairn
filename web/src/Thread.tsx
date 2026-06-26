@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ApprovePromotionRequest, EgoGraphData, EventMode, EventRow, PromotionSuggestion, TaskRow, ThreadDetail, ThreadLinkKind, ThreadNodeLink, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadRollup, ThreadRow, ThreadSettlement, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
+import type { ApprovePromotionRequest, EgoGraphData, EventMode, EventRow, PromotionSuggestion, TaskRow, ThreadDetail, ThreadLinkKind, ThreadMissingNodeSuggestion, ThreadNodeLink, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadRollup, ThreadRow, ThreadSettlement, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
 import { EgoSheet, loadEgoGraph } from "./EgoSheet.js";
 
@@ -417,6 +417,10 @@ export function Thread({ id }: { id: number }) {
 
         {detail.settlement.status === "ready" && (
           <SettlementSection settlement={detail.settlement} />
+        )}
+
+        {detail.missingNodeSuggestions.length > 0 && (
+          <MissingNodeSuggestionsSection suggestions={detail.missingNodeSuggestions} />
         )}
 
         {/* Relations section */}
@@ -869,6 +873,37 @@ function SettlementSection({ settlement }: { settlement: ThreadSettlement }) {
           아직 끝나지 않은 항목이 있어 — 정산은 참고용이야.
         </p>
       )}
+    </section>
+  );
+}
+
+// Missing node suggestions (cycle-54 FR-THR-08). Read-only "빠진 것 후보"
+// evidence from completed same-kind threads. Descriptive only — no add,
+// create, confirm, or export control; the user adds nodes via existing flows.
+const MISSING_KIND_LABEL: Record<string, string> = { event: "이벤트", task: "작업" };
+
+function MissingNodeSuggestionsSection({ suggestions }: { suggestions: ThreadMissingNodeSuggestion[] }) {
+  return (
+    <section aria-labelledby="thread-missing-nodes-title" data-testid="thread-missing-nodes" style={{ width: "min(100%, 480px)", marginTop: "24px" }}>
+      <h2 id="thread-missing-nodes-title" className="eyebrow" style={{ margin: "0 0 8px" }}>빠진 것 후보</h2>
+      <ul className="today-stack" role="list">
+        {suggestions.map((s) => (
+          <li key={s.id} className="today-card" data-testid={`missing-node-${s.id}`}>
+            <p className="card-title">{s.title}</p>
+            <p className="card-meta" style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "4px" }}>
+              <span className="card-chip">{MISSING_KIND_LABEL[s.nodeKind] ?? s.nodeKind}</span>
+              <span className="card-chip" data-testid={`missing-evidence-${s.id}`}>비슷한 완료 {s.evidenceThreadCount}건</span>
+              <span className="card-chip">{LINK_FIRMNESS_LABEL[s.firmness] ?? s.firmness}</span>
+              <span className="card-chip">{LINK_SOURCE_LABEL[s.source] ?? s.source}</span>
+            </p>
+            {s.sampleThreads.length > 0 && (
+              <p className="card-meta" style={{ marginTop: "2px", opacity: 0.75 }}>
+                예: {s.sampleThreads.map((t) => t.name).filter((n) => n).join(", ")}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

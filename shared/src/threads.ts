@@ -242,6 +242,37 @@ export const ThreadSettlementSchema = z
   })
   .strict();
 
+// Missing Node Suggestions A (cycle-54 FR-THR-08). Read-only evidence cards:
+// node titles found among `done` direct nodes of OTHER completed same-kind
+// threads that the current thread does not yet have. Suggestions stay
+// soft/inferred and never copy historical dates, ordering, or dependency edges.
+export const ThreadMissingNodeSuggestionReasonCodeSchema = z.enum([
+  "missing_same_kind_completed_thread",
+  "missing_absent_from_current_thread",
+  "missing_repeated_evidence"
+]);
+
+export const ThreadMissingNodeSampleThreadSchema = z
+  .object({
+    id: z.number().int().positive(),
+    name: z.string()
+  })
+  .strict();
+
+export const ThreadMissingNodeSuggestionSchema = z
+  .object({
+    id: z.string().min(1),
+    nodeKind: z.enum(["event", "task"]),
+    title: z.string().min(1),
+    firmness: z.literal("soft"),
+    source: z.literal("inferred"),
+    evidenceThreadCount: z.number().int().nonnegative(),
+    evidenceNodeCount: z.number().int().nonnegative(),
+    sampleThreads: z.array(ThreadMissingNodeSampleThreadSchema),
+    reasonCodes: z.array(ThreadMissingNodeSuggestionReasonCodeSchema)
+  })
+  .strict();
+
 export const ThreadDetailSchema = z.object({
   thread: ThreadRowSchema,
   events: z.array(EventRowSchema),
@@ -251,7 +282,8 @@ export const ThreadDetailSchema = z.object({
   rollup: ThreadRollupSchema,
   nodeLinks: z.array(ThreadNodeLinkSchema),
   unknownBlockers: z.array(ThreadUnknownBlockerSchema),
-  settlement: ThreadSettlementSchema
+  settlement: ThreadSettlementSchema,
+  missingNodeSuggestions: z.array(ThreadMissingNodeSuggestionSchema)
 });
 
 export type ThreadRow = z.infer<typeof ThreadRowSchema>;
@@ -279,6 +311,9 @@ export type ThreadSettlementSampleStatus = z.infer<typeof ThreadSettlementSample
 export type ThreadSettlementEffortBucket = z.infer<typeof ThreadSettlementEffortBucketSchema>;
 export type ThreadSettlementReasonCode = z.infer<typeof ThreadSettlementReasonCodeSchema>;
 export type ThreadSettlement = z.infer<typeof ThreadSettlementSchema>;
+export type ThreadMissingNodeSuggestionReasonCode = z.infer<typeof ThreadMissingNodeSuggestionReasonCodeSchema>;
+export type ThreadMissingNodeSampleThread = z.infer<typeof ThreadMissingNodeSampleThreadSchema>;
+export type ThreadMissingNodeSuggestion = z.infer<typeof ThreadMissingNodeSuggestionSchema>;
 export type ThreadRollupMetric = z.infer<typeof ThreadRollupMetricSchema>;
 export type ThreadRollupBucket = z.infer<typeof ThreadRollupBucketSchema>;
 export type ThreadRollupChild = z.infer<typeof ThreadRollupChildSchema>;

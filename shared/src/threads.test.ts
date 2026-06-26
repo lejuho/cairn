@@ -5,6 +5,7 @@ import {
   ThreadNodeLinkSchema,
   ThreadUnknownBlockerSchema,
   ThreadSettlementSchema,
+  ThreadMissingNodeSuggestionSchema,
   ConfirmThreadNodeLinkResponseDataSchema,
   ThreadLinkRowSchema,
   ThreadLinkViewSchema,
@@ -165,9 +166,25 @@ describe("ThreadDetailSchema.relations", () => {
       },
       nodeLinks: [],
       unknownBlockers: [],
-      settlement: EMPTY_SETTLEMENT
+      settlement: EMPTY_SETTLEMENT,
+      missingNodeSuggestions: []
     });
     expect(r.success).toBe(true);
+  });
+
+  it("rejects a detail missing missingNodeSuggestions", () => {
+    const r = ThreadDetailSchema.safeParse({
+      thread: THREAD_ROW, events: [], tasks: [], progress: { done: 1, total: 5 },
+      relations: { incoming: [VIEW], outgoing: [] },
+      rollup: {
+        direct: { progress: { done: 1, total: 5 }, energyHours: 2 },
+        contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, missingCost: null, missingCostStatus: "unavailable" },
+        total: { progress: { done: 1, total: 5 }, energyHours: 2, missingCost: null, missingCostStatus: "unavailable" },
+        children: [], warnings: []
+      },
+      nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT
+    });
+    expect(r.success).toBe(false);
   });
 
   it("rejects a detail missing settlement", () => {
@@ -383,5 +400,38 @@ describe("ThreadSettlementSchema (cycle-53)", () => {
     for (const inj of [{ score: 1 }, { recommendation: "x" }, { advice: "y" }, { autoApply: true }, { apply: true }, { suggestedAction: "z" }, { estimatedMoney: 100 }]) {
       expect(ThreadSettlementSchema.safeParse({ ...READY, ...inj }).success).toBe(false);
     }
+  });
+});
+
+describe("ThreadMissingNodeSuggestionSchema (cycle-54)", () => {
+  const SUG = {
+    id: "missing-node:event:비자 신청",
+    nodeKind: "event",
+    title: "비자 신청",
+    firmness: "soft",
+    source: "inferred",
+    evidenceThreadCount: 2,
+    evidenceNodeCount: 2,
+    sampleThreads: [{ id: 3, name: "지난 여행" }, { id: 7, name: "출장" }],
+    reasonCodes: ["missing_same_kind_completed_thread", "missing_absent_from_current_thread", "missing_repeated_evidence"]
+  };
+  it("accepts a valid suggestion", () => {
+    expect(ThreadMissingNodeSuggestionSchema.safeParse(SUG).success).toBe(true);
+  });
+  it("rejects firmness/source other than soft/inferred", () => {
+    expect(ThreadMissingNodeSuggestionSchema.safeParse({ ...SUG, firmness: "hard" }).success).toBe(false);
+    expect(ThreadMissingNodeSuggestionSchema.safeParse({ ...SUG, source: "authored" }).success).toBe(false);
+  });
+  it("rejects an unknown reasonCode / nodeKind", () => {
+    expect(ThreadMissingNodeSuggestionSchema.safeParse({ ...SUG, reasonCodes: ["bogus"] }).success).toBe(false);
+    expect(ThreadMissingNodeSuggestionSchema.safeParse({ ...SUG, nodeKind: "thread" }).success).toBe(false);
+  });
+  it("rejects injected score/recommendation/apply/suggestedStart/suggestedDue/order/sequence/estimatedMoney fields (strict)", () => {
+    for (const inj of [{ score: 1 }, { recommendation: "x" }, { advice: "y" }, { autoApply: true }, { apply: true }, { suggestedAction: "z" }, { estimatedMoney: 1 }, { suggestedStart: "2026-06-20T09:00:00+09:00" }, { suggestedDue: "2026-06-20" }, { order: 1 }, { sequence: 2 }]) {
+      expect(ThreadMissingNodeSuggestionSchema.safeParse({ ...SUG, ...inj }).success).toBe(false);
+    }
+  });
+  it("rejects an injected field on a sampleThread (strict)", () => {
+    expect(ThreadMissingNodeSuggestionSchema.safeParse({ ...SUG, sampleThreads: [{ id: 3, name: "x", score: 1 }] }).success).toBe(false);
   });
 });
