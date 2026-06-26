@@ -82,6 +82,20 @@ describe("GET /api/threads/:id missingNodeSuggestions (cycle-54)", () => {
     expect(detail.missingNodeSuggestions.every((s: { evidenceThreadCount: number }) => s.evidenceThreadCount === 1)).toBe(true);
   });
 
+  it("matches evidence on the EXACT persisted kind, not a trimmed kind (ISSUE-1)", async () => {
+    const conn = makeTestDb();
+    const current = insertThread(conn, "이번 여행", " trip ", "active"); // padded kind
+    const trimmedKind = insertThread(conn, "트림된 여행", "trip", "done"); // not exact → must NOT match
+    const exactKind = insertThread(conn, "정확 패딩 여행", " trip ", "done"); // exact → must match
+    insertEvent(conn, trimmedKind, "잘못된 후보", "done");
+    insertEvent(conn, exactKind, "올바른 후보", "done");
+    const app = buildServer(conn.db);
+    const detail = (await app.inject({ method: "GET", url: `/api/threads/${current}` })).json().data;
+    const titles = detail.missingNodeSuggestions.map((s: { title: string }) => s.title);
+    expect(titles).toEqual(["올바른 후보"]);
+    expect(titles).not.toContain("잘못된 후보");
+  });
+
   it("existing thread detail fields still validate alongside suggestions", async () => {
     const conn = makeTestDb();
     const current = insertThread(conn, "이번", "trip", "active");
