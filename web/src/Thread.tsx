@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ApprovePromotionRequest, EgoGraphData, EventMode, EventRow, PromotionSuggestion, TaskRow, ThreadDetail, ThreadLinkKind, ThreadNodeLink, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadRollup, ThreadRow, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
+import type { ApprovePromotionRequest, EgoGraphData, EventMode, EventRow, PromotionSuggestion, TaskRow, ThreadDetail, ThreadLinkKind, ThreadNodeLink, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadRollup, ThreadRow, ThreadSettlement, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
 import { EgoSheet, loadEgoGraph } from "./EgoSheet.js";
 
@@ -415,6 +415,10 @@ export function Thread({ id }: { id: number }) {
           <UnknownBlockersSection blockers={detail.unknownBlockers} />
         )}
 
+        {detail.settlement.status === "ready" && (
+          <SettlementSection settlement={detail.settlement} />
+        )}
+
         {/* Relations section */}
         <section
           aria-labelledby="thread-relations-title"
@@ -826,6 +830,45 @@ function UnknownBlockersSection({ blockers }: { blockers: ThreadUnknownBlocker[]
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+// Settlement (cycle-53 FR-THR-07). Read-only "정산" evidence for a completed
+// thread: paid cost from moved/cancelled events + a conservative avoided-missing
+// count. Descriptive only — no status change, no auto-action, no export.
+const EFFORT_LABEL_KO: Record<string, string> = { none: "없음", low: "낮음", medium: "보통", high: "높음", unknown: "미상" };
+
+function SettlementSection({ settlement }: { settlement: ThreadSettlement }) {
+  const { paidCost, avoidedMissing, sampleStatus } = settlement;
+  const effortParts = (["none", "low", "medium", "high", "unknown"] as const)
+    .filter((k) => paidCost.effort[k] > 0)
+    .map((k) => `${EFFORT_LABEL_KO[k]} ${paidCost.effort[k]}`);
+  return (
+    <section className="quiet-card warm thread-settlement" aria-labelledby="thread-settlement-title" data-testid="thread-settlement" style={{ width: "min(100%, 480px)", marginTop: "24px" }}>
+      <p className="eyebrow" style={{ margin: "0 0 8px" }}>정산</p>
+      <h2 id="thread-settlement-title" className="card-title" style={{ margin: "0 0 8px" }}>완료된 스레드의 비용 정리</h2>
+
+      <p className="card-meta" style={{ margin: "0 0 4px", opacity: 0.7 }}>치른 비용</p>
+      <p className="card-meta" data-testid="settlement-paid" style={{ display: "flex", flexWrap: "wrap", gap: "6px", margin: "0 0 10px" }}>
+        <span className="card-chip">이동·취소 {paidCost.eventCount}건</span>
+        <span className="card-chip">금액 {paidCost.money.toLocaleString()}</span>
+        <span className="card-chip">관계 {paidCost.social}</span>
+        {effortParts.length > 0 && <span className="card-chip">수고 {effortParts.join(", ")}</span>}
+        {paidCost.windowCount > 0 && <span className="card-chip">촉박 {paidCost.windowCount}건</span>}
+      </p>
+
+      <p className="card-meta" style={{ margin: "0 0 4px", opacity: 0.7 }}>피한 비용 (완료 증거)</p>
+      <p className="card-meta" data-testid="settlement-avoided" style={{ display: "flex", flexWrap: "wrap", gap: "6px", margin: 0 }}>
+        <span className="card-chip">완료 {avoidedMissing.doneCount}/{avoidedMissing.totalCount}</span>
+        {avoidedMissing.unknownCostCount > 0 && <span className="card-chip" data-testid="settlement-unknown">미정 {avoidedMissing.unknownCostCount}건</span>}
+        <span className="card-chip">금액 비교 불가</span>
+      </p>
+      {sampleStatus === "partial" && (
+        <p className="card-meta" data-testid="settlement-partial-note" style={{ marginTop: "8px", color: "var(--moved)" }}>
+          아직 끝나지 않은 항목이 있어 — 정산은 참고용이야.
+        </p>
+      )}
     </section>
   );
 }

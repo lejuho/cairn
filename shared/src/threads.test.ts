@@ -4,6 +4,7 @@ import {
   ThreadDetailSchema,
   ThreadNodeLinkSchema,
   ThreadUnknownBlockerSchema,
+  ThreadSettlementSchema,
   ConfirmThreadNodeLinkResponseDataSchema,
   ThreadLinkRowSchema,
   ThreadLinkViewSchema,
@@ -22,6 +23,14 @@ const VIEW = {
   kind: "contains" as const,
   firmness: "hard" as const,
   createdAt: "2026-06-21T00:00:00"
+};
+
+const EMPTY_SETTLEMENT = {
+  status: "not_ready" as const,
+  paidCost: { eventCount: 0, money: 0, social: 0, effort: { none: 0, low: 0, medium: 0, high: 0, unknown: 0 }, windowCount: 0 },
+  avoidedMissing: { doneCount: 0, totalCount: 0, knownAvoidedCount: 0, unknownCostCount: 0, money: null, moneyStatus: "unavailable" as const },
+  sampleStatus: "empty" as const,
+  reasonCodes: ["settlement_not_done"]
 };
 
 const THREAD_ROW = {
@@ -155,9 +164,30 @@ describe("ThreadDetailSchema.relations", () => {
         warnings: []
       },
       nodeLinks: [],
-      unknownBlockers: []
+      unknownBlockers: [],
+      settlement: EMPTY_SETTLEMENT
     });
     expect(r.success).toBe(true);
+  });
+
+  it("rejects a detail missing settlement", () => {
+    const r = ThreadDetailSchema.safeParse({
+      thread: THREAD_ROW,
+      events: [],
+      tasks: [],
+      progress: { done: 1, total: 5 },
+      relations: { incoming: [VIEW], outgoing: [] },
+      rollup: {
+        direct: { progress: { done: 1, total: 5 }, energyHours: 2 },
+        contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, missingCost: null, missingCostStatus: "unavailable" },
+        total: { progress: { done: 1, total: 5 }, energyHours: 2, missingCost: null, missingCostStatus: "unavailable" },
+        children: [],
+        warnings: []
+      },
+      nodeLinks: [],
+      unknownBlockers: []
+    });
+    expect(r.success).toBe(false);
   });
 
   it("rejects a detail missing unknownBlockers", () => {
@@ -320,6 +350,38 @@ describe("ThreadUnknownBlockerSchema (cycle-52)", () => {
   it("rejects injected score/recommendation/autoApply/suggestedStart/apply/confirmed fields (strict)", () => {
     for (const inj of [{ score: 1 }, { recommendation: "x" }, { advice: "y" }, { autoApply: true }, { suggestedStart: "2026-06-20T09:00:00+09:00" }, { apply: true }, { confirmed: true }]) {
       expect(ThreadUnknownBlockerSchema.safeParse({ ...BLOCKER, ...inj }).success).toBe(false);
+    }
+  });
+});
+
+describe("ThreadSettlementSchema (cycle-53)", () => {
+  const READY = {
+    status: "ready",
+    paidCost: { eventCount: 2, money: 5000, social: 1, effort: { none: 1, low: 0, medium: 1, high: 0, unknown: 0 }, windowCount: 1 },
+    avoidedMissing: { doneCount: 3, totalCount: 3, knownAvoidedCount: 3, unknownCostCount: 0, money: null, moneyStatus: "unavailable" },
+    sampleStatus: "complete",
+    reasonCodes: ["settlement_ready", "settlement_complete", "settlement_paid_cost_present", "settlement_avoided_money_unavailable"]
+  };
+  it("accepts a valid ready settlement", () => {
+    expect(ThreadSettlementSchema.safeParse(READY).success).toBe(true);
+  });
+  it("accepts a valid not-ready empty settlement", () => {
+    expect(ThreadSettlementSchema.safeParse({ ...READY, status: "not_ready", sampleStatus: "empty", reasonCodes: ["settlement_not_done"] }).success).toBe(true);
+  });
+  it("rejects avoidedMissing.money other than null", () => {
+    expect(ThreadSettlementSchema.safeParse({ ...READY, avoidedMissing: { ...READY.avoidedMissing, money: 100 } }).success).toBe(false);
+  });
+  it("rejects moneyStatus other than unavailable", () => {
+    expect(ThreadSettlementSchema.safeParse({ ...READY, avoidedMissing: { ...READY.avoidedMissing, moneyStatus: "available" } }).success).toBe(false);
+  });
+  it("rejects an unknown reasonCode / status / sampleStatus", () => {
+    expect(ThreadSettlementSchema.safeParse({ ...READY, reasonCodes: ["bogus"] }).success).toBe(false);
+    expect(ThreadSettlementSchema.safeParse({ ...READY, status: "done" }).success).toBe(false);
+    expect(ThreadSettlementSchema.safeParse({ ...READY, sampleStatus: "half" }).success).toBe(false);
+  });
+  it("rejects injected score/recommendation/apply/estimatedMoney/suggestedAction fields (strict)", () => {
+    for (const inj of [{ score: 1 }, { recommendation: "x" }, { advice: "y" }, { autoApply: true }, { apply: true }, { suggestedAction: "z" }, { estimatedMoney: 100 }]) {
+      expect(ThreadSettlementSchema.safeParse({ ...READY, ...inj }).success).toBe(false);
     }
   });
 });

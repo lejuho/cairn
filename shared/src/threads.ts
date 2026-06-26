@@ -183,6 +183,65 @@ export const ThreadUnknownBlockerSchema = z
   })
   .strict();
 
+// Settlement A (cycle-53 FR-THR-07). A read-only deterministic summary for a
+// completed thread: actual paid cost evidence from its direct moved/cancelled
+// events, plus a conservative avoided-missing count from done direct nodes.
+// Direct nodes only (contains descendants stay in `rollup`). No money is
+// invented; avoided money stays unavailable.
+export const ThreadSettlementStatusSchema = z.enum(["not_ready", "ready"]);
+export const ThreadSettlementSampleStatusSchema = z.enum(["empty", "partial", "complete"]);
+
+export const ThreadSettlementEffortBucketSchema = z
+  .object({
+    none: z.number().int().nonnegative(),
+    low: z.number().int().nonnegative(),
+    medium: z.number().int().nonnegative(),
+    high: z.number().int().nonnegative(),
+    unknown: z.number().int().nonnegative()
+  })
+  .strict();
+
+export const ThreadSettlementReasonCodeSchema = z.enum([
+  "settlement_not_done",
+  "settlement_ready",
+  "settlement_no_nodes",
+  "settlement_complete",
+  "settlement_partial",
+  "settlement_paid_cost_present",
+  "settlement_avoided_money_unavailable"
+]);
+
+export const ThreadSettlementPaidCostSchema = z
+  .object({
+    eventCount: z.number().int().nonnegative(),
+    money: z.number().int().nonnegative(),
+    social: z.number().int().nonnegative(),
+    effort: ThreadSettlementEffortBucketSchema,
+    windowCount: z.number().int().nonnegative()
+  })
+  .strict();
+
+export const ThreadSettlementAvoidedMissingSchema = z
+  .object({
+    doneCount: z.number().int().nonnegative(),
+    totalCount: z.number().int().nonnegative(),
+    knownAvoidedCount: z.number().int().nonnegative(),
+    unknownCostCount: z.number().int().nonnegative(),
+    money: z.null(),
+    moneyStatus: z.literal("unavailable")
+  })
+  .strict();
+
+export const ThreadSettlementSchema = z
+  .object({
+    status: ThreadSettlementStatusSchema,
+    paidCost: ThreadSettlementPaidCostSchema,
+    avoidedMissing: ThreadSettlementAvoidedMissingSchema,
+    sampleStatus: ThreadSettlementSampleStatusSchema,
+    reasonCodes: z.array(ThreadSettlementReasonCodeSchema)
+  })
+  .strict();
+
 export const ThreadDetailSchema = z.object({
   thread: ThreadRowSchema,
   events: z.array(EventRowSchema),
@@ -191,7 +250,8 @@ export const ThreadDetailSchema = z.object({
   relations: ThreadRelationsSchema,
   rollup: ThreadRollupSchema,
   nodeLinks: z.array(ThreadNodeLinkSchema),
-  unknownBlockers: z.array(ThreadUnknownBlockerSchema)
+  unknownBlockers: z.array(ThreadUnknownBlockerSchema),
+  settlement: ThreadSettlementSchema
 });
 
 export type ThreadRow = z.infer<typeof ThreadRowSchema>;
@@ -214,6 +274,11 @@ export type ThreadUnknownBlockerMissingField = z.infer<typeof ThreadUnknownBlock
 export type ThreadUnknownBlockerBlockedField = z.infer<typeof ThreadUnknownBlockerBlockedFieldSchema>;
 export type ThreadUnknownBlockerReasonCode = z.infer<typeof ThreadUnknownBlockerReasonCodeSchema>;
 export type ThreadUnknownBlocker = z.infer<typeof ThreadUnknownBlockerSchema>;
+export type ThreadSettlementStatus = z.infer<typeof ThreadSettlementStatusSchema>;
+export type ThreadSettlementSampleStatus = z.infer<typeof ThreadSettlementSampleStatusSchema>;
+export type ThreadSettlementEffortBucket = z.infer<typeof ThreadSettlementEffortBucketSchema>;
+export type ThreadSettlementReasonCode = z.infer<typeof ThreadSettlementReasonCodeSchema>;
+export type ThreadSettlement = z.infer<typeof ThreadSettlementSchema>;
 export type ThreadRollupMetric = z.infer<typeof ThreadRollupMetricSchema>;
 export type ThreadRollupBucket = z.infer<typeof ThreadRollupBucketSchema>;
 export type ThreadRollupChild = z.infer<typeof ThreadRollupChildSchema>;

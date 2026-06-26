@@ -31,7 +31,9 @@ import {
   listThreads as repoList
 } from "../repositories/threads.js";
 import { findThreadNodeLinks } from "../repositories/links.js";
+import { findEventsWithCostsByThreadId } from "../repositories/events.js";
 import { computeThreadUnknownBlockers } from "./thread-unknown-blockers.js";
+import { computeThreadSettlement } from "./thread-settlement.js";
 import { wouldCreateContainsCycle } from "./thread-links.js";
 import { computeRollup } from "./thread-rollup.js";
 import type { CreateThreadRequest } from "@cairn/shared";
@@ -83,7 +85,8 @@ export function getThreadDetail(db: CairnDatabase, id: number): ThreadDetail | n
   const rollup = buildRollup(db, id);
   const nodeLinks = findThreadNodeLinks(db, id);
   const unknownBlockers = computeThreadUnknownBlockers(threadEvents, threadTasks, nodeLinks);
-  return { thread, events: threadEvents, tasks: threadTasks, progress, relations, rollup, nodeLinks, unknownBlockers };
+  const settlement = computeThreadSettlement(thread, findEventsWithCostsByThreadId(db, thread.id), threadTasks);
+  return { thread, events: threadEvents, tasks: threadTasks, progress, relations, rollup, nodeLinks, unknownBlockers, settlement };
 }
 
 function buildRollup(db: CairnDatabase, rootId: number): ThreadRollup {

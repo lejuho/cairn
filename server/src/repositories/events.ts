@@ -266,6 +266,16 @@ export function findEventWithCosts(
   return db.select().from(events).where(eq(events.id, id)).get() ?? null;
 }
 
+// Read-only: direct events of a thread WITH cancel-cost columns (cycle-53). The
+// standard EventRow type-erases cancel_money/social/effort/window, so settlement
+// reads the full row instead. No writes.
+export function findEventsWithCostsByThreadId(
+  db: CairnDatabase,
+  threadId: number
+): (typeof events.$inferSelect)[] {
+  return db.select().from(events).where(eq(events.threadId, threadId)).all();
+}
+
 // Nearest same-thread event that ENDED before `targetStartIso` begins (offset-
 // safe epoch compare via rfc3339ToMs, never SQL string compare). Excludes the
 // target event itself. Deterministic tie-break: end desc, then id desc. Returns
