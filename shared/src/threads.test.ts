@@ -3,6 +3,7 @@ import {
   CreateThreadLinkRequestSchema,
   ThreadDetailSchema,
   ThreadNodeLinkSchema,
+  ThreadUnknownBlockerSchema,
   ConfirmThreadNodeLinkResponseDataSchema,
   ThreadLinkRowSchema,
   ThreadLinkViewSchema,
@@ -153,9 +154,29 @@ describe("ThreadDetailSchema.relations", () => {
         children: [],
         warnings: []
       },
-      nodeLinks: []
+      nodeLinks: [],
+      unknownBlockers: []
     });
     expect(r.success).toBe(true);
+  });
+
+  it("rejects a detail missing unknownBlockers", () => {
+    const r = ThreadDetailSchema.safeParse({
+      thread: THREAD_ROW,
+      events: [],
+      tasks: [],
+      progress: { done: 1, total: 5 },
+      relations: { incoming: [VIEW], outgoing: [] },
+      rollup: {
+        direct: { progress: { done: 1, total: 5 }, energyHours: 2 },
+        contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, missingCost: null, missingCostStatus: "unavailable" },
+        total: { progress: { done: 1, total: 5 }, energyHours: 2, missingCost: null, missingCostStatus: "unavailable" },
+        children: [],
+        warnings: []
+      },
+      nodeLinks: []
+    });
+    expect(r.success).toBe(false);
   });
 
   it("rejects a detail missing nodeLinks", () => {
@@ -269,5 +290,36 @@ describe("ThreadNodeLinkSchema (cycle-50)", () => {
   it("ConfirmThreadNodeLinkResponseData carries link + reused", () => {
     expect(ConfirmThreadNodeLinkResponseDataSchema.safeParse({ link: LINK, reused: true }).success).toBe(true);
     expect(ConfirmThreadNodeLinkResponseDataSchema.safeParse({ link: LINK }).success).toBe(false);
+  });
+});
+
+describe("ThreadUnknownBlockerSchema (cycle-52)", () => {
+  const BLOCKER = {
+    id: "link:5:task.estMinutes",
+    linkId: 5,
+    linkKind: "requires",
+    firmness: "soft",
+    source: "inferred",
+    prerequisite: { kind: "task", id: 2, title: "슬라이드 준비" },
+    blockedNode: { kind: "event", id: 1, title: "발표" },
+    missingField: "task.estMinutes",
+    blockedField: "event.start",
+    message: "‘슬라이드 준비’의 예상 시간이 없어 ‘발표’ 일정을 역산할 수 없어.",
+    reasonCodes: ["blocker_missing_duration", "blocker_soft_link"]
+  };
+  it("accepts a valid blocker", () => {
+    expect(ThreadUnknownBlockerSchema.safeParse(BLOCKER).success).toBe(true);
+  });
+  it("rejects an unknown missingField / blockedField enum", () => {
+    expect(ThreadUnknownBlockerSchema.safeParse({ ...BLOCKER, missingField: "event.location" }).success).toBe(false);
+    expect(ThreadUnknownBlockerSchema.safeParse({ ...BLOCKER, blockedField: "event.end" }).success).toBe(false);
+  });
+  it("rejects an unknown reasonCode", () => {
+    expect(ThreadUnknownBlockerSchema.safeParse({ ...BLOCKER, reasonCodes: ["blocker_bogus"] }).success).toBe(false);
+  });
+  it("rejects injected score/recommendation/autoApply/suggestedStart/apply/confirmed fields (strict)", () => {
+    for (const inj of [{ score: 1 }, { recommendation: "x" }, { advice: "y" }, { autoApply: true }, { suggestedStart: "2026-06-20T09:00:00+09:00" }, { apply: true }, { confirmed: true }]) {
+      expect(ThreadUnknownBlockerSchema.safeParse({ ...BLOCKER, ...inj }).success).toBe(false);
+    }
   });
 });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ApprovePromotionRequest, EgoGraphData, EventMode, EventRow, PromotionSuggestion, TaskRow, ThreadDetail, ThreadLinkKind, ThreadNodeLink, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadRollup, ThreadRow, ThreadSummary } from "@cairn/shared";
+import type { ApprovePromotionRequest, EgoGraphData, EventMode, EventRow, PromotionSuggestion, TaskRow, ThreadDetail, ThreadLinkKind, ThreadNodeLink, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadRollup, ThreadRow, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
 import { EgoSheet, loadEgoGraph } from "./EgoSheet.js";
 
@@ -411,6 +411,10 @@ export function Thread({ id }: { id: number }) {
           <NodeLinksSection threadId={detail.thread.id} nodeLinks={detail.nodeLinks} onConfirmed={refresh} />
         )}
 
+        {detail.unknownBlockers.length > 0 && (
+          <UnknownBlockersSection blockers={detail.unknownBlockers} />
+        )}
+
         {/* Relations section */}
         <section
           aria-labelledby="thread-relations-title"
@@ -790,6 +794,37 @@ function NodeLinksSection({ threadId, nodeLinks, onConfirmed }: { threadId: numb
             </li>
           );
         })}
+      </ul>
+    </section>
+  );
+}
+
+// Unknown blockers (cycle-52 FR-THR-04). Read-only "입력 필요" diagnostics:
+// which missing upstream input blocks a downstream node's reverse planning.
+// Read-only — existing node 수정 buttons fill the gap (no auto-action).
+const BLOCKER_MISSING_LABEL: Record<string, string> = {
+  "task.estMinutes": "예상 소요 시간",
+  "event.start": "시작 시각",
+  "event.end": "종료 시각"
+};
+
+function UnknownBlockersSection({ blockers }: { blockers: ThreadUnknownBlocker[] }) {
+  return (
+    <section aria-labelledby="thread-unknown-blockers-title" data-testid="thread-unknown-blockers" style={{ width: "min(100%, 480px)", marginTop: "24px" }}>
+      <h2 id="thread-unknown-blockers-title" className="eyebrow" style={{ margin: "0 0 8px" }}>입력 필요</h2>
+      <ul className="today-stack" role="list">
+        {blockers.map((b) => (
+          <li key={b.id} className="today-card" data-testid={`unknown-blocker-${b.id}`}>
+            <p className="card-title">{b.prerequisite.title} → {b.blockedNode.title}</p>
+            <p className="card-meta">{b.message}</p>
+            <p className="card-meta" style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "4px" }}>
+              <span className="card-chip" data-testid={`blocker-missing-${b.id}`}>{BLOCKER_MISSING_LABEL[b.missingField] ?? b.missingField} 없음</span>
+              <span className="card-chip">{b.linkKind}</span>
+              <span className="card-chip" data-testid={`blocker-firmness-${b.id}`}>{LINK_FIRMNESS_LABEL[b.firmness] ?? b.firmness}</span>
+              <span className="card-chip">{LINK_SOURCE_LABEL[b.source] ?? b.source}</span>
+            </p>
+          </li>
+        ))}
       </ul>
     </section>
   );
