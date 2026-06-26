@@ -1,0 +1,9 @@
+{
+  "cycle": 54,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-26T07:09:35Z",
+  "summary": "Thread Missing Node Suggestions A (FR-THR-08): read-only missingNodeSuggestions added to ThreadDetail via pure computeThreadMissingNodeSuggestions (done direct nodes of completed same-kind threads, soft/inferred, deterministic); Thread '빠진 것 후보' section. No DB write/LLM/mutation/date-order-copy.",
+  "checks": ["corepack pnpm verify (EXIT=0, 609 tests)", "corepack pnpm db:generate (no schema changes)", "git diff --check master..HEAD", "deterministic-boundary/service-isolation/no-mutation/scope scans"]
+}
