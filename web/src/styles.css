@@ -485,6 +485,80 @@ p {
   opacity: 0.6;
 }
 
+/* Thread node inline edit + confirm (cycle-50). Semantic tokens; 44px targets. */
+.thread-node-edit-btn {
+  margin-top: 6px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.8rem;
+}
+.thread-node-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.thread-node-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: var(--faint);
+}
+.thread-node-field--check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.thread-node-field input,
+.thread-node-field select {
+  min-height: 44px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+.thread-node-field--check input {
+  min-height: 0;
+  width: 20px;
+  height: 20px;
+}
+.thread-node-form-actions {
+  display: flex;
+  gap: 8px;
+}
+.thread-node-save-btn,
+.thread-node-cancel-btn,
+.thread-node-confirm-btn {
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+.thread-node-save-btn,
+.thread-node-confirm-btn {
+  border: none;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.thread-node-save-btn:disabled,
+.thread-node-confirm-btn:disabled {
+  opacity: 0.5;
+}
+.thread-node-cancel-btn {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+}
+.thread-node-confirm-btn {
+  margin-top: 6px;
+}
+
 .thread-divider {
   display: flex;
   align-items: center;

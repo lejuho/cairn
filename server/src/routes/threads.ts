@@ -7,6 +7,7 @@ import {
   getThreadDetail,
   listThreads
 } from "../services/threads.js";
+import { confirmThreadNodeLink } from "../repositories/links.js";
 import type { CairnDatabase } from "../db/index.js";
 
 export function registerThreadRoutes(app: FastifyInstance, db: CairnDatabase): void {
@@ -96,5 +97,28 @@ export function registerThreadRoutes(app: FastifyInstance, db: CairnDatabase): v
       });
     }
     return reply.send({ ok: true });
+  });
+
+  // Explicit firmness promotion (cycle-50 FR-THR-05). Promotes a same-thread
+  // event/task node link to hard/authored. Idempotent for already-confirmed
+  // links. 404 when the link is unknown, cross-thread, or has a missing endpoint.
+  app.patch("/api/threads/:id/node-links/:linkId/confirm", async (req, reply) => {
+    const params = req.params as { id: string; linkId: string };
+    const threadId = parseInt(params.id, 10);
+    const linkId = parseInt(params.linkId, 10);
+    if (!Number.isFinite(threadId) || threadId <= 0 || !Number.isFinite(linkId) || linkId <= 0) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "VALIDATION_ERROR", message: "id and linkId must be positive integers" }
+      });
+    }
+    const result = confirmThreadNodeLink(db, threadId, linkId);
+    if (!result) {
+      return reply.code(404).send({
+        ok: false,
+        error: { code: "NOT_FOUND", message: "node link not found in this thread" }
+      });
+    }
+    return reply.send({ ok: true, data: result });
   });
 }

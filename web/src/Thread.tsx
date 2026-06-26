@@ -1,7 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ApprovePromotionRequest, EgoGraphData, PromotionSuggestion, ThreadDetail, ThreadLinkKind, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadRollup, ThreadRow, ThreadSummary } from "@cairn/shared";
+import type { ApprovePromotionRequest, EgoGraphData, EventMode, EventRow, PromotionSuggestion, TaskRow, ThreadDetail, ThreadLinkKind, ThreadNodeLink, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadRollup, ThreadRow, ThreadSummary } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
 import { EgoSheet, loadEgoGraph } from "./EgoSheet.js";
+
+// Thread node edit/confirm endpoints (cycle-50 FR-THR-05/06). Return ok+optional
+// error; callers refresh thread detail on success.
+async function patchEventNode(id: number, body: Record<string, unknown>) {
+  return apiJson<{ ok: boolean; error?: { code: string; message: string } }>(`/api/events/${id}/thread-node`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+  });
+}
+async function patchTaskNode(id: number, body: Record<string, unknown>) {
+  return apiJson<{ ok: boolean; error?: { code: string; message: string } }>(`/api/tasks/${id}/thread-node`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+  });
+}
+async function confirmNodeLink(threadId: number, linkId: number) {
+  return apiJson<{ ok: boolean; error?: { code: string; message: string } }>(`/api/threads/${threadId}/node-links/${linkId}/confirm`, {
+    method: "PATCH"
+  });
+}
+
+const LINK_FIRMNESS_LABEL: Record<string, string> = { hard: "확정", soft: "약함", tentative: "잠정" };
+const LINK_SOURCE_LABEL: Record<string, string> = { authored: "직접", given: "주어짐", inferred: "추론" };
 
 type ViewState =
   | { tag: "loading" }
@@ -330,23 +351,23 @@ export function Thread({ id }: { id: number }) {
 
         <ul className="today-stack" role="list" style={{ width: "min(100%, 480px)" }}>
           {activeTasks.map((task) => (
-            <li key={`task-${task.id}`} className={nodeClass("today-card today-card--task", highlightedTaskIds.has(task.id))} data-task-id={task.id}>
-              <span className="card-chip">작업</span>
-              <p className="card-title">{task.title}</p>
-              {task.context && <p className="card-meta">{task.context}</p>}
-            </li>
+            <TaskNodeCard
+              key={`task-${task.id}`}
+              task={task}
+              liClassName={nodeClass("today-card today-card--task", highlightedTaskIds.has(task.id))}
+              chip="작업"
+              onSaved={refresh}
+            />
           ))}
 
           {futureEvents.map((event) => (
-            <li key={`event-${event.id}`} className={nodeClass("today-card today-card--event", highlightedEventIds.has(event.id))} data-event-id={event.id}>
-              <span className="card-chip">예정</span>
-              <p className="card-title">{event.title}</p>
-              <p className="card-meta">
-                {event.start?.slice(0, 16).replace("T", " ")}
-                {event.end ? ` — ${event.end.slice(11, 16)}` : ""}
-                {event.location ? ` · ${event.location}` : ""}
-              </p>
-            </li>
+            <EventNodeCard
+              key={`event-${event.id}`}
+              event={event}
+              liClassName={nodeClass("today-card today-card--event", highlightedEventIds.has(event.id))}
+              chip="예정"
+              onSaved={refresh}
+            />
           ))}
 
           {(pastEvents.length > 0 || doneTasks.length > 0) && (
@@ -356,24 +377,23 @@ export function Thread({ id }: { id: number }) {
           )}
 
           {pastEvents.map((event) => (
-            <li key={`event-past-${event.id}`} className={nodeClass("today-card today-card--event thread-node--past", highlightedEventIds.has(event.id))} data-event-id={event.id}>
-              <span className="card-chip">{event.status === "done" ? "완료" : event.start ? "지남" : "미정"}</span>
-              <p className="card-title">{event.title}</p>
-              {event.start && (
-                <p className="card-meta">
-                  {event.start.slice(0, 16).replace("T", " ")}
-                  {event.end ? ` — ${event.end.slice(11, 16)}` : ""}
-                  {event.location ? ` · ${event.location}` : ""}
-                </p>
-              )}
-            </li>
+            <EventNodeCard
+              key={`event-past-${event.id}`}
+              event={event}
+              liClassName={nodeClass("today-card today-card--event thread-node--past", highlightedEventIds.has(event.id))}
+              chip={event.status === "done" ? "완료" : event.start ? "지남" : "미정"}
+              onSaved={refresh}
+            />
           ))}
 
           {doneTasks.map((task) => (
-            <li key={`task-done-${task.id}`} className={nodeClass("today-card today-card--task thread-node--past", highlightedTaskIds.has(task.id))} data-task-id={task.id}>
-              <span className="card-chip">{task.status === "dropped" ? "드롭" : "완료"}</span>
-              <p className="card-title">{task.title}</p>
-            </li>
+            <TaskNodeCard
+              key={`task-done-${task.id}`}
+              task={task}
+              liClassName={nodeClass("today-card today-card--task thread-node--past", highlightedTaskIds.has(task.id))}
+              chip={task.status === "dropped" ? "드롭" : "완료"}
+              onSaved={refresh}
+            />
           ))}
         </ul>
 
@@ -385,6 +405,10 @@ export function Thread({ id }: { id: number }) {
           >
             아직 연결된 항목이 없어. 이벤트나 작업을 연결하면 여기 나타나.
           </p>
+        )}
+
+        {detail.nodeLinks.length > 0 && (
+          <NodeLinksSection threadId={detail.thread.id} nodeLinks={detail.nodeLinks} onConfirmed={refresh} />
         )}
 
         {/* Relations section */}
@@ -558,6 +582,216 @@ export function Thread({ id }: { id: number }) {
         </div>
       )}
     </>
+  );
+}
+
+// Event node card (cycle-50 FR-THR-06). Display + inline 수정 form for
+// title/type/location/mode. GCal events are read-only (no 수정 button).
+function EventNodeCard({ event, liClassName, chip, onSaved }: { event: EventRow; liClassName: string; chip: string; onSaved: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const editable = event.source !== "gcal";
+  return (
+    <li className={liClassName} data-event-id={event.id}>
+      {!editing && (
+        <>
+          <span className="card-chip">{chip}</span>
+          <p className="card-title">{event.title}</p>
+          {event.start && (
+            <p className="card-meta">
+              {event.start.slice(0, 16).replace("T", " ")}
+              {event.end ? ` — ${event.end.slice(11, 16)}` : ""}
+              {event.location ? ` · ${event.location}` : ""}
+            </p>
+          )}
+          {editable && (
+            <button className="thread-node-edit-btn" data-testid={`event-edit-${event.id}`} onClick={() => setEditing(true)}>수정</button>
+          )}
+        </>
+      )}
+      {editing && (
+        <EventNodeForm event={event} onCancel={() => setEditing(false)} onSaved={() => { setEditing(false); onSaved(); }} />
+      )}
+    </li>
+  );
+}
+
+function EventNodeForm({ event, onCancel, onSaved }: { event: EventRow; onCancel: () => void; onSaved: () => void }) {
+  const [title, setTitle] = useState(event.title);
+  const [type, setType] = useState(event.type ?? "");
+  const [location, setLocation] = useState(event.location ?? "");
+  const [mode, setMode] = useState<EventMode | "">(event.mode ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setSaving(true); setError(null);
+    const body: Record<string, unknown> = {
+      title: title.trim(),
+      type: type.trim() === "" ? null : type.trim(),
+      location: location.trim() === "" ? null : location.trim(),
+      mode: mode === "" ? null : mode
+    };
+    try {
+      const res = await patchEventNode(event.id, body);
+      if (!res.ok) { setError(res.error?.message ?? "저장 실패"); setSaving(false); return; }
+      onSaved();
+    } catch {
+      setError("저장 실패"); setSaving(false);
+    }
+  }
+
+  return (
+    <form className="thread-node-form" data-testid={`event-form-${event.id}`} onSubmit={(e) => { e.preventDefault(); void save(); }}>
+      <label className="thread-node-field"><span>제목</span>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} aria-label="이벤트 제목" />
+      </label>
+      <label className="thread-node-field"><span>유형</span>
+        <input value={type} onChange={(e) => setType(e.target.value)} aria-label="이벤트 유형" />
+      </label>
+      <label className="thread-node-field"><span>장소</span>
+        <input value={location} onChange={(e) => setLocation(e.target.value)} aria-label="이벤트 장소" />
+      </label>
+      <label className="thread-node-field"><span>방식</span>
+        <select value={mode} onChange={(e) => setMode(e.target.value as EventMode | "")} aria-label="이벤트 방식">
+          <option value="">미정</option>
+          <option value="in_person">대면</option>
+          <option value="remote">원격</option>
+          <option value="async">비동기</option>
+        </select>
+      </label>
+      {error && <p className="card-meta" role="alert" style={{ color: "var(--moved)" }}>{error}</p>}
+      <div className="thread-node-form-actions">
+        <button type="submit" className="thread-node-save-btn" disabled={saving || title.trim() === ""}>{saving ? "저장 중…" : "저장"}</button>
+        <button type="button" className="thread-node-cancel-btn" onClick={onCancel} disabled={saving}>취소</button>
+      </div>
+    </form>
+  );
+}
+
+// Task node card (cycle-50 FR-THR-06). Inline 수정 for title/estMinutes/due/
+// context/optional.
+function TaskNodeCard({ task, liClassName, chip, onSaved }: { task: TaskRow; liClassName: string; chip: string; onSaved: () => void }) {
+  const [editing, setEditing] = useState(false);
+  return (
+    <li className={liClassName} data-task-id={task.id}>
+      {!editing && (
+        <>
+          <span className="card-chip">{chip}</span>
+          <p className="card-title">{task.title}</p>
+          {task.context && <p className="card-meta">{task.context}</p>}
+          <button className="thread-node-edit-btn" data-testid={`task-edit-${task.id}`} onClick={() => setEditing(true)}>수정</button>
+        </>
+      )}
+      {editing && (
+        <TaskNodeForm task={task} onCancel={() => setEditing(false)} onSaved={() => { setEditing(false); onSaved(); }} />
+      )}
+    </li>
+  );
+}
+
+function TaskNodeForm({ task, onCancel, onSaved }: { task: TaskRow; onCancel: () => void; onSaved: () => void }) {
+  const [title, setTitle] = useState(task.title);
+  const [est, setEst] = useState(task.estMinutes != null ? String(task.estMinutes) : "");
+  const [due, setDue] = useState(task.due ?? "");
+  const [context, setContext] = useState(task.context ?? "");
+  const [optional, setOptional] = useState(task.optional === 1);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setSaving(true); setError(null);
+    const body: Record<string, unknown> = {
+      title: title.trim(),
+      estMinutes: est.trim() === "" ? null : Number(est),
+      due: due.trim() === "" ? null : due.trim(),
+      context: context.trim() === "" ? null : context.trim(),
+      optional
+    };
+    try {
+      const res = await patchTaskNode(task.id, body);
+      if (!res.ok) { setError(res.error?.message ?? "저장 실패"); setSaving(false); return; }
+      onSaved();
+    } catch {
+      setError("저장 실패"); setSaving(false);
+    }
+  }
+
+  return (
+    <form className="thread-node-form" data-testid={`task-form-${task.id}`} onSubmit={(e) => { e.preventDefault(); void save(); }}>
+      <label className="thread-node-field"><span>제목</span>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} aria-label="작업 제목" />
+      </label>
+      <label className="thread-node-field"><span>예상(분)</span>
+        <input value={est} inputMode="numeric" onChange={(e) => setEst(e.target.value)} aria-label="작업 예상 분" />
+      </label>
+      <label className="thread-node-field"><span>마감</span>
+        <input value={due} placeholder="YYYY-MM-DD" onChange={(e) => setDue(e.target.value)} aria-label="작업 마감일" />
+      </label>
+      <label className="thread-node-field"><span>맥락</span>
+        <input value={context} onChange={(e) => setContext(e.target.value)} aria-label="작업 맥락" />
+      </label>
+      <label className="thread-node-field thread-node-field--check">
+        <input type="checkbox" checked={optional} onChange={(e) => setOptional(e.target.checked)} aria-label="선택 작업" />
+        <span>선택 작업</span>
+      </label>
+      {error && <p className="card-meta" role="alert" style={{ color: "var(--moved)" }}>{error}</p>}
+      <div className="thread-node-form-actions">
+        <button type="submit" className="thread-node-save-btn" disabled={saving || title.trim() === ""}>{saving ? "저장 중…" : "저장"}</button>
+        <button type="button" className="thread-node-cancel-btn" onClick={onCancel} disabled={saving}>취소</button>
+      </div>
+    </form>
+  );
+}
+
+// Node links section (cycle-50 FR-THR-05). Shows event/task dependency links
+// with firmness/source evidence; non-confirmed links get an explicit 확인 button.
+function NodeLinksSection({ threadId, nodeLinks, onConfirmed }: { threadId: number; nodeLinks: ThreadNodeLink[]; onConfirmed: () => void }) {
+  const [confirmingId, setConfirmingId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function confirm(linkId: number) {
+    setConfirmingId(linkId); setError(null);
+    try {
+      const res = await confirmNodeLink(threadId, linkId);
+      if (!res.ok) { setError(res.error?.message ?? "확인 실패"); setConfirmingId(null); return; }
+      onConfirmed();
+    } catch {
+      setError("확인 실패"); setConfirmingId(null);
+    }
+  }
+
+  return (
+    <section aria-labelledby="thread-node-links-title" data-testid="thread-node-links" style={{ width: "min(100%, 480px)", marginTop: "24px" }}>
+      <h2 id="thread-node-links-title" className="eyebrow" style={{ margin: "0 0 8px" }}>노드 연결</h2>
+      {error && <p className="card-meta" role="alert" style={{ color: "var(--moved)" }}>{error}</p>}
+      <ul className="today-stack" role="list">
+        {nodeLinks.map((link) => {
+          const confirmed = link.firmness === "hard" && link.source === "authored";
+          return (
+            <li key={link.id} className="today-card" data-testid={`node-link-${link.id}`}>
+              <p className="card-title">{link.from.title} → {link.to.title}</p>
+              <p className="card-meta" style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                <span className="card-chip">{link.kind}</span>
+                <span className="card-chip" data-testid={`node-link-firmness-${link.id}`}>{LINK_FIRMNESS_LABEL[link.firmness] ?? link.firmness}</span>
+                <span className="card-chip">{LINK_SOURCE_LABEL[link.source] ?? link.source}</span>
+              </p>
+              {confirmed ? (
+                <p className="card-meta" data-testid={`node-link-confirmed-${link.id}`}>사용자 확정됨</p>
+              ) : (
+                <button
+                  className="thread-node-confirm-btn"
+                  data-testid={`node-link-confirm-${link.id}`}
+                  disabled={confirmingId === link.id}
+                  onClick={() => void confirm(link.id)}
+                >
+                  {confirmingId === link.id ? "확인 중…" : "확인"}
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 

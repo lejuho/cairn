@@ -30,6 +30,7 @@ import {
   insertLink,
   listThreads as repoList
 } from "../repositories/threads.js";
+import { findThreadNodeLinks } from "../repositories/links.js";
 import { wouldCreateContainsCycle } from "./thread-links.js";
 import { computeRollup } from "./thread-rollup.js";
 import type { CreateThreadRequest } from "@cairn/shared";
@@ -79,7 +80,8 @@ export function getThreadDetail(db: CairnDatabase, id: number): ThreadDetail | n
   const progress = computeProgress(threadEvents, threadTasks);
   const relations: ThreadRelations = findLinksWithPeers(db, id);
   const rollup = buildRollup(db, id);
-  return { thread, events: threadEvents, tasks: threadTasks, progress, relations, rollup };
+  const nodeLinks = findThreadNodeLinks(db, id);
+  return { thread, events: threadEvents, tasks: threadTasks, progress, relations, rollup, nodeLinks };
 }
 
 function buildRollup(db: CairnDatabase, rootId: number): ThreadRollup {

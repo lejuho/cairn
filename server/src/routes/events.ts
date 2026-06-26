@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import { CreateEventPreparationRequestSchema, CreateEventRequestSchema, PatchEventStatusRequestSchema } from "@cairn/shared";
-import { createEventWithPeople, findEventById, findNearestPriorThreadEvent, updateEventStatus } from "../repositories/events.js";
+import { CreateEventPreparationRequestSchema, CreateEventRequestSchema, PatchEventStatusRequestSchema, PatchThreadEventNodeRequestSchema } from "@cairn/shared";
+import { createEventWithPeople, findEventById, findNearestPriorThreadEvent, updateEventStatus, updateEventThreadNode } from "../repositories/events.js";
 import { findAnnotationsByEvent } from "../repositories/annotations.js";
 import { findEventWithPeople, findPeopleByIds } from "../repositories/people.js";
 import { findThreadById } from "../repositories/threads.js";
@@ -107,6 +107,29 @@ export function registerEventRoutes(app: FastifyInstance, db: CairnDatabase): vo
     }
     updateEventStatus(db, id, parsed.data.status);
     const updated = findEventById(db, id)!;
+    return reply.send({ ok: true, data: { event: updated } });
+  });
+
+  // Thread node inline edit (cycle-50 FR-THR-06). Edits only title/type/
+  // location/mode. GCal-imported events are read-only here (409). start/end/
+  // status/threadId/source are not editable.
+  app.patch("/api/events/:id/thread-node", async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: "id must be a positive integer" } });
+    }
+    const parsed = PatchThreadEventNodeRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: parsed.error.message } });
+    }
+    const event = findEventById(db, id);
+    if (!event) {
+      return reply.code(404).send({ ok: false, error: { code: "NOT_FOUND", message: "event not found" } });
+    }
+    if (event.source === "gcal") {
+      return reply.code(409).send({ ok: false, error: { code: "EXTERNAL_EVENT_READ_ONLY", message: "external calendar events are read-only" } });
+    }
+    const updated = updateEventThreadNode(db, id, parsed.data)!;
     return reply.send({ ok: true, data: { event: updated } });
   });
 
