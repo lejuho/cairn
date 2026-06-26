@@ -12,6 +12,14 @@ import { findThreadById, updateThreadResume } from "../repositories/threads.js";
 import { exportThreadResume } from "../services/threadResumeExport.js";
 import type { CairnDatabase } from "../db/index.js";
 
+// Strict positive-integer path param: rejects "1abc"/"1.5"/"" that parseInt
+// would silently coerce to a valid id. Returns null on any non-integer input.
+function parsePositiveIntParam(raw: string): number | null {
+  if (!/^\d+$/.test(raw)) return null;
+  const n = Number(raw);
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
 export function registerThreadRoutes(app: FastifyInstance, db: CairnDatabase): void {
   app.post("/api/threads", async (req, reply) => {
     const parsed = CreateThreadRequestSchema.safeParse(req.body);
@@ -153,8 +161,8 @@ export function registerThreadRoutes(app: FastifyInstance, db: CairnDatabase): v
   // Resume export A (cycle-57 FR-CV-02). Deterministic, read-only export of the
   // saved resume fields as JSON or Markdown. No DB write, no LLM gateway.
   app.get("/api/threads/:id/resume-export", async (req, reply) => {
-    const id = parseInt((req.params as { id: string }).id, 10);
-    if (!Number.isFinite(id) || id <= 0) {
+    const id = parsePositiveIntParam((req.params as { id: string }).id);
+    if (id === null) {
       return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: "id must be a positive integer" } });
     }
     const query = ThreadResumeExportQuerySchema.safeParse(req.query);

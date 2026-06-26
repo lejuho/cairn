@@ -71,6 +71,18 @@ describe("GET /api/threads/:id/resume-export (cycle-57)", () => {
     expect((await app.inject({ method: "GET", url: `/api/threads/0/resume-export?format=json` })).statusCode).toBe(400);
   });
 
+  it("rejects malformed non-integer ids with 400 instead of coercing (ISSUE-1)", async () => {
+    const conn = makeTestDb();
+    const t = insertThread(conn, "파리", "done");
+    await markResume(conn, t, { resumeRelevant: true, starSituation: "상황" });
+    const app = buildServer(conn.db);
+    for (const bad of ["1abc", "1.5", "1e2", " 1", "0x1", "-1"]) {
+      const res = await app.inject({ method: "GET", url: `/api/threads/${encodeURIComponent(bad)}/resume-export?format=json` });
+      expect(res.statusCode, `id="${bad}"`).toBe(400);
+      expect(res.json().error.code).toBe("VALIDATION_ERROR");
+    }
+  });
+
   it("returns 404 for unknown thread", async () => {
     const conn = makeTestDb();
     const app = buildServer(conn.db);

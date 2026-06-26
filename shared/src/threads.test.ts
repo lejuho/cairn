@@ -513,4 +513,13 @@ describe("ThreadResumeExport schemas (cycle-57)", () => {
       expect(ThreadResumeExportDataSchema.safeParse({ format: "markdown", content: "x", warnings: [], ...inj }).success).toBe(false);
     }
   });
+  it("enforces the format-specific json contract (json requires json; markdown rejects json)", () => {
+    const struct = { thread: { id: 1, name: "t", kind: null, goal: null, deadline: null }, star: { situation: "s", action: null, result: null }, skills: [] };
+    // json format MUST carry structured json
+    expect(ThreadResumeExportDataSchema.safeParse({ format: "json", content: "{}", warnings: [] }).success).toBe(false);
+    expect(ThreadResumeExportDataSchema.safeParse({ format: "json", content: "{}", warnings: [], json: struct }).success).toBe(true);
+    // markdown format MUST NOT carry json
+    expect(ThreadResumeExportDataSchema.safeParse({ format: "markdown", content: "# t", warnings: [], json: struct }).success).toBe(false);
+    expect(ThreadResumeExportDataSchema.safeParse({ format: "markdown", content: "# t", warnings: [] }).success).toBe(true);
+  });
 });

@@ -326,14 +326,27 @@ export const ThreadResumeExportJsonSchema = z
   })
   .strict();
 
-export const ThreadResumeExportDataSchema = z
-  .object({
-    format: ThreadResumeExportFormatSchema,
-    content: z.string(),
-    json: ThreadResumeExportJsonSchema.optional(),
-    warnings: z.array(z.string())
-  })
-  .strict();
+// Discriminated on format so the runtime contract enforces the plan's output
+// spec: `json` is present (and required) for the json format and absent for
+// markdown. Each branch is `.strict()`, so a markdown payload carrying `json`
+// or a json payload missing `json` is rejected.
+export const ThreadResumeExportDataSchema = z.discriminatedUnion("format", [
+  z
+    .object({
+      format: z.literal("json"),
+      content: z.string(),
+      json: ThreadResumeExportJsonSchema,
+      warnings: z.array(z.string())
+    })
+    .strict(),
+  z
+    .object({
+      format: z.literal("markdown"),
+      content: z.string(),
+      warnings: z.array(z.string())
+    })
+    .strict()
+]);
 
 export const ThreadResumeExportQuerySchema = z
   .object({ format: ThreadResumeExportFormatSchema })

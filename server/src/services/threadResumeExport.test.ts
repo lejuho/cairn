@@ -15,7 +15,7 @@ const RESUME: ThreadResumeData = {
 describe("buildThreadResumeExport (cycle-57)", () => {
   it("builds deterministic JSON with structured json + content and a no-task warning", () => {
     const out = buildThreadResumeExport(THREAD, RESUME, "json");
-    expect(out.format).toBe("json");
+    if (out.format !== "json") throw new Error("expected json format");
     expect(out.json).toEqual({
       thread: { id: 7, name: "파리 여행", kind: "trip", goal: "6월 파리 완수", deadline: "2026-06-30" },
       star: { situation: "상황 텍스트", action: "행동 텍스트", result: "결과 텍스트" },
@@ -29,7 +29,7 @@ describe("buildThreadResumeExport (cycle-57)", () => {
   it("builds deterministic Markdown with all STAR sections and skills bullets", () => {
     const out = buildThreadResumeExport(THREAD, RESUME, "markdown");
     expect(out.format).toBe("markdown");
-    expect(out.json).toBeUndefined();
+    expect("json" in out).toBe(false);
     expect(out.content).toContain("# 파리 여행");
     expect(out.content).toContain("## Situation\n상황 텍스트");
     expect(out.content).toContain("## Skills\n- 계획\n- 조율");
@@ -46,7 +46,8 @@ describe("buildThreadResumeExport (cycle-57)", () => {
     const skills = ["  계획 ", "계획", "", "조율", "  "];
     const input = { ...RESUME, skillsTags: [...skills] };
     const out = buildThreadResumeExport(THREAD, input, "json");
-    expect(out.json?.skills).toEqual(["계획", "조율"]);
+    if (out.format !== "json") throw new Error("expected json format");
+    expect(out.json.skills).toEqual(["계획", "조율"]);
     expect(input.skillsTags).toEqual(skills); // unchanged
   });
 
