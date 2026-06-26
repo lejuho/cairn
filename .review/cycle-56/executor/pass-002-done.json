@@ -1,0 +1,9 @@
+{
+  "cycle": 56,
+  "pass": 2,
+  "kind": "fix",
+  "review": ".review/cycle-56/review-v1.md",
+  "createdAt": "2026-06-26T09:32:32Z",
+  "summary": "Resolved review-v1 ISSUE-1 (THREAD_ROW_COLUMNS projection stops resume columns leaking onto thread detail/summaries/draft-create; +integration test), ISSUE-2 (ResumeSection useEffect re-syncs inputs after a save-driven refresh; +UI test), ISSUE-3 (useCallback on onClose removes EgoSheet listener/focus churn, de-flakes the Escape test). RESOLVED appended below sentinel.",
+  "checks": ["corepack pnpm verify (EXIT=0, 626 tests)", "corepack pnpm db:generate (no schema changes)", "git diff --check master..HEAD", "Escape test 3/3 isolated runs"]
+}
