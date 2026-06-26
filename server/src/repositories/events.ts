@@ -1,5 +1,5 @@
 import { and, asc, eq, isNotNull, isNull, ne, or } from "drizzle-orm";
-import type { CreateEventRequest, EventRow } from "@cairn/shared";
+import type { CreateEventRequest, EventRow, PatchThreadEventNodeRequest } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import { annotations, eventPeople, events } from "../db/schema.js";
 import { rfc3339ToMs } from "../utils/rfc3339.js";
@@ -125,6 +125,24 @@ export function findEventById(db: CairnDatabase, id: number): EventRow | null {
 
 export function updateEventStatus(db: CairnDatabase, eventId: number, status: string): void {
   db.update(events).set({ status }).where(eq(events.id, eventId)).run();
+}
+
+// Thread node inline edit (cycle-50 FR-THR-06). Mutates ONLY the allowed
+// presentation columns that are present in the patch — start/end/status/
+// threadId/source are never touched. Uses key presence (`in`) so an explicit
+// `null` for type/location/mode is preserved (means "clear"/"unknown").
+export function updateEventThreadNode(
+  db: CairnDatabase,
+  id: number,
+  patch: PatchThreadEventNodeRequest
+): EventRow | null {
+  const set: Partial<typeof events.$inferInsert> = {};
+  if ("title" in patch) set.title = patch.title!;
+  if ("type" in patch) set.type = patch.type ?? null;
+  if ("location" in patch) set.location = patch.location ?? null;
+  if ("mode" in patch) set.mode = patch.mode ?? null;
+  const [row] = db.update(events).set(set).where(eq(events.id, id)).returning().all();
+  return (row as EventRow) ?? null;
 }
 
 export function findUnscheduledCairnEvents(db: CairnDatabase): EventRow[] {

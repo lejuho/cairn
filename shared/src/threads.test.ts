@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   CreateThreadLinkRequestSchema,
   ThreadDetailSchema,
+  ThreadNodeLinkSchema,
+  ConfirmThreadNodeLinkResponseDataSchema,
   ThreadLinkRowSchema,
   ThreadLinkViewSchema,
   ThreadRelationsSchema,
@@ -150,9 +152,28 @@ describe("ThreadDetailSchema.relations", () => {
         total: { progress: { done: 1, total: 5 }, energyHours: 2, missingCost: null, missingCostStatus: "unavailable" },
         children: [],
         warnings: []
-      }
+      },
+      nodeLinks: []
     });
     expect(r.success).toBe(true);
+  });
+
+  it("rejects a detail missing nodeLinks", () => {
+    const r = ThreadDetailSchema.safeParse({
+      thread: THREAD_ROW,
+      events: [],
+      tasks: [],
+      progress: { done: 1, total: 5 },
+      relations: { incoming: [VIEW], outgoing: [] },
+      rollup: {
+        direct: { progress: { done: 1, total: 5 }, energyHours: 2 },
+        contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, missingCost: null, missingCostStatus: "unavailable" },
+        total: { progress: { done: 1, total: 5 }, energyHours: 2, missingCost: null, missingCostStatus: "unavailable" },
+        children: [],
+        warnings: []
+      }
+    });
+    expect(r.success).toBe(false);
   });
 
   it("rejects a detail missing rollup", () => {
@@ -223,5 +244,30 @@ describe("ThreadRollupSchema", () => {
       children: [{ thread: { id: 2, name: "하위" }, depth: 0, relationId: 10, progress: { done: 0, total: 0 }, energyHours: 0, descendantCount: 0 }]
     });
     expect(r.success).toBe(false);
+  });
+});
+
+describe("ThreadNodeLinkSchema (cycle-50)", () => {
+  const LINK = {
+    id: 5, kind: "requires", firmness: "soft", source: "inferred",
+    from: { kind: "event", id: 1, title: "발표" },
+    to: { kind: "task", id: 2, title: "슬라이드" }
+  };
+  it("accepts a valid node link with firmness/source evidence", () => {
+    expect(ThreadNodeLinkSchema.safeParse(LINK).success).toBe(true);
+  });
+  it("accepts a hard/authored confirmed link", () => {
+    expect(ThreadNodeLinkSchema.safeParse({ ...LINK, firmness: "hard", source: "authored" }).success).toBe(true);
+  });
+  it("rejects an invalid endpoint kind (strict)", () => {
+    expect(ThreadNodeLinkSchema.safeParse({ ...LINK, from: { kind: "thread", id: 1, title: "x" } }).success).toBe(false);
+  });
+  it("rejects injected score/recommendation fields (strict)", () => {
+    expect(ThreadNodeLinkSchema.safeParse({ ...LINK, score: 9 }).success).toBe(false);
+    expect(ThreadNodeLinkSchema.safeParse({ ...LINK, recommendation: "x" }).success).toBe(false);
+  });
+  it("ConfirmThreadNodeLinkResponseData carries link + reused", () => {
+    expect(ConfirmThreadNodeLinkResponseDataSchema.safeParse({ link: LINK, reused: true }).success).toBe(true);
+    expect(ConfirmThreadNodeLinkResponseDataSchema.safeParse({ link: LINK }).success).toBe(false);
   });
 });

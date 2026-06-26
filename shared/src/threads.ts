@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ThreadLinkKindSchema, ThreadStatusSchema } from "./enums.js";
+import { LinkFirmnessSchema, LinkKindSchema, LinkSourceSchema, ThreadLinkKindSchema, ThreadStatusSchema } from "./enums.js";
 import { EventRowSchema } from "./events.js";
 import { TaskRowSchema } from "./tasks.js";
 
@@ -116,13 +116,46 @@ export const ThreadRollupSchema = z.object({
   warnings: z.array(z.string())
 });
 
+// Thread node link confirm contract (cycle-50 FR-THR-05). A `links` row whose
+// both endpoints (event/task) belong to the same thread, surfaced for explicit
+// firmness confirmation. firmness/source are display evidence, not editable
+// node fields.
+export const ThreadNodeKindSchema = z.enum(["event", "task"]);
+
+export const ThreadNodeRefSchema = z
+  .object({
+    kind: ThreadNodeKindSchema,
+    id: z.number().int().positive(),
+    title: z.string()
+  })
+  .strict();
+
+export const ThreadNodeLinkSchema = z
+  .object({
+    id: z.number().int().positive(),
+    kind: LinkKindSchema,
+    firmness: LinkFirmnessSchema,
+    source: LinkSourceSchema,
+    from: ThreadNodeRefSchema,
+    to: ThreadNodeRefSchema
+  })
+  .strict();
+
+export const ConfirmThreadNodeLinkResponseDataSchema = z
+  .object({
+    link: ThreadNodeLinkSchema,
+    reused: z.boolean()
+  })
+  .strict();
+
 export const ThreadDetailSchema = z.object({
   thread: ThreadRowSchema,
   events: z.array(EventRowSchema),
   tasks: z.array(TaskRowSchema),
   progress: ThreadProgressSchema,
   relations: ThreadRelationsSchema,
-  rollup: ThreadRollupSchema
+  rollup: ThreadRollupSchema,
+  nodeLinks: z.array(ThreadNodeLinkSchema)
 });
 
 export type ThreadRow = z.infer<typeof ThreadRowSchema>;
@@ -137,6 +170,10 @@ export type CreateThreadLinkRequest = z.infer<typeof CreateThreadLinkRequestSche
 export type ThreadRelationCounts = z.infer<typeof ThreadRelationCountsSchema>;
 export type ThreadSummary = z.infer<typeof ThreadSummarySchema>;
 export type ThreadDetail = z.infer<typeof ThreadDetailSchema>;
+export type ThreadNodeKind = z.infer<typeof ThreadNodeKindSchema>;
+export type ThreadNodeRef = z.infer<typeof ThreadNodeRefSchema>;
+export type ThreadNodeLink = z.infer<typeof ThreadNodeLinkSchema>;
+export type ConfirmThreadNodeLinkResponseData = z.infer<typeof ConfirmThreadNodeLinkResponseDataSchema>;
 export type ThreadRollupMetric = z.infer<typeof ThreadRollupMetricSchema>;
 export type ThreadRollupBucket = z.infer<typeof ThreadRollupBucketSchema>;
 export type ThreadRollupChild = z.infer<typeof ThreadRollupChildSchema>;

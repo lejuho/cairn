@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import { CreateTaskRequestSchema, PatchTaskStatusRequestSchema } from "@cairn/shared";
-import { createTask, updateTaskStatus } from "../repositories/tasks.js";
+import { CreateTaskRequestSchema, PatchTaskStatusRequestSchema, PatchThreadTaskNodeRequestSchema } from "@cairn/shared";
+import { createTask, findTaskById, updateTaskStatus, updateTaskThreadNode } from "../repositories/tasks.js";
 import type { CairnDatabase } from "../db/index.js";
 
 export function registerTaskRoutes(app: FastifyInstance, db: CairnDatabase): void {
@@ -51,5 +51,23 @@ export function registerTaskRoutes(app: FastifyInstance, db: CairnDatabase): voi
     }
 
     return reply.send({ ok: true, data: task });
+  });
+
+  // Thread node inline edit (cycle-50 FR-THR-06). Edits only title/estMinutes/
+  // due/context/optional. status/threadId are not editable here.
+  app.patch("/api/tasks/:id/thread-node", async (req, reply) => {
+    const id = Number((req.params as Record<string, string>).id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: "id must be a positive integer" } });
+    }
+    const parsed = PatchThreadTaskNodeRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: parsed.error.message } });
+    }
+    if (!findTaskById(db, id)) {
+      return reply.code(404).send({ ok: false, error: { code: "NOT_FOUND", message: `task ${id} not found` } });
+    }
+    const updated = updateTaskThreadNode(db, id, parsed.data)!;
+    return reply.send({ ok: true, data: { task: updated } });
   });
 }

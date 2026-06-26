@@ -32,6 +32,23 @@ export const EventRowSchema = z.object({
   updatedAt: z.string().nullable()
 });
 
+// Thread node inline edit (cycle-50 FR-THR-06). Strict partial — only these
+// presentation fields are editable here. start/end/status/threadId/source and
+// external calendar identity are intentionally NOT editable in this A-slice;
+// `.strict()` rejects them (and any score/autoApply injection). At least one
+// field is required.
+export const PatchThreadEventNodeRequestSchema = z
+  .object({
+    title: z.string().trim().min(1),
+    type: z.string().trim().nullable(),
+    location: z.string().trim().nullable(),
+    mode: EventModeSchema.nullable()
+  })
+  .partial()
+  .strict()
+  .refine((p) => Object.keys(p).length >= 1, { message: "at least one field is required" });
+
 export type EventMode = z.infer<typeof EventModeSchema>;
 export type CreateEventRequest = z.infer<typeof CreateEventRequestSchema>;
 export type EventRow = z.infer<typeof EventRowSchema>;
+export type PatchThreadEventNodeRequest = z.infer<typeof PatchThreadEventNodeRequestSchema>;
