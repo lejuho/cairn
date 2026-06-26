@@ -1,0 +1,9 @@
+{
+  "cycle": 56,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-26T09:04:32Z",
+  "summary": "Thread Resume STAR Save/Edit A (FR-CV-01/03): added 5 resume columns to threads (migration 0005 hand-fixed to ALTER ADD COLUMN per cycle-44 lesson), exposed resume in ThreadDetail, deterministic PATCH /api/threads/:id/resume (completed-thread only, mutates only resume cols), and a done-thread B-temperature resume editor + save-STAR-draft-to-resume action. No LLM, no export, no star_task column.",
+  "checks": ["corepack pnpm verify (EXIT=0, 625 tests)", "corepack pnpm db:generate (no schema changes)", "git diff --check master..HEAD", "migration applies on temp SQLite (5 ALTER ADD COLUMN, CHECK enforced)", "resume-boundary/no-export/write-scope/migration scans"]
+}
