@@ -1,0 +1,9 @@
+{
+  "cycle": 57,
+  "pass": 2,
+  "kind": "fix",
+  "review": ".review/cycle-57/review-v1.md",
+  "createdAt": "2026-06-26T10:22:33Z",
+  "summary": "Resolved review-v1 ISSUE-1 (strict parsePositiveIntParam on export route rejects 1abc/1.5/etc with 400; +test), ISSUE-2 (ThreadResumeExportDataSchema now a discriminatedUnion on format so json is required for json/absent for markdown; +shared tests), ISSUE-3 (documented code-level UI evidence; live visual checks recorded as requiring user sign-off). RESOLVED appended below sentinel.",
+  "checks": ["corepack pnpm verify (EXIT=0, 635 tests)", "corepack pnpm db:generate (no schema changes)", "git diff --check master..HEAD"]
+}
