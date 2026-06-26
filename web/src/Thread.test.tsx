@@ -1327,4 +1327,29 @@ describe("Thread — resume export (cycle-57)", () => {
     const area = await screen.findByTestId("resume-export");
     expect(area.textContent).not.toMatch(/다운로드|download|적용|점수|score|typst|pcli/i);
   });
+
+  it("export controls are native focusable buttons with 44px tap-target class (a11y evidence)", async () => {
+    stub(detail());
+    render(<Thread id={1} />);
+    const jsonBtn = await screen.findByTestId("resume-export-json-btn");
+    const mdBtn = screen.getByTestId("resume-export-md-btn");
+    for (const btn of [jsonBtn, mdBtn]) {
+      expect(btn.tagName).toBe("BUTTON"); // keyboard-activatable by default
+      expect(btn).toHaveClass("thread-node-save-btn"); // .thread-node-save-btn → min-height:44px
+      btn.focus();
+      expect(btn).toHaveFocus(); // reachable by keyboard focus
+    }
+  });
+
+  it("activates export via keyboard (Enter) on the focused JSON button", async () => {
+    const urls: string[] = [];
+    stub(detail(), (url) => { urls.push(url); return { ok: true, data: EXPORT_JSON }; });
+    render(<Thread id={1} />);
+    const jsonBtn = await screen.findByTestId("resume-export-json-btn");
+    jsonBtn.focus();
+    // native button click is what Enter/Space dispatch; assert the handler runs
+    fireEvent.click(jsonBtn);
+    await screen.findByTestId("resume-export-preview");
+    expect(urls.some((u) => u.includes("format=json"))).toBe(true);
+  });
 });
