@@ -1,0 +1,9 @@
+{
+  "cycle": 57,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-26T09:56:32Z",
+  "summary": "Thread Resume Export A (FR-CV-02): deterministic read-only GET /api/threads/:id/resume-export?format=json|markdown formatting saved resume fields, with eligibility gate (not_found/not_done/RESUME_NOT_MARKED/RESUME_EMPTY) single-sourced in the service; Thread resume export UI (tap-fetch JSON/Markdown preview). No LLM, no DB write, no Typst/pcli/download/score/apply, no star_task.",
+  "checks": ["corepack pnpm verify (EXIT=0, 634 tests)", "corepack pnpm db:generate (no schema changes)", "git diff --check master..HEAD", "no-Typst/pcli/download/score/apply + no-LLM-in-export scans"]
+}
