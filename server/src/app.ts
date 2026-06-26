@@ -4,6 +4,7 @@ import type { CairnDatabase } from "./db/index.js";
 import type { LlmGateway } from "./llm/gateway.js";
 import { registerAnnotationRoutes } from "./routes/annotations.js";
 import { registerCaptureRoutes } from "./routes/capture.js";
+import { registerThreadDraftRoutes } from "./routes/threadDraft.js";
 import { registerDecisionRoutes } from "./routes/decisions.js";
 import { registerFeasibilityRoutes } from "./routes/feasibility.js";
 import { registerMirrorRoutes } from "./routes/mirror.js";
@@ -48,6 +49,7 @@ export function buildServer(db?: CairnDatabase, gateway?: LlmGateway): FastifyIn
     if (gateway) {
       registerAnnotationRoutes(app, db, gateway);
       registerCaptureRoutes(app, db, gateway);
+      registerThreadDraftRoutes(app, db, gateway);
     }
   }
 
