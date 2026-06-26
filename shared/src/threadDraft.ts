@@ -10,15 +10,47 @@ import { ThreadNodeLinkSchema, ThreadRowSchema } from "./threads.js";
 // with soft/inferred node links. firmness/source/status are NOT part of the LLM
 // contract — the service forces them — so the parsed schemas reject them.
 
+// A timeZone must be a real IANA zone (e.g. "Asia/Seoul"), not an arbitrary
+// string, so it can be passed safely into date formatting / the parser prompt.
+function isIanaTimeZone(tz: string): boolean {
+  try {
+    // Intl throws RangeError on an unknown timezone.
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const CreateThreadDraftRequestSchema = z
   .object({
     text: z.string().trim().min(1, "text must be non-empty").max(4000, "text too long"),
     now: z.string().datetime({ offset: true }).optional(),
-    timeZone: z.string().min(1).optional()
+    timeZone: z.string().min(1).refine(isIanaTimeZone, "must be a valid IANA timezone").optional()
   })
   .strict();
 
 const CalendarDateSchema = z.string().refine(isCalendarDate, "must be a real YYYY-MM-DD date");
+
+// Placeholder tokens an LLM might emit for an unknown text field. They must
+// never be persisted as durable facts (FR-THR-03), so a draft nullable-text
+// field trims and normalizes empty/placeholder values to null — the unknown
+// then surfaces as input-needed rather than as fabricated data.
+const PLACEHOLDER_TOKENS = new Set([
+  "?", "??", "-", "--", "n/a", "na", "tbd", "tba", "unknown", "none", "null",
+  "미정", "모름", "없음", "추후", "추후결정"
+]);
+
+const DraftNullableText = z
+  .string()
+  .nullable()
+  .optional()
+  .transform((v) => {
+    if (v == null) return null;
+    const trimmed = v.trim();
+    if (trimmed === "" || PLACEHOLDER_TOKENS.has(trimmed.toLowerCase())) return null;
+    return trimmed;
+  });
 
 // A draft node referenced by a mapping-only tempId (never persisted).
 export const ThreadDraftNodeRefSchema = z
@@ -48,8 +80,8 @@ export const ThreadDraftWarningSchema = z
 const ThreadDraftThreadSchema = z
   .object({
     name: z.string().min(1),
-    kind: z.string().nullable().optional(),
-    goal: z.string().nullable().optional(),
+    kind: DraftNullableText,
+    goal: DraftNullableText,
     deadline: CalendarDateSchema.nullable().optional()
   })
   .strict();
@@ -58,10 +90,10 @@ const ThreadDraftEventSchema = z
   .object({
     tempId: z.string().min(1),
     title: z.string().min(1),
-    type: z.string().nullable().optional(),
+    type: DraftNullableText,
     start: z.string().datetime({ offset: true }).nullable().optional(),
     end: z.string().datetime({ offset: true }).nullable().optional(),
-    location: z.string().nullable().optional(),
+    location: DraftNullableText,
     mode: EventModeSchema.nullable().optional()
   })
   .strict();
@@ -72,7 +104,7 @@ const ThreadDraftTaskSchema = z
     title: z.string().min(1),
     estMinutes: z.number().int().positive().nullable().optional(),
     due: CalendarDateSchema.nullable().optional(),
-    context: z.string().nullable().optional(),
+    context: DraftNullableText,
     optional: z.boolean().optional()
   })
   .strict();

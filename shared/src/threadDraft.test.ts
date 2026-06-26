@@ -24,6 +24,14 @@ describe("CreateThreadDraftRequestSchema (cycle-51)", () => {
   it("rejects an offsetless now", () => {
     expect(CreateThreadDraftRequestSchema.safeParse({ text: "x", now: "2026-06-20T09:00:00" }).success).toBe(false);
   });
+  it("accepts a valid IANA timeZone", () => {
+    expect(CreateThreadDraftRequestSchema.safeParse({ text: "x", timeZone: "America/New_York" }).success).toBe(true);
+  });
+  it("rejects a non-IANA timeZone string", () => {
+    expect(CreateThreadDraftRequestSchema.safeParse({ text: "x", timeZone: "Mars/Olympus" }).success).toBe(false);
+    expect(CreateThreadDraftRequestSchema.safeParse({ text: "x", timeZone: "not-a-zone" }).success).toBe(false);
+    expect(CreateThreadDraftRequestSchema.safeParse({ text: "x", timeZone: "UTC+9" }).success).toBe(false);
+  });
 });
 
 describe("ThreadDraftParsedSchema (cycle-51)", () => {
@@ -55,6 +63,28 @@ describe("ThreadDraftParsedSchema (cycle-51)", () => {
     expect(ThreadDraftParsedSchema.safeParse({ ...BASE, thread: { ...BASE.thread, deadline: "?" } }).success).toBe(false);
     expect(ThreadDraftParsedSchema.safeParse({ ...BASE, thread: { ...BASE.thread, deadline: "2026-13-40" } }).success).toBe(false);
   });
+  it("normalizes placeholder/empty unknown text fields to null (not stored as fact)", () => {
+    const r = ThreadDraftParsedSchema.safeParse({
+      ...BASE,
+      thread: { name: "여행", kind: "TBD", goal: "  ", deadline: null },
+      events: [{ ...BASE.events[0], type: "unknown", location: "?" }],
+      tasks: [{ ...BASE.tasks[0], context: "미정" }]
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.thread.kind).toBeNull();
+      expect(r.data.thread.goal).toBeNull();
+      expect(r.data.events[0]!.type).toBeNull();
+      expect(r.data.events[0]!.location).toBeNull();
+      expect(r.data.tasks[0]!.context).toBeNull();
+    }
+  });
+  it("keeps a real text value but trims it", () => {
+    const r = ThreadDraftParsedSchema.safeParse({ ...BASE, thread: { name: "여행", kind: "  travel  ", goal: null, deadline: null } });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.thread.kind).toBe("travel");
+  });
+
   it("rejects injected score/recommendation/firmness/source/status/autoApply fields (strict)", () => {
     expect(ThreadDraftParsedSchema.safeParse({ ...BASE, score: 9 }).success).toBe(false);
     expect(ThreadDraftParsedSchema.safeParse({ ...BASE, links: [{ ...BASE.links[0], firmness: "hard" }] }).success).toBe(false);

@@ -77,6 +77,28 @@ describe("POST /api/threads/draft", () => {
     expect(counts(conn)).toMatchObject({ threads: 1, events: 0, tasks: 0, links: 0 });
   });
 
+  it("persists placeholder unknown text fields as NULL, not as fact", async () => {
+    const conn = makeTestDb();
+    const draft = {
+      thread: { name: "파리 여행", kind: "TBD", goal: "?", deadline: null },
+      events: [{ tempId: "e1", title: "항공권 예약", type: "unknown", start: null, end: null, location: "미정", mode: null }],
+      tasks: [{ tempId: "t1", title: "여권 확인", estMinutes: null, due: null, context: "  ", optional: false }],
+      links: [], warnings: []
+    };
+    const app = buildServer(conn.db, draftGateway(draft));
+    const res = await app.inject({ method: "POST", url: "/api/threads/draft", payload: { text: "x" } });
+    expect(res.statusCode).toBe(201);
+    const t = conn.sqlite.prepare("SELECT kind, goal FROM threads").get() as { kind: string | null; goal: string | null };
+    expect(t).toEqual({ kind: null, goal: null });
+    const ev = conn.sqlite.prepare("SELECT type, location FROM events").get() as { type: string | null; location: string | null };
+    expect(ev).toEqual({ type: null, location: null });
+    const tk = conn.sqlite.prepare("SELECT context FROM tasks").get() as { context: string | null };
+    expect(tk.context).toBeNull();
+    // response reflects the normalized nulls
+    expect(res.json().data.thread.kind).toBeNull();
+    expect(res.json().data.events[0].location).toBeNull();
+  });
+
   it("rejects a dangling link temp id with 502 and writes nothing", async () => {
     const conn = makeTestDb();
     const bad = { ...VALID_DRAFT, links: [{ from: { kind: "task", tempId: "ghost" }, to: { kind: "event", tempId: "e1" }, kind: "requires" }] };
