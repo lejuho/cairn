@@ -578,6 +578,11 @@ p {
   margin-top: 6px;
 }
 
+/* Unknown blockers (cycle-52): read-only input-needed diagnostics. */
+[data-testid="thread-unknown-blockers"] .today-card {
+  border-left: 3px solid var(--moved);
+}
+
 .thread-divider {
   display: flex;
   align-items: center;

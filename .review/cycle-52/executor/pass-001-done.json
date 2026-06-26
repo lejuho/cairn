@@ -1,0 +1,9 @@
+{
+  "cycle": 52,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-26T05:45:29Z",
+  "summary": "Thread Unknown Blocking A (FR-THR-04): read-only unknownBlockers added to ThreadDetail via pure deterministic computeThreadUnknownBlockers; Thread UI '입력 필요' section. No DB/LLM/mutation/schedule.",
+  "checks": ["corepack pnpm verify (EXIT=0, 601 tests)", "corepack pnpm db:generate (no schema changes)", "git diff --check master..HEAD", "static deterministic-boundary/no-LLM-mutation/scope scans"]
+}

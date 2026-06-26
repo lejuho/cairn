@@ -148,6 +148,41 @@ export const ConfirmThreadNodeLinkResponseDataSchema = z
   })
   .strict();
 
+// Unknown Blocking A (cycle-52 FR-THR-04). A read-only diagnostic: an in-thread
+// dependency link whose downstream node has a reverse-planning target (event
+// start / task due) but whose upstream prerequisite lacks the duration/timing
+// input needed to plan backward. Diagnostic only — no planning, no inference.
+export const ThreadUnknownBlockerMissingFieldSchema = z.enum([
+  "task.estMinutes",
+  "event.start",
+  "event.end"
+]);
+
+export const ThreadUnknownBlockerBlockedFieldSchema = z.enum(["event.start", "task.due"]);
+
+export const ThreadUnknownBlockerReasonCodeSchema = z.enum([
+  "blocker_missing_duration",
+  "blocker_missing_start",
+  "blocker_missing_end",
+  "blocker_soft_link"
+]);
+
+export const ThreadUnknownBlockerSchema = z
+  .object({
+    id: z.string().min(1),
+    linkId: z.number().int().positive(),
+    linkKind: LinkKindSchema,
+    firmness: LinkFirmnessSchema,
+    source: LinkSourceSchema,
+    prerequisite: ThreadNodeRefSchema,
+    blockedNode: ThreadNodeRefSchema,
+    missingField: ThreadUnknownBlockerMissingFieldSchema,
+    blockedField: ThreadUnknownBlockerBlockedFieldSchema,
+    message: z.string().min(1),
+    reasonCodes: z.array(ThreadUnknownBlockerReasonCodeSchema)
+  })
+  .strict();
+
 export const ThreadDetailSchema = z.object({
   thread: ThreadRowSchema,
   events: z.array(EventRowSchema),
@@ -155,7 +190,8 @@ export const ThreadDetailSchema = z.object({
   progress: ThreadProgressSchema,
   relations: ThreadRelationsSchema,
   rollup: ThreadRollupSchema,
-  nodeLinks: z.array(ThreadNodeLinkSchema)
+  nodeLinks: z.array(ThreadNodeLinkSchema),
+  unknownBlockers: z.array(ThreadUnknownBlockerSchema)
 });
 
 export type ThreadRow = z.infer<typeof ThreadRowSchema>;
@@ -174,6 +210,10 @@ export type ThreadNodeKind = z.infer<typeof ThreadNodeKindSchema>;
 export type ThreadNodeRef = z.infer<typeof ThreadNodeRefSchema>;
 export type ThreadNodeLink = z.infer<typeof ThreadNodeLinkSchema>;
 export type ConfirmThreadNodeLinkResponseData = z.infer<typeof ConfirmThreadNodeLinkResponseDataSchema>;
+export type ThreadUnknownBlockerMissingField = z.infer<typeof ThreadUnknownBlockerMissingFieldSchema>;
+export type ThreadUnknownBlockerBlockedField = z.infer<typeof ThreadUnknownBlockerBlockedFieldSchema>;
+export type ThreadUnknownBlockerReasonCode = z.infer<typeof ThreadUnknownBlockerReasonCodeSchema>;
+export type ThreadUnknownBlocker = z.infer<typeof ThreadUnknownBlockerSchema>;
 export type ThreadRollupMetric = z.infer<typeof ThreadRollupMetricSchema>;
 export type ThreadRollupBucket = z.infer<typeof ThreadRollupBucketSchema>;
 export type ThreadRollupChild = z.infer<typeof ThreadRollupChildSchema>;
