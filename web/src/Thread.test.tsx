@@ -1045,3 +1045,81 @@ describe("Thread — missing node suggestions (cycle-54)", () => {
     expect(section.querySelectorAll("button").length).toBe(0);
   });
 });
+
+describe("Thread — STAR draft (cycle-55)", () => {
+  const DONE_THREAD = { ...BASE_THREAD, status: "done" as const };
+  const STAR_DATA = {
+    draft: {
+      situation: "상황 텍스트", task: "과업 텍스트", action: "행동 텍스트", result: "결과 텍스트",
+      skills: ["계획", "조율"], confidence: "draft" as const,
+      reasonCodes: ["star_from_completed_thread", "star_user_must_edit", "star_result_uses_settlement"]
+    },
+    evidence: {
+      thread: { id: 1, name: "프로젝트 알파", kind: "project", goal: null, deadline: null },
+      nodeTitles: ["킥오프 미팅"], annotationCount: 1,
+      settlement: EMPTY_SETTLEMENT_T, warnings: ["이 스레드에는 목표가 기록되어 있지 않아."]
+    }
+  };
+  function detail(over: Partial<ThreadDetail> = {}): ThreadDetail {
+    return {
+      thread: DONE_THREAD, events: [BASE_EVENT], tasks: [BASE_TASK],
+      progress: { done: 2, total: 2 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP,
+      nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], ...over
+    } as ThreadDetail;
+  }
+  function stub(d: ThreadDetail, onPost?: () => unknown) {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (opts?.method === "POST" && url.includes("star-draft")) return Promise.resolve(makeResponse(onPost?.() ?? { ok: true, data: STAR_DATA }, url));
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
+      if (url.includes("promotion-suggestions")) return Promise.resolve(makeResponse({ ok: true, data: { suggestions: [] } }, url));
+      if (url.includes("/api/threads/1")) return Promise.resolve(makeResponse({ ok: true, data: d }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: [] }, url));
+    }));
+  }
+
+  it("shows the STAR action on a completed thread", async () => {
+    stub(detail());
+    render(<Thread id={1} />);
+    expect(await screen.findByTestId("star-generate-btn")).toHaveTextContent("STAR 초안 만들기");
+  });
+
+  it("hides the STAR action on a non-done thread", async () => {
+    stub(detail({ thread: BASE_THREAD })); // active
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByTestId("thread-relations")).toBeInTheDocument());
+    expect(screen.queryByTestId("thread-star")).not.toBeInTheDocument();
+  });
+
+  it("POSTs to star-draft and renders Situation/Task/Action/Result/Skills", async () => {
+    const calls: string[] = [];
+    stub(detail(), () => { calls.push("posted"); return { ok: true, data: STAR_DATA }; });
+    render(<Thread id={1} />);
+    fireEvent.click(await screen.findByTestId("star-generate-btn"));
+    const draft = await screen.findByTestId("star-draft");
+    expect(calls).toContain("posted");
+    expect(draft).toHaveTextContent("상황 텍스트");
+    expect(draft).toHaveTextContent("과업 텍스트");
+    expect(draft).toHaveTextContent("행동 텍스트");
+    expect(draft).toHaveTextContent("결과 텍스트");
+    expect(screen.getByTestId("star-skills")).toHaveTextContent("계획");
+    expect(screen.getByTestId("star-warning")).toHaveTextContent("목표가 기록되어 있지 않아");
+    // no save/export/apply controls
+    expect(screen.queryByRole("button", { name: /저장|내보내기|export|적용/i })).not.toBeInTheDocument();
+  });
+
+  it("shows scoped error copy on LLM unavailable", async () => {
+    stub(detail(), () => ({ ok: false, error: { code: "LLM_UNAVAILABLE", message: "down" } }));
+    render(<Thread id={1} />);
+    fireEvent.click(await screen.findByTestId("star-generate-btn"));
+    await waitFor(() => expect(screen.getByTestId("star-error")).toBeInTheDocument());
+    expect(screen.getByTestId("star-error")).toHaveTextContent("잠시 후 다시 시도");
+    expect(screen.queryByTestId("star-draft")).not.toBeInTheDocument();
+  });
+
+  it("shows scoped error copy on invalid draft", async () => {
+    stub(detail(), () => ({ ok: false, error: { code: "LLM_INVALID_DRAFT", message: "bad" } }));
+    render(<Thread id={1} />);
+    fireEvent.click(await screen.findByTestId("star-generate-btn"));
+    await waitFor(() => expect(screen.getByTestId("star-error")).toHaveTextContent("형식이 올바르지 않아"));
+  });
+});

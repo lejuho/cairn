@@ -583,6 +583,17 @@ p {
   border-left: 3px solid var(--moved);
 }
 
+/* STAR draft (cycle-55): B-temperature completed-thread reflection. */
+.thread-star-btn {
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 0 16px;
+}
+.thread-star-field {
+  border-left: 3px solid var(--border);
+  padding-left: 8px;
+}
+
 .thread-divider {
   display: flex;
   align-items: center;

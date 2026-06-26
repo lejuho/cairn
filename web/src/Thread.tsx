@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ApprovePromotionRequest, EgoGraphData, EventMode, EventRow, PromotionSuggestion, TaskRow, ThreadDetail, ThreadLinkKind, ThreadMissingNodeSuggestion, ThreadNodeLink, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadRollup, ThreadRow, ThreadSettlement, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
+import type { ApprovePromotionRequest, EgoGraphData, EventMode, EventRow, PromotionSuggestion, TaskRow, ThreadDetail, ThreadLinkKind, ThreadMissingNodeSuggestion, ThreadNodeLink, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadRollup, ThreadRow, ThreadSettlement, ThreadStarDraftResponseData, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
 import { EgoSheet, loadEgoGraph } from "./EgoSheet.js";
 
@@ -18,6 +18,12 @@ async function patchTaskNode(id: number, body: Record<string, unknown>) {
 async function confirmNodeLink(threadId: number, linkId: number) {
   return apiJson<{ ok: boolean; error?: { code: string; message: string } }>(`/api/threads/${threadId}/node-links/${linkId}/confirm`, {
     method: "PATCH"
+  });
+}
+// STAR draft generation (cycle-55 FR-CV-01). POST only; no body; ephemeral.
+async function postStarDraft(threadId: number) {
+  return apiJson<{ ok: boolean; data?: ThreadStarDraftResponseData; error?: { code: string; message: string } }>(`/api/threads/${threadId}/star-draft`, {
+    method: "POST"
   });
 }
 
@@ -417,6 +423,10 @@ export function Thread({ id }: { id: number }) {
 
         {detail.settlement.status === "ready" && (
           <SettlementSection settlement={detail.settlement} />
+        )}
+
+        {detail.thread.status === "done" && (
+          <StarDraftSection threadId={detail.thread.id} />
         )}
 
         {detail.missingNodeSuggestions.length > 0 && (
@@ -872,6 +882,83 @@ function SettlementSection({ settlement }: { settlement: ThreadSettlement }) {
         <p className="card-meta" data-testid="settlement-partial-note" style={{ marginTop: "8px", color: "var(--moved)" }}>
           아직 끝나지 않은 항목이 있어 — 정산은 참고용이야.
         </p>
+      )}
+    </section>
+  );
+}
+
+// STAR draft (cycle-55 FR-CV-01). Completed-thread-only B-temperature surface
+// that generates an ephemeral STAR card via the LLM. Read-only display: the
+// draft is not stored, and there is no save/export/edit/auto-apply control.
+type StarDraftState =
+  | { tag: "idle" }
+  | { tag: "loading" }
+  | { tag: "error"; message: string }
+  | { tag: "ready"; data: ThreadStarDraftResponseData };
+
+function StarDraftSection({ threadId }: { threadId: number }) {
+  const [state, setState] = useState<StarDraftState>({ tag: "idle" });
+
+  async function generate() {
+    if (state.tag === "loading") return;
+    setState({ tag: "loading" });
+    try {
+      const res = await postStarDraft(threadId);
+      if (!res.ok || !res.data) {
+        const msg = res.error?.code === "LLM_UNAVAILABLE"
+          ? "지금은 초안을 만들 수 없어 — 잠시 후 다시 시도해줘."
+          : res.error?.code === "LLM_INVALID_DRAFT"
+            ? "초안 형식이 올바르지 않아 — 다시 시도해줘."
+            : (res.error?.message ?? "초안 생성 실패");
+        setState({ tag: "error", message: msg });
+        return;
+      }
+      setState({ tag: "ready", data: res.data });
+    } catch {
+      setState({ tag: "error", message: "초안 생성 실패" });
+    }
+  }
+
+  return (
+    <section className="quiet-card thread-star" aria-labelledby="thread-star-title" data-testid="thread-star" style={{ width: "min(100%, 480px)", marginTop: "24px" }}>
+      <p className="eyebrow" style={{ margin: "0 0 8px" }}>STAR 회고</p>
+      <h2 id="thread-star-title" className="card-title" style={{ margin: "0 0 8px" }}>완료한 일을 STAR로 정리</h2>
+      <p className="card-meta" style={{ margin: "0 0 12px", opacity: 0.7 }}>완료된 스레드의 증거로 초안을 만들어 — 저장은 안 하고, 직접 다듬어 쓰면 돼.</p>
+
+      <button className="today-submit-btn thread-star-btn" data-testid="star-generate-btn" onClick={() => void generate()} disabled={state.tag === "loading"}>
+        {state.tag === "loading" ? "초안 만드는 중…" : "STAR 초안 만들기"}
+      </button>
+
+      {state.tag === "error" && (
+        <p className="today-reply-error" role="alert" data-testid="star-error" style={{ marginTop: "10px" }}>{state.message}</p>
+      )}
+
+      {state.tag === "ready" && (
+        <div className="thread-star-draft" data-testid="star-draft" style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
+          {([
+            ["Situation", state.data.draft.situation],
+            ["Task", state.data.draft.task],
+            ["Action", state.data.draft.action],
+            ["Result", state.data.draft.result]
+          ] as const).map(([label, body]) => (
+            <div key={label} className="thread-star-field">
+              <p className="eyebrow" style={{ margin: "0 0 2px" }}>{label}</p>
+              <p className="card-meta" style={{ margin: 0 }}>{body}</p>
+            </div>
+          ))}
+          {state.data.draft.skills.length > 0 && (
+            <div className="thread-star-field" data-testid="star-skills">
+              <p className="eyebrow" style={{ margin: "0 0 2px" }}>Skills</p>
+              <p className="card-meta" style={{ display: "flex", flexWrap: "wrap", gap: "4px", margin: 0 }}>
+                {state.data.draft.skills.map((s, i) => <span key={i} className="card-chip">{s}</span>)}
+              </p>
+            </div>
+          )}
+          <p className="card-meta" style={{ opacity: 0.7, marginTop: "2px" }}>초안일 뿐이야 — 직접 확인하고 고쳐 써.</p>
+          {state.data.evidence.warnings.map((w, i) => (
+            <p key={i} className="card-meta" data-testid="star-warning" style={{ color: "var(--moved)" }}>{w}</p>
+          ))}
+        </div>
       )}
     </section>
   );

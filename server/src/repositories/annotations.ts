@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import type { AnnotationRow } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import { annotations } from "../db/schema.js";
@@ -57,6 +57,18 @@ export function findAnnotationsByEvent(db: CairnDatabase, eventId: number): Anno
     .select()
     .from(annotations)
     .where(eq(annotations.eventId, eventId))
+    .orderBy(desc(annotations.id))
+    .all()
+    .map(toRow);
+}
+
+// Read-only: annotations for a bounded set of (direct) event ids (cycle-55).
+export function findAnnotationsByEventIds(db: CairnDatabase, eventIds: number[]): AnnotationRow[] {
+  if (eventIds.length === 0) return [];
+  return db
+    .select()
+    .from(annotations)
+    .where(inArray(annotations.eventId, eventIds))
     .orderBy(desc(annotations.id))
     .all()
     .map(toRow);
