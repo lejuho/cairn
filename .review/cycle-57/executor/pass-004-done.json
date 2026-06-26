@@ -1,0 +1,9 @@
+{
+  "cycle": 57,
+  "pass": 4,
+  "kind": "fix",
+  "review": ".review/cycle-57/review-v3.md",
+  "createdAt": "2026-06-26T15:52:34Z",
+  "summary": "review-v3 ISSUE-3 resolved: the user performed the live visual UI checks for the resume export controls (mobile/wide layout, light/dark appearance, reduced-motion, on-device focus walk, 44px touch targets) and explicitly signed off. This closes the Sprint Contract's manual UI verification — the only remaining blocker. No code change this pass; ISSUE-1/ISSUE-2 already RESOLVED in review-v1.",
+  "checks": ["corepack pnpm verify (EXIT=0, 635 tests)", "git diff --check master..HEAD"]
+}
