@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { CreateThreadLinkRequestSchema, CreateThreadRequestSchema } from "@cairn/shared";
+import { CreateThreadLinkRequestSchema, CreateThreadRequestSchema, PatchThreadResumeRequestSchema } from "@cairn/shared";
 import {
   createThread,
   createThreadLink,
@@ -8,6 +8,7 @@ import {
   listThreads
 } from "../services/threads.js";
 import { confirmThreadNodeLink } from "../repositories/links.js";
+import { findThreadById, updateThreadResume } from "../repositories/threads.js";
 import type { CairnDatabase } from "../db/index.js";
 
 export function registerThreadRoutes(app: FastifyInstance, db: CairnDatabase): void {
@@ -120,5 +121,31 @@ export function registerThreadRoutes(app: FastifyInstance, db: CairnDatabase): v
       });
     }
     return reply.send({ ok: true, data: result });
+  });
+
+  // Resume / CV STAR save+edit (cycle-56 FR-CV-01/03). Deterministic (no
+  // gateway). Mutates only the target thread's resume columns; completed-only.
+  app.patch("/api/threads/:id/resume", async (req, reply) => {
+    const id = parseInt((req.params as { id: string }).id, 10);
+    if (!Number.isFinite(id) || id <= 0) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: "id must be a positive integer" } });
+    }
+    const parsed = PatchThreadResumeRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: parsed.error.message } });
+    }
+    const thread = findThreadById(db, id);
+    if (!thread) {
+      return reply.code(404).send({ ok: false, error: { code: "NOT_FOUND", message: "thread not found" } });
+    }
+    if (thread.status !== "done") {
+      return reply.code(409).send({ ok: false, error: { code: "THREAD_NOT_DONE", message: "thread is not complete" } });
+    }
+    try {
+      const data = updateThreadResume(db, id, parsed.data);
+      return reply.send({ ok: true, data });
+    } catch (err) {
+      return reply.code(400).send({ ok: false, error: { code: "DB_ERROR", message: err instanceof Error ? err.message : String(err) } });
+    }
   });
 }

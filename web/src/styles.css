@@ -594,6 +594,12 @@ p {
   padding-left: 8px;
 }
 
+/* Resume editor (cycle-56): B-temperature persisted STAR fields. */
+.thread-resume-toggle input {
+  width: 20px;
+  height: 20px;
+}
+
 .thread-divider {
   display: flex;
   align-items: center;

@@ -43,10 +43,18 @@ export const threads = sqliteTable(
     definitionOfDone: text("definition_of_done"),
     deadline: text("deadline"),
     status: text("status").default("active"),
-    createdAt: text("created_at").default(sql`(datetime('now'))`)
+    createdAt: text("created_at").default(sql`(datetime('now'))`),
+    // Resume / CV STAR fields (cycle-56 FR-CV-01/03). Persisted, user-owned,
+    // editable only on completed threads. skills_tags holds a JSON string array.
+    resumeRelevant: integer("resume_relevant").default(0),
+    starSituation: text("star_situation"),
+    starAction: text("star_action"),
+    starResult: text("star_result"),
+    skillsTags: text("skills_tags")
   },
   (table) => [
-    check("threads_status_check", sql`${table.status} in (${enumSqlList(THREAD_STATUSES)})`)
+    check("threads_status_check", sql`${table.status} in (${enumSqlList(THREAD_STATUSES)})`),
+    check("threads_resume_relevant_check", sql`${table.resumeRelevant} in (0, 1)`)
   ]
 );
 

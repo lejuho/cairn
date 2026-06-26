@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Thread } from "./Thread.js";
-import type { PromotionSuggestion, ThreadDetail, ThreadLinkView, ThreadMissingNodeSuggestion, ThreadResourceFocusData, ThreadRollup, ThreadSettlement, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
+import type { PromotionSuggestion, ThreadDetail, ThreadLinkView, ThreadMissingNodeSuggestion, ThreadResourceFocusData, ThreadRollup, ThreadResumeData, ThreadSettlement, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
 
 afterEach(() => {
   cleanup();
@@ -46,6 +46,8 @@ const EMPTY_SETTLEMENT_T: ThreadSettlement = {
   sampleStatus: "empty",
   reasonCodes: ["settlement_not_done"]
 };
+
+const EMPTY_RESUME_T: ThreadResumeData = { resumeRelevant: false, starSituation: null, starAction: null, starResult: null, skillsTags: [] };
 
 const EMPTY_ROLLUP: ThreadRollup = {
   direct: { progress: { done: 0, total: 0 }, energyHours: 0 },
@@ -93,11 +95,11 @@ function makeResponse(body: unknown, url = "/api/threads/1", status = 200) {
 const EMPTY_FOCUS: ThreadResourceFocusData = { threadId: 1, resources: [] };
 
 function mockFetch(
-  detail: Omit<ThreadDetail, "relations" | "rollup" | "nodeLinks" | "unknownBlockers" | "settlement" | "missingNodeSuggestions"> & Partial<Pick<ThreadDetail, "relations" | "rollup" | "nodeLinks" | "unknownBlockers" | "settlement" | "missingNodeSuggestions">>,
+  detail: Omit<ThreadDetail, "relations" | "rollup" | "nodeLinks" | "unknownBlockers" | "settlement" | "missingNodeSuggestions" | "resume"> & Partial<Pick<ThreadDetail, "relations" | "rollup" | "nodeLinks" | "unknownBlockers" | "settlement" | "missingNodeSuggestions" | "resume">>,
   focus: ThreadResourceFocusData = EMPTY_FOCUS,
   suggestions: PromotionSuggestion[] = []
 ) {
-  const data: ThreadDetail = { relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], ...detail };
+  const data: ThreadDetail = { relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: EMPTY_RESUME_T, ...detail };
   vi.stubGlobal(
     "fetch",
     vi.fn().mockImplementation((url: string) => {
@@ -171,7 +173,7 @@ describe("Thread — empty items still expose relations", () => {
   it("opens the relation sheet from an empty thread (FR-THR-09 first-link path)", async () => {
     const threadData = {
       thread: BASE_THREAD, events: [], tasks: [],
-      progress: { done: 0, total: 0 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: []
+      progress: { done: 0, total: 0 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: EMPTY_RESUME_T
     };
     vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
       if (url.includes("resource-focus")) {
@@ -296,12 +298,12 @@ describe("Thread — relations section", () => {
     const threadWithLink = {
       thread: BASE_THREAD, events: [BASE_EVENT], tasks: [],
       progress: { done: 0, total: 1 },
-      relations: { incoming: [], outgoing: [OUTGOING_LINK] }, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: []
+      relations: { incoming: [], outgoing: [OUTGOING_LINK] }, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: EMPTY_RESUME_T
     };
     const threadNoLink = {
       thread: BASE_THREAD, events: [BASE_EVENT], tasks: [],
       progress: { done: 0, total: 1 },
-      relations: { incoming: [], outgoing: [] }, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: []
+      relations: { incoming: [], outgoing: [] }, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: EMPTY_RESUME_T
     };
     vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
       if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
@@ -321,7 +323,7 @@ describe("Thread — relations section", () => {
 describe("Thread — add link sheet", () => {
   const THREAD_DATA = {
     thread: BASE_THREAD, events: [BASE_EVENT], tasks: [],
-    progress: { done: 0, total: 1 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: []
+    progress: { done: 0, total: 1 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: EMPTY_RESUME_T
   };
 
   function mockWithSheet(threads: ThreadSummary[] = [SUMMARY_OTHER]) {
@@ -467,7 +469,7 @@ describe("Thread — resource-focus section", () => {
   it("fetches resource-focus endpoint alongside thread detail", async () => {
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: FOCUS_DATA }, url));
-      return Promise.resolve(makeResponse({ ok: true, data: { thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [] } }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: { thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: EMPTY_RESUME_T } }, url));
     });
     vi.stubGlobal("fetch", fetchMock);
     render(<Thread id={1} />);
@@ -518,7 +520,7 @@ describe("Thread — resource-focus section", () => {
   it("focus fetch failure leaves thread detail usable", async () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
       if (url.includes("resource-focus")) return Promise.reject(new Error("network error"));
-      return Promise.resolve(makeResponse({ ok: true, data: { thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [] } }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: { thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: EMPTY_RESUME_T } }, url));
     }));
     render(<Thread id={1} />);
     await waitFor(() => expect(screen.getByRole("heading", { name: "프로젝트 알파" })).toBeInTheDocument());
@@ -552,7 +554,7 @@ describe("Thread — resource-focus section", () => {
       if (url.includes("/api/relations/ego")) return Promise.resolve(makeResponse(ego, url));
       if (url.includes("promotion-suggestions")) return Promise.resolve(makeResponse({ ok: true, data: { suggestions: [] } }, url));
       if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: FOCUS_DATA }, url));
-      return Promise.resolve(makeResponse({ ok: true, data: { thread: BASE_THREAD, events: [BASE_EVENT], tasks: [BASE_TASK], progress: { done: 0, total: 2 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [] } }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: { thread: BASE_THREAD, events: [BASE_EVENT], tasks: [BASE_TASK], progress: { done: 0, total: 2 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: EMPTY_RESUME_T } }, url));
     }));
   }
 
@@ -561,7 +563,7 @@ describe("Thread — resource-focus section", () => {
       if (url.includes("/api/relations/ego")) return Promise.resolve(makeResponse({ ok: true, data: EGO_RESOURCE }, url));
       if (url.includes("promotion-suggestions")) return Promise.resolve(makeResponse({ ok: true, data: { suggestions: [] } }, url));
       if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: FOCUS_DATA }, url));
-      return Promise.resolve(makeResponse({ ok: true, data: { thread: BASE_THREAD, events: [BASE_EVENT], tasks: [BASE_TASK], progress: { done: 0, total: 2 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [] } }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: { thread: BASE_THREAD, events: [BASE_EVENT], tasks: [BASE_TASK], progress: { done: 0, total: 2 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: EMPTY_RESUME_T } }, url));
     });
     vi.stubGlobal("fetch", fetchMock);
     render(<Thread id={1} />);
@@ -698,7 +700,7 @@ describe("Thread — promotion suggestions panel", () => {
         return Promise.resolve(makeResponse({ ok: true, data: { suggestions: approveCallCount > 0 ? [] : [SUGGESTION] } }, url));
       }
       if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
-      return Promise.resolve(makeResponse({ ok: true, data: { thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [] } }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: { thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: EMPTY_RESUME_T } }, url));
     }));
     render(<Thread id={1} />);
     await waitFor(() => expect(screen.getByTestId("promotion-approve-btn")).toBeInTheDocument());
@@ -716,7 +718,7 @@ describe("Thread — promotion suggestions panel", () => {
         return Promise.resolve(makeResponse({ ok: true, data: { suggestions: [SUGGESTION] } }, url));
       }
       if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
-      return Promise.resolve(makeResponse({ ok: true, data: { thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [] } }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: { thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: EMPTY_RESUME_T } }, url));
     }));
     render(<Thread id={1} />);
     await waitFor(() => expect(screen.getByTestId("promotion-approve-btn")).toBeInTheDocument());
@@ -736,7 +738,7 @@ describe("Thread — promotion suggestions panel", () => {
         return Promise.resolve(makeResponse({ ok: true, data: { suggestions: [SUGGESTION] } }, url));
       }
       if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
-      return Promise.resolve(makeResponse({ ok: true, data: { thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [] } }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: { thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: EMPTY_RESUME_T } }, url));
     }));
     render(<Thread id={1} />);
     await waitFor(() => expect(screen.getByTestId("promotion-approve-btn")).toBeInTheDocument());
@@ -780,7 +782,7 @@ describe("Thread — node edit + confirm (cycle-50)", () => {
   function detailWith(over: Partial<ThreadDetail> = {}): ThreadDetail {
     return {
       thread: BASE_THREAD, events: [BASE_EVENT], tasks: [BASE_TASK],
-      progress: { done: 0, total: 2 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], ...over
+      progress: { done: 0, total: 2 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: EMPTY_RESUME_T, ...over
     } as ThreadDetail;
   }
 
@@ -856,7 +858,7 @@ describe("Thread — node edit + confirm (cycle-50)", () => {
   });
 
   it("does not render the node-links section when there are none", async () => {
-    stub(detailWith({ nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [] }));
+    stub(detailWith({ nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: EMPTY_RESUME_T }));
     render(<Thread id={1} />);
     await waitFor(() => expect(screen.getByTestId("thread-relations")).toBeInTheDocument());
     expect(screen.queryByTestId("thread-node-links")).not.toBeInTheDocument();
@@ -877,7 +879,7 @@ describe("Thread — unknown blockers (cycle-52)", () => {
   function detail(over: Partial<ThreadDetail> = {}): ThreadDetail {
     return {
       thread: BASE_THREAD, events: [BASE_EVENT], tasks: [BASE_TASK],
-      progress: { done: 0, total: 2 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], ...over
+      progress: { done: 0, total: 2 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: EMPTY_RESUME_T, ...over
     } as ThreadDetail;
   }
   function stub(d: ThreadDetail) {
@@ -891,7 +893,7 @@ describe("Thread — unknown blockers (cycle-52)", () => {
   }
 
   it("renders no unknown-blockers section when the array is empty", async () => {
-    stub(detail({ unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [] }));
+    stub(detail({ unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: EMPTY_RESUME_T }));
     render(<Thread id={1} />);
     await waitFor(() => expect(screen.getByTestId("thread-relations")).toBeInTheDocument());
     expect(screen.queryByTestId("thread-unknown-blockers")).not.toBeInTheDocument();
@@ -936,7 +938,7 @@ describe("Thread — settlement (cycle-53)", () => {
     return {
       thread: BASE_THREAD, events: [BASE_EVENT], tasks: [BASE_TASK],
       progress: { done: 0, total: 2 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP,
-      nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], ...over
+      nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: EMPTY_RESUME_T, ...over
     } as ThreadDetail;
   }
   function stub(d: ThreadDetail) {
@@ -961,7 +963,7 @@ describe("Thread — settlement (cycle-53)", () => {
   });
 
   it("does not render the settlement card when not ready", async () => {
-    stub(detail({ settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [] }));
+    stub(detail({ settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: EMPTY_RESUME_T }));
     render(<Thread id={1} />);
     await waitFor(() => expect(screen.getByTestId("thread-relations")).toBeInTheDocument());
     expect(screen.queryByTestId("thread-settlement")).not.toBeInTheDocument();
@@ -998,7 +1000,7 @@ describe("Thread — missing node suggestions (cycle-54)", () => {
     return {
       thread: BASE_THREAD, events: [BASE_EVENT], tasks: [BASE_TASK],
       progress: { done: 0, total: 2 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP,
-      nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], ...over
+      nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: EMPTY_RESUME_T, ...over
     } as ThreadDetail;
   }
   function stub(d: ThreadDetail) {
@@ -1024,7 +1026,7 @@ describe("Thread — missing node suggestions (cycle-54)", () => {
   });
 
   it("renders no section when there are no suggestions", async () => {
-    stub(detail({ missingNodeSuggestions: [] }));
+    stub(detail({ missingNodeSuggestions: [], resume: EMPTY_RESUME_T }));
     render(<Thread id={1} />);
     await waitFor(() => expect(screen.getByTestId("thread-relations")).toBeInTheDocument());
     expect(screen.queryByTestId("thread-missing-nodes")).not.toBeInTheDocument();
@@ -1064,7 +1066,7 @@ describe("Thread — STAR draft (cycle-55)", () => {
     return {
       thread: DONE_THREAD, events: [BASE_EVENT], tasks: [BASE_TASK],
       progress: { done: 2, total: 2 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP,
-      nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], ...over
+      nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: EMPTY_RESUME_T, ...over
     } as ThreadDetail;
   }
   function stub(d: ThreadDetail, onPost?: () => unknown) {
@@ -1105,8 +1107,9 @@ describe("Thread — STAR draft (cycle-55)", () => {
     expect(draft).toHaveTextContent("결과 텍스트");
     expect(screen.getByTestId("star-skills")).toHaveTextContent("계획");
     expect(screen.getByTestId("star-warning")).toHaveTextContent("목표가 기록되어 있지 않아");
-    // no save/export/apply controls
-    expect(screen.queryByRole("button", { name: /저장|내보내기|export|적용/i })).not.toBeInTheDocument();
+    // The ephemeral draft is editable-later evidence: no export/download control.
+    // (Saving to the persisted resume fields is a separate cycle-56 action.)
+    expect(screen.queryByRole("button", { name: /내보내기|export|download|다운로드/i })).not.toBeInTheDocument();
   });
 
   it("shows scoped error copy on LLM unavailable", async () => {
@@ -1123,5 +1126,93 @@ describe("Thread — STAR draft (cycle-55)", () => {
     render(<Thread id={1} />);
     fireEvent.click(await screen.findByTestId("star-generate-btn"));
     await waitFor(() => expect(screen.getByTestId("star-error")).toHaveTextContent("형식이 올바르지 않아"));
+  });
+});
+
+describe("Thread — resume save/edit (cycle-56)", () => {
+  const DONE_THREAD = { ...BASE_THREAD, status: "done" as const };
+  const RESUME: ThreadResumeData = { resumeRelevant: true, starSituation: "저장된 상황", starAction: "저장된 행동", starResult: "저장된 결과", skillsTags: ["계획", "조율"] };
+  function detail(over: Partial<ThreadDetail> = {}): ThreadDetail {
+    return {
+      thread: DONE_THREAD, events: [BASE_EVENT], tasks: [BASE_TASK],
+      progress: { done: 2, total: 2 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP,
+      nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: EMPTY_RESUME_T, ...over
+    } as ThreadDetail;
+  }
+  function stub(d: ThreadDetail, onPatch?: (url: string, body: unknown) => unknown) {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string; body?: string }) => {
+      if (opts?.method === "PATCH" && url.includes("/resume")) {
+        return Promise.resolve(makeResponse(onPatch?.(url, opts.body ? JSON.parse(opts.body) : {}) ?? { ok: true, data: RESUME }, url));
+      }
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
+      if (url.includes("promotion-suggestions")) return Promise.resolve(makeResponse({ ok: true, data: { suggestions: [] } }, url));
+      if (url.includes("/api/threads/1")) return Promise.resolve(makeResponse({ ok: true, data: d }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: [] }, url));
+    }));
+  }
+
+  it("shows the saved resume editor with save controls on a completed thread", async () => {
+    stub(detail({ resume: RESUME }));
+    render(<Thread id={1} />);
+    const section = await screen.findByTestId("thread-resume");
+    expect(section).toHaveClass("quiet-card", "warm");
+    expect(screen.getByLabelText("Situation")).toHaveValue("저장된 상황");
+    expect(screen.getByLabelText("Skills (쉼표로 구분, 최대 8)")).toHaveValue("계획, 조율");
+    expect(screen.getByTestId("resume-save-btn")).toBeInTheDocument();
+  });
+
+  it("hides the resume editor on a non-done thread", async () => {
+    stub(detail({ thread: BASE_THREAD }));
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByTestId("thread-relations")).toBeInTheDocument());
+    expect(screen.queryByTestId("thread-resume")).not.toBeInTheDocument();
+  });
+
+  it("editing fields PATCHes /resume with trimmed text + parsed skills", async () => {
+    let body: Record<string, unknown> | null = null;
+    stub(detail(), (_url, b) => { body = b as Record<string, unknown>; return { ok: true, data: RESUME }; });
+    render(<Thread id={1} />);
+    fireEvent.change(await screen.findByLabelText("Situation"), { target: { value: "  새 상황  " } });
+    fireEvent.change(screen.getByLabelText("Skills (쉼표로 구분, 최대 8)"), { target: { value: "계획, , 조율 " } });
+    fireEvent.click(screen.getByTestId("resume-save-btn"));
+    await waitFor(() => expect(body).not.toBeNull());
+    expect(body).toMatchObject({ starSituation: "새 상황", skillsTags: ["계획", "조율"] });
+  });
+
+  it("save STAR draft to resume maps situation/action/result/skills (not task)", async () => {
+    const STAR_DATA = {
+      draft: { situation: "STAR 상황", task: "STAR 과업", action: "STAR 행동", result: "STAR 결과", skills: ["스킬"], confidence: "draft" as const, reasonCodes: ["star_from_completed_thread", "star_user_must_edit", "star_result_uses_settlement"] },
+      evidence: { thread: { id: 1, name: "t", kind: null, goal: null, deadline: null }, nodeTitles: [], annotationCount: 0, settlement: EMPTY_SETTLEMENT_T, warnings: [] }
+    };
+    let body: Record<string, unknown> | null = null;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string; body?: string }) => {
+      if (opts?.method === "POST" && url.includes("star-draft")) return Promise.resolve(makeResponse({ ok: true, data: STAR_DATA }, url));
+      if (opts?.method === "PATCH" && url.includes("/resume")) { body = opts.body ? JSON.parse(opts.body) : {}; return Promise.resolve(makeResponse({ ok: true, data: RESUME }, url)); }
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
+      if (url.includes("promotion-suggestions")) return Promise.resolve(makeResponse({ ok: true, data: { suggestions: [] } }, url));
+      if (url.includes("/api/threads/1")) return Promise.resolve(makeResponse({ ok: true, data: detail() }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: [] }, url));
+    }));
+    render(<Thread id={1} />);
+    fireEvent.click(await screen.findByTestId("star-generate-btn"));
+    fireEvent.click(await screen.findByTestId("star-save-to-resume"));
+    await waitFor(() => expect(body).not.toBeNull());
+    expect(body).toEqual({ starSituation: "STAR 상황", starAction: "STAR 행동", starResult: "STAR 결과", skillsTags: ["스킬"] });
+    expect(body).not.toHaveProperty("starTask");
+    expect(body).not.toHaveProperty("task");
+  });
+
+  it("failed save shows a scoped error", async () => {
+    stub(detail(), () => ({ ok: false, error: { code: "DB_ERROR", message: "저장 못함" } }));
+    render(<Thread id={1} />);
+    fireEvent.click(await screen.findByTestId("resume-save-btn"));
+    await waitFor(() => expect(screen.getByTestId("resume-error")).toHaveTextContent("저장 못함"));
+  });
+
+  it("the resume section has no export/download/score controls", async () => {
+    stub(detail({ resume: RESUME }));
+    render(<Thread id={1} />);
+    const section = await screen.findByTestId("thread-resume");
+    expect(section.textContent).not.toMatch(/내보내기|export|download|다운로드|점수|score/i);
   });
 });

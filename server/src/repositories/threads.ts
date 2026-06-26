@@ -3,10 +3,12 @@ import { and, asc, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import type {
   CreateThreadRequest,
   EventRow,
+  PatchThreadResumeRequest,
   TaskRow,
   ThreadLinkFirmness,
   ThreadLinkRow,
   ThreadLinkView,
+  ThreadResumeData,
   ThreadRow
 } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
@@ -39,6 +41,62 @@ export function listThreads(db: CairnDatabase): ThreadRow[] {
 export function findThreadById(db: CairnDatabase, id: number): ThreadRow | null {
   const row = db.select().from(threads).where(eq(threads.id, id)).get();
   return row ? (row as ThreadRow) : null;
+}
+
+// Resume / CV STAR persistence (cycle-56 FR-CV-01/03). The 5 resume columns are
+// not on ThreadRow, so resume reads/writes use dedicated helpers.
+
+// Fail-open: malformed/legacy skills_tags JSON yields [] and never fabricates.
+export function parseSkillsTags(raw: string | null): string[] {
+  if (raw == null) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.every((s) => typeof s === "string")) return parsed as string[];
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+export function findThreadResume(db: CairnDatabase, id: number): ThreadResumeData | null {
+  const row = db
+    .select({
+      resumeRelevant: threads.resumeRelevant,
+      starSituation: threads.starSituation,
+      starAction: threads.starAction,
+      starResult: threads.starResult,
+      skillsTags: threads.skillsTags
+    })
+    .from(threads)
+    .where(eq(threads.id, id))
+    .get();
+  if (!row) return null;
+  return {
+    resumeRelevant: row.resumeRelevant === 1,
+    starSituation: row.starSituation ?? null,
+    starAction: row.starAction ?? null,
+    starResult: row.starResult ?? null,
+    skillsTags: parseSkillsTags(row.skillsTags ?? null)
+  };
+}
+
+function normalizeText(v: string | null): string | null {
+  if (v == null) return null;
+  const t = v.trim();
+  return t === "" ? null : t;
+}
+
+// Updates ONLY the resume columns present in the patch; unspecified columns are
+// left untouched. Text trimmed (blank→null); skillsTags stored as a JSON array.
+export function updateThreadResume(db: CairnDatabase, id: number, patch: PatchThreadResumeRequest): ThreadResumeData {
+  const set: Partial<typeof threads.$inferInsert> = {};
+  if ("resumeRelevant" in patch) set.resumeRelevant = patch.resumeRelevant ? 1 : 0;
+  if ("starSituation" in patch) set.starSituation = normalizeText(patch.starSituation ?? null);
+  if ("starAction" in patch) set.starAction = normalizeText(patch.starAction ?? null);
+  if ("starResult" in patch) set.starResult = normalizeText(patch.starResult ?? null);
+  if ("skillsTags" in patch) set.skillsTags = JSON.stringify(patch.skillsTags ?? []);
+  db.update(threads).set(set).where(eq(threads.id, id)).run();
+  return findThreadResume(db, id)!;
 }
 
 export function findThreadsByIds(db: CairnDatabase, ids: number[]): ThreadRow[] {

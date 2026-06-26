@@ -28,6 +28,7 @@ import {
   findTasksByThreadId,
   findTasksSlimByThreadIds,
   findThreadById,
+  findThreadResume,
   findThreadNamesByIds,
   findThreadsByIds,
   insertLink,
@@ -110,7 +111,8 @@ export function getThreadDetail(db: CairnDatabase, id: number): ThreadDetail | n
     );
   }
 
-  return { thread, events: threadEvents, tasks: threadTasks, progress, relations, rollup, nodeLinks, unknownBlockers, settlement, missingNodeSuggestions };
+  const resume = findThreadResume(db, id) ?? { resumeRelevant: false, starSituation: null, starAction: null, starResult: null, skillsTags: [] };
+  return { thread, events: threadEvents, tasks: threadTasks, progress, relations, rollup, nodeLinks, unknownBlockers, settlement, missingNodeSuggestions, resume };
 }
 
 function buildRollup(db: CairnDatabase, rootId: number): ThreadRollup {

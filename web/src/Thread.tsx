@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ApprovePromotionRequest, EgoGraphData, EventMode, EventRow, PromotionSuggestion, TaskRow, ThreadDetail, ThreadLinkKind, ThreadMissingNodeSuggestion, ThreadNodeLink, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadRollup, ThreadRow, ThreadSettlement, ThreadStarDraftResponseData, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
+import type { ApprovePromotionRequest, EgoGraphData, EventMode, EventRow, PromotionSuggestion, TaskRow, ThreadDetail, ThreadLinkKind, ThreadMissingNodeSuggestion, ThreadNodeLink, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadResumeData, ThreadRollup, ThreadRow, ThreadSettlement, ThreadStarDraftResponseData, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
 import { EgoSheet, loadEgoGraph } from "./EgoSheet.js";
 
@@ -24,6 +24,12 @@ async function confirmNodeLink(threadId: number, linkId: number) {
 async function postStarDraft(threadId: number) {
   return apiJson<{ ok: boolean; data?: ThreadStarDraftResponseData; error?: { code: string; message: string } }>(`/api/threads/${threadId}/star-draft`, {
     method: "POST"
+  });
+}
+// Resume STAR save/edit (cycle-56 FR-CV-01/03). Deterministic PATCH; persists.
+async function patchThreadResume(threadId: number, body: Record<string, unknown>) {
+  return apiJson<{ ok: boolean; data?: ThreadResumeData; error?: { code: string; message: string } }>(`/api/threads/${threadId}/resume`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
   });
 }
 
@@ -426,7 +432,10 @@ export function Thread({ id }: { id: number }) {
         )}
 
         {detail.thread.status === "done" && (
-          <StarDraftSection threadId={detail.thread.id} />
+          <>
+            <StarDraftSection threadId={detail.thread.id} onSaved={refresh} />
+            <ResumeSection threadId={detail.thread.id} resume={detail.resume} onSaved={refresh} />
+          </>
         )}
 
         {detail.missingNodeSuggestions.length > 0 && (
@@ -896,8 +905,27 @@ type StarDraftState =
   | { tag: "error"; message: string }
   | { tag: "ready"; data: ThreadStarDraftResponseData };
 
-function StarDraftSection({ threadId }: { threadId: number }) {
+function StarDraftSection({ threadId, onSaved }: { threadId: number; onSaved: () => void }) {
   const [state, setState] = useState<StarDraftState>({ tag: "idle" });
+  const [savingToResume, setSavingToResume] = useState(false);
+
+  // Save the ephemeral draft's situation/action/result/skills (NOT task — the
+  // spec defines no Task storage column) into the persisted resume fields.
+  async function saveDraftToResume(data: ThreadStarDraftResponseData) {
+    if (savingToResume) return;
+    setSavingToResume(true);
+    try {
+      const res = await patchThreadResume(threadId, {
+        starSituation: data.draft.situation,
+        starAction: data.draft.action,
+        starResult: data.draft.result,
+        skillsTags: data.draft.skills
+      });
+      if (res.ok) onSaved();
+    } finally {
+      setSavingToResume(false);
+    }
+  }
 
   async function generate() {
     if (state.tag === "loading") return;
@@ -958,8 +986,85 @@ function StarDraftSection({ threadId }: { threadId: number }) {
           {state.data.evidence.warnings.map((w, i) => (
             <p key={i} className="card-meta" data-testid="star-warning" style={{ color: "var(--moved)" }}>{w}</p>
           ))}
+          <button className="thread-node-save-btn" data-testid="star-save-to-resume" onClick={() => void saveDraftToResume(state.data)} disabled={savingToResume}>
+            {savingToResume ? "저장 중…" : "이력서 칸에 담기 (Task 제외)"}
+          </button>
         </div>
       )}
+    </section>
+  );
+}
+
+// Resume / CV STAR save+edit (cycle-56 FR-CV-01/03). Completed-thread-only
+// B-temperature editor for the persisted Situation/Action/Result/Skills +
+// resumeRelevant. User-owned editable data — no export/apply/score control.
+function ResumeSection({ threadId, resume, onSaved }: { threadId: number; resume: ThreadResumeData; onSaved: () => void }) {
+  const [situation, setSituation] = useState(resume.starSituation ?? "");
+  const [action, setAction] = useState(resume.starAction ?? "");
+  const [result, setResult] = useState(resume.starResult ?? "");
+  const [skills, setSkills] = useState(resume.skillsTags.join(", "));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    if (saving) return;
+    setSaving(true); setError(null);
+    const skillsTags = skills.split(",").map((s) => s.trim()).filter((s) => s !== "").slice(0, 8);
+    try {
+      const res = await patchThreadResume(threadId, {
+        starSituation: situation.trim() === "" ? null : situation.trim(),
+        starAction: action.trim() === "" ? null : action.trim(),
+        starResult: result.trim() === "" ? null : result.trim(),
+        skillsTags
+      });
+      if (!res.ok) { setError(res.error?.message ?? "저장 실패"); setSaving(false); return; }
+      onSaved();
+    } catch {
+      setError("저장 실패"); setSaving(false);
+    }
+  }
+
+  async function toggleRelevant() {
+    if (saving) return;
+    setSaving(true); setError(null);
+    try {
+      const res = await patchThreadResume(threadId, { resumeRelevant: !resume.resumeRelevant });
+      if (!res.ok) { setError(res.error?.message ?? "저장 실패"); setSaving(false); return; }
+      onSaved();
+    } catch {
+      setError("저장 실패"); setSaving(false);
+    }
+  }
+
+  return (
+    <section className="quiet-card warm thread-resume" aria-labelledby="thread-resume-title" data-testid="thread-resume" style={{ width: "min(100%, 480px)", marginTop: "24px" }}>
+      <p className="eyebrow" style={{ margin: "0 0 8px" }}>이력서 칸</p>
+      <h2 id="thread-resume-title" className="card-title" style={{ margin: "0 0 4px" }}>저장된 STAR 정리</h2>
+      <p className="card-meta" style={{ margin: "0 0 12px", opacity: 0.7 }}>직접 다듬어 저장해 — 내 자료야. (Task는 저장 안 해.)</p>
+
+      <label className="thread-resume-toggle card-meta" style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
+        <input type="checkbox" data-testid="resume-relevant-toggle" checked={resume.resumeRelevant} onChange={() => void toggleRelevant()} disabled={saving} aria-label="이력서 후보로 표시" />
+        <span>이력서 후보로 표시</span>
+      </label>
+
+      <div className="thread-node-form">
+        <label className="thread-node-field"><span>Situation</span>
+          <input value={situation} onChange={(e) => setSituation(e.target.value)} aria-label="Situation" />
+        </label>
+        <label className="thread-node-field"><span>Action</span>
+          <input value={action} onChange={(e) => setAction(e.target.value)} aria-label="Action" />
+        </label>
+        <label className="thread-node-field"><span>Result</span>
+          <input value={result} onChange={(e) => setResult(e.target.value)} aria-label="Result" />
+        </label>
+        <label className="thread-node-field"><span>Skills (쉼표로 구분, 최대 8)</span>
+          <input value={skills} onChange={(e) => setSkills(e.target.value)} aria-label="Skills" />
+        </label>
+        {error && <p className="card-meta" role="alert" data-testid="resume-error" style={{ color: "var(--moved)" }}>{error}</p>}
+        <button className="thread-node-save-btn" data-testid="resume-save-btn" onClick={() => void save()} disabled={saving}>
+          {saving ? "저장 중…" : "저장"}
+        </button>
+      </div>
     </section>
   );
 }

@@ -273,6 +273,33 @@ export const ThreadMissingNodeSuggestionSchema = z
   })
   .strict();
 
+// Resume / CV STAR fields (cycle-56 FR-CV-01/03). Persisted, user-owned,
+// editable only on completed threads. Deterministic persistence — no LLM, no
+// export. `task` is intentionally NOT a stored field (Task stays display-only).
+export const ThreadResumeDataSchema = z
+  .object({
+    resumeRelevant: z.boolean(),
+    starSituation: z.string().nullable(),
+    starAction: z.string().nullable(),
+    starResult: z.string().nullable(),
+    skillsTags: z.array(z.string())
+  })
+  .strict();
+
+export const PatchThreadResumeRequestSchema = z
+  .object({
+    resumeRelevant: z.boolean(),
+    starSituation: z.string().nullable(),
+    starAction: z.string().nullable(),
+    starResult: z.string().nullable(),
+    skillsTags: z.array(z.string().trim().min(1)).max(8)
+  })
+  .partial()
+  .strict()
+  .refine((p) => Object.keys(p).length >= 1, { message: "at least one field is required" });
+
+export const PatchThreadResumeResponseDataSchema = ThreadResumeDataSchema;
+
 export const ThreadDetailSchema = z.object({
   thread: ThreadRowSchema,
   events: z.array(EventRowSchema),
@@ -283,7 +310,8 @@ export const ThreadDetailSchema = z.object({
   nodeLinks: z.array(ThreadNodeLinkSchema),
   unknownBlockers: z.array(ThreadUnknownBlockerSchema),
   settlement: ThreadSettlementSchema,
-  missingNodeSuggestions: z.array(ThreadMissingNodeSuggestionSchema)
+  missingNodeSuggestions: z.array(ThreadMissingNodeSuggestionSchema),
+  resume: ThreadResumeDataSchema
 });
 
 export type ThreadRow = z.infer<typeof ThreadRowSchema>;
@@ -298,6 +326,9 @@ export type CreateThreadLinkRequest = z.infer<typeof CreateThreadLinkRequestSche
 export type ThreadRelationCounts = z.infer<typeof ThreadRelationCountsSchema>;
 export type ThreadSummary = z.infer<typeof ThreadSummarySchema>;
 export type ThreadDetail = z.infer<typeof ThreadDetailSchema>;
+export type ThreadResumeData = z.infer<typeof ThreadResumeDataSchema>;
+export type PatchThreadResumeRequest = z.infer<typeof PatchThreadResumeRequestSchema>;
+export type PatchThreadResumeResponseData = z.infer<typeof PatchThreadResumeResponseDataSchema>;
 export type ThreadNodeKind = z.infer<typeof ThreadNodeKindSchema>;
 export type ThreadNodeRef = z.infer<typeof ThreadNodeRefSchema>;
 export type ThreadNodeLink = z.infer<typeof ThreadNodeLinkSchema>;

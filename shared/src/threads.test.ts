@@ -6,6 +6,8 @@ import {
   ThreadUnknownBlockerSchema,
   ThreadSettlementSchema,
   ThreadMissingNodeSuggestionSchema,
+  ThreadResumeDataSchema,
+  PatchThreadResumeRequestSchema,
   ConfirmThreadNodeLinkResponseDataSchema,
   ThreadLinkRowSchema,
   ThreadLinkViewSchema,
@@ -32,6 +34,10 @@ const EMPTY_SETTLEMENT = {
   avoidedMissing: { doneCount: 0, totalCount: 0, knownAvoidedCount: 0, unknownCostCount: 0, money: null, moneyStatus: "unavailable" as const },
   sampleStatus: "empty" as const,
   reasonCodes: ["settlement_not_done"]
+};
+
+const EMPTY_RESUME = {
+  resumeRelevant: false, starSituation: null, starAction: null, starResult: null, skillsTags: []
 };
 
 const THREAD_ROW = {
@@ -167,9 +173,25 @@ describe("ThreadDetailSchema.relations", () => {
       nodeLinks: [],
       unknownBlockers: [],
       settlement: EMPTY_SETTLEMENT,
-      missingNodeSuggestions: []
+      missingNodeSuggestions: [],
+      resume: EMPTY_RESUME
     });
     expect(r.success).toBe(true);
+  });
+
+  it("rejects a detail missing resume", () => {
+    const r = ThreadDetailSchema.safeParse({
+      thread: THREAD_ROW, events: [], tasks: [], progress: { done: 1, total: 5 },
+      relations: { incoming: [VIEW], outgoing: [] },
+      rollup: {
+        direct: { progress: { done: 1, total: 5 }, energyHours: 2 },
+        contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, missingCost: null, missingCostStatus: "unavailable" },
+        total: { progress: { done: 1, total: 5 }, energyHours: 2, missingCost: null, missingCostStatus: "unavailable" },
+        children: [], warnings: []
+      },
+      nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT, missingNodeSuggestions: []
+    });
+    expect(r.success).toBe(false);
   });
 
   it("rejects a detail missing missingNodeSuggestions", () => {
@@ -433,5 +455,32 @@ describe("ThreadMissingNodeSuggestionSchema (cycle-54)", () => {
   });
   it("rejects an injected field on a sampleThread (strict)", () => {
     expect(ThreadMissingNodeSuggestionSchema.safeParse({ ...SUG, sampleThreads: [{ id: 3, name: "x", score: 1 }] }).success).toBe(false);
+  });
+});
+
+describe("ThreadResumeDataSchema / PatchThreadResumeRequestSchema (cycle-56)", () => {
+  it("accepts default and full resume data", () => {
+    expect(ThreadResumeDataSchema.safeParse({ resumeRelevant: false, starSituation: null, starAction: null, starResult: null, skillsTags: [] }).success).toBe(true);
+    expect(ThreadResumeDataSchema.safeParse({ resumeRelevant: true, starSituation: "s", starAction: "a", starResult: "r", skillsTags: ["계획", "조율"] }).success).toBe(true);
+  });
+  it("PATCH accepts a single field and rejects an empty patch", () => {
+    expect(PatchThreadResumeRequestSchema.safeParse({ resumeRelevant: true }).success).toBe(true);
+    expect(PatchThreadResumeRequestSchema.safeParse({}).success).toBe(false);
+  });
+  it("PATCH accepts null text fields (clears) and skillsTags <=8", () => {
+    expect(PatchThreadResumeRequestSchema.safeParse({ starSituation: null, skillsTags: [] }).success).toBe(true);
+    expect(PatchThreadResumeRequestSchema.safeParse({ skillsTags: Array(8).fill("x") }).success).toBe(true);
+  });
+  it("PATCH trims skill items and rejects blank items / >8", () => {
+    const r = PatchThreadResumeRequestSchema.safeParse({ skillsTags: ["  계획  ", "조율"] });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.skillsTags).toEqual(["계획", "조율"]);
+    expect(PatchThreadResumeRequestSchema.safeParse({ skillsTags: ["ok", "   "] }).success).toBe(false);
+    expect(PatchThreadResumeRequestSchema.safeParse({ skillsTags: Array(9).fill("x") }).success).toBe(false);
+  });
+  it("PATCH rejects injected task/starTask/score/recommendation/apply/exportPath/persist/saved/format fields (strict)", () => {
+    for (const inj of [{ task: "x" }, { starTask: "x" }, { score: 1 }, { recommendation: "x" }, { advice: "y" }, { autoApply: true }, { apply: true }, { claim: "x" }, { exportPath: "/x" }, { persist: true }, { saved: true }, { format: "pdf" }]) {
+      expect(PatchThreadResumeRequestSchema.safeParse({ resumeRelevant: true, ...inj }).success).toBe(false);
+    }
   });
 });
