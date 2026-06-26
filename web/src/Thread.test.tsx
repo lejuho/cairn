@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Thread } from "./Thread.js";
+import { Thread, resumeExportFile } from "./Thread.js";
 import type { PromotionSuggestion, ThreadDetail, ThreadLinkView, ThreadMissingNodeSuggestion, ThreadResourceFocusData, ThreadRollup, ThreadResumeData, ThreadSettlement, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
 
 afterEach(() => {
@@ -1351,5 +1351,156 @@ describe("Thread — resume export (cycle-57)", () => {
     fireEvent.click(jsonBtn);
     await screen.findByTestId("resume-export-preview");
     expect(urls.some((u) => u.includes("format=json"))).toBe(true);
+  });
+});
+
+describe("resumeExportFile helper (cycle-58)", () => {
+  it("returns deterministic filename + MIME per format using only the numeric id", () => {
+    expect(resumeExportFile("json", 7)).toEqual({ filename: "cairn-thread-7-resume.json", mime: "application/json;charset=utf-8" });
+    expect(resumeExportFile("markdown", 7)).toEqual({ filename: "cairn-thread-7-resume.md", mime: "text/markdown;charset=utf-8" });
+  });
+});
+
+describe("Thread — resume export file actions (cycle-58)", () => {
+  const DONE_THREAD = { ...BASE_THREAD, status: "done" as const };
+  const RESUME: ThreadResumeData = { resumeRelevant: true, starSituation: "저장된 상황", starAction: "저장된 행동", starResult: "저장된 결과", skillsTags: ["계획", "조율"] };
+  const EXPORT_JSON = { format: "json" as const, content: '{\n  "thread": { "id": 1 }\n}', warnings: [], json: { thread: { id: 1, name: "t", kind: null, goal: null, deadline: null }, star: { situation: "저장된 상황", action: null, result: null }, skills: ["계획"] } };
+  const EXPORT_MD = { format: "markdown" as const, content: "# t\n\n## Situation\n저장된 상황", warnings: [] };
+  function detail(over: Partial<ThreadDetail> = {}): ThreadDetail {
+    return {
+      thread: DONE_THREAD, events: [BASE_EVENT], tasks: [BASE_TASK],
+      progress: { done: 2, total: 2 }, relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP,
+      nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: RESUME, ...over
+    } as ThreadDetail;
+  }
+  type MutMethod = string | undefined;
+  const mutating: MutMethod[] = [];
+  function stub(d: ThreadDetail, exportData: unknown = EXPORT_JSON) {
+    mutating.length = 0;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (opts?.method === "POST" || opts?.method === "PATCH") mutating.push(`${opts?.method} ${url}`);
+      if (opts?.method === "GET" && url.includes("resume-export")) return Promise.resolve(makeResponse({ ok: true, data: url.includes("markdown") ? EXPORT_MD : exportData }, url));
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
+      if (url.includes("promotion-suggestions")) return Promise.resolve(makeResponse({ ok: true, data: { suggestions: [] } }, url));
+      if (url.includes("/api/threads/1")) return Promise.resolve(makeResponse({ ok: true, data: d }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: [] }, url));
+    }));
+  }
+  function setClipboard(writeText: ((t: string) => Promise<void>) | undefined) {
+    Object.defineProperty(navigator, "clipboard", { value: writeText ? { writeText } : undefined, configurable: true });
+  }
+  afterEach(() => {
+    setClipboard(undefined);
+    delete (URL as unknown as { createObjectURL?: unknown }).createObjectURL;
+    delete (URL as unknown as { revokeObjectURL?: unknown }).revokeObjectURL;
+  });
+
+  it("hides copy/download controls before an export preview is ready", async () => {
+    stub(detail());
+    render(<Thread id={1} />);
+    await screen.findByTestId("resume-export-json-btn");
+    expect(screen.queryByTestId("resume-export-copy-btn")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("resume-export-download-btn")).not.toBeInTheDocument();
+  });
+
+  it("copies the current JSON content to the clipboard with success feedback", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    setClipboard(writeText);
+    stub(detail());
+    render(<Thread id={1} />);
+    fireEvent.click(await screen.findByTestId("resume-export-json-btn"));
+    fireEvent.click(await screen.findByTestId("resume-export-copy-btn"));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(EXPORT_JSON.content));
+    expect(await screen.findByTestId("resume-export-action-feedback")).toHaveTextContent("복사");
+    expect(mutating).toEqual([]); // no POST/PATCH
+  });
+
+  it("copies the current Markdown content after switching format", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    setClipboard(writeText);
+    stub(detail());
+    render(<Thread id={1} />);
+    fireEvent.click(await screen.findByTestId("resume-export-md-btn"));
+    fireEvent.click(await screen.findByTestId("resume-export-copy-btn"));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(EXPORT_MD.content));
+  });
+
+  it("shows scoped copy failure when the clipboard rejects", async () => {
+    setClipboard(vi.fn().mockRejectedValue(new Error("denied")));
+    stub(detail());
+    render(<Thread id={1} />);
+    fireEvent.click(await screen.findByTestId("resume-export-json-btn"));
+    fireEvent.click(await screen.findByTestId("resume-export-copy-btn"));
+    await waitFor(() => expect(screen.getByTestId("resume-export-action-error")).toHaveTextContent("복사 실패"));
+    expect(screen.getByTestId("resume-export-preview")).toBeInTheDocument(); // non-fatal
+  });
+
+  it("shows scoped copy failure when the Clipboard API is unavailable", async () => {
+    setClipboard(undefined);
+    stub(detail());
+    render(<Thread id={1} />);
+    fireEvent.click(await screen.findByTestId("resume-export-json-btn"));
+    fireEvent.click(await screen.findByTestId("resume-export-copy-btn"));
+    await waitFor(() => expect(screen.getByTestId("resume-export-action-error")).toHaveTextContent("복사 실패"));
+  });
+
+  it("downloads JSON: Blob MIME application/json;charset=utf-8, filename, anchor click, URL revoked", async () => {
+    let blobType = "";
+    let downloadName = "";
+    const createObjectURL = vi.fn((b: Blob) => { blobType = b.type; return "blob:fake"; });
+    const revokeObjectURL = vi.fn();
+    Object.assign(URL, { createObjectURL, revokeObjectURL });
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { downloadName = this.download; });
+    stub(detail());
+    render(<Thread id={1} />);
+    fireEvent.click(await screen.findByTestId("resume-export-json-btn"));
+    fireEvent.click(await screen.findByTestId("resume-export-download-btn"));
+    await waitFor(() => expect(clickSpy).toHaveBeenCalled());
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(blobType).toBe("application/json;charset=utf-8");
+    expect(downloadName).toBe("cairn-thread-1-resume.json");
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:fake");
+    expect(await screen.findByTestId("resume-export-action-feedback")).toHaveTextContent("저장");
+    expect(mutating).toEqual([]);
+    clickSpy.mockRestore();
+  });
+
+  it("downloads Markdown: Blob MIME text/markdown;charset=utf-8 and .md filename", async () => {
+    let blobType = "";
+    let downloadName = "";
+    Object.assign(URL, { createObjectURL: vi.fn((b: Blob) => { blobType = b.type; return "blob:md"; }), revokeObjectURL: vi.fn() });
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { downloadName = this.download; });
+    stub(detail());
+    render(<Thread id={1} />);
+    fireEvent.click(await screen.findByTestId("resume-export-md-btn"));
+    fireEvent.click(await screen.findByTestId("resume-export-download-btn"));
+    await waitFor(() => expect(clickSpy).toHaveBeenCalled());
+    expect(blobType).toBe("text/markdown;charset=utf-8");
+    expect(downloadName).toBe("cairn-thread-1-resume.md");
+    clickSpy.mockRestore();
+  });
+
+  it("shows scoped file-save failure when object URL creation throws, and still revokes nothing leaked", async () => {
+    Object.assign(URL, { createObjectURL: vi.fn(() => { throw new Error("no blob"); }), revokeObjectURL: vi.fn() });
+    stub(detail());
+    render(<Thread id={1} />);
+    fireEvent.click(await screen.findByTestId("resume-export-json-btn"));
+    fireEvent.click(await screen.findByTestId("resume-export-download-btn"));
+    await waitFor(() => expect(screen.getByTestId("resume-export-action-error")).toHaveTextContent("파일 저장 실패"));
+    expect(screen.getByTestId("resume-export-preview")).toBeInTheDocument();
+  });
+
+  it("copy/download buttons are native focusable buttons with the 44px tap-target class", async () => {
+    stub(detail());
+    render(<Thread id={1} />);
+    fireEvent.click(await screen.findByTestId("resume-export-json-btn"));
+    for (const id of ["resume-export-copy-btn", "resume-export-download-btn"]) {
+      const btn = await screen.findByTestId(id);
+      expect(btn.tagName).toBe("BUTTON");
+      expect(btn).toHaveAttribute("type", "button");
+      expect(btn).toHaveClass("thread-node-save-btn");
+      btn.focus();
+      expect(btn).toHaveFocus();
+    }
   });
 });

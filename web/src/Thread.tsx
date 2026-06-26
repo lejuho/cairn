@@ -39,6 +39,15 @@ async function getThreadResumeExport(threadId: number, format: ThreadResumeExpor
   });
 }
 
+// Resume export file actions (cycle-58 FR-CV-02). Deterministic filename/MIME by
+// format. Filename uses only the numeric thread id — never user text — so there
+// is no sanitization or path-injection surface.
+export function resumeExportFile(format: ThreadResumeExportFormat, threadId: number): { filename: string; mime: string } {
+  return format === "json"
+    ? { filename: `cairn-thread-${threadId}-resume.json`, mime: "application/json;charset=utf-8" }
+    : { filename: `cairn-thread-${threadId}-resume.md`, mime: "text/markdown;charset=utf-8" };
+}
+
 const LINK_FIRMNESS_LABEL: Record<string, string> = { hard: "확정", soft: "약함", tentative: "잠정" };
 const LINK_SOURCE_LABEL: Record<string, string> = { authored: "직접", given: "주어짐", inferred: "추론" };
 
@@ -1067,8 +1076,14 @@ function ResumeSection({ threadId, resume, onSaved }: { threadId: number; resume
     resume.skillsTags.some((s) => s.trim() !== "");
   const canExport = resume.resumeRelevant && hasSavedContent;
 
+  // Scoped feedback for copy/download (cycle-58). Reset on every fetch/format
+  // switch so it never refers to a stale export.
+  type ActionFeedback = "idle" | "copied" | "copy_failed" | "saved" | "save_failed";
+  const [actionFeedback, setActionFeedback] = useState<ActionFeedback>("idle");
+
   async function runExport(format: ThreadResumeExportFormat) {
     if (exportState.tag === "loading") return;
+    setActionFeedback("idle");
     setExportState({ tag: "loading" });
     try {
       const res = await getThreadResumeExport(threadId, format);
@@ -1079,6 +1094,39 @@ function ResumeSection({ threadId, resume, onSaved }: { threadId: number; resume
       setExportState({ tag: "ready", data: res.data });
     } catch {
       setExportState({ tag: "error", message: "내보내기 실패" });
+    }
+  }
+
+  // Copy the CURRENT ready export's content to the clipboard. Scoped + non-fatal
+  // when the Clipboard API is missing or rejects.
+  async function copyExport(data: ThreadResumeExportData) {
+    try {
+      if (!navigator.clipboard?.writeText) { setActionFeedback("copy_failed"); return; }
+      await navigator.clipboard.writeText(data.content);
+      setActionFeedback("copied");
+    } catch {
+      setActionFeedback("copy_failed");
+    }
+  }
+
+  // Download the CURRENT ready export as a local file via a Blob object URL.
+  // The URL is always revoked, even on the failure path.
+  function downloadExport(data: ThreadResumeExportData) {
+    const { filename, mime } = resumeExportFile(data.format, threadId);
+    let url: string | null = null;
+    try {
+      if (!URL.createObjectURL) { setActionFeedback("save_failed"); return; }
+      const blob = new Blob([data.content], { type: mime });
+      url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      setActionFeedback("saved");
+    } catch {
+      setActionFeedback("save_failed");
+    } finally {
+      if (url) URL.revokeObjectURL(url);
     }
   }
 
@@ -1127,6 +1175,14 @@ function ResumeSection({ threadId, resume, onSaved }: { threadId: number; resume
                 <p key={i} className="card-meta" data-testid="resume-export-warning" style={{ color: "var(--moved)", margin: "0 0 6px" }}>{w}</p>
               ))}
               <pre className="thread-resume-export-pre" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: "320px", overflow: "auto", margin: 0, fontSize: "0.85em" }}>{exportState.data.content}</pre>
+              <div className="thread-resume-export-actions" style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "10px" }}>
+                <button type="button" className="thread-node-save-btn" data-testid="resume-export-copy-btn" onClick={() => void copyExport(exportState.data)}>복사</button>
+                <button type="button" className="thread-node-save-btn" data-testid="resume-export-download-btn" onClick={() => downloadExport(exportState.data)}>파일 저장</button>
+              </div>
+              {actionFeedback === "copied" && <p className="card-meta" role="status" data-testid="resume-export-action-feedback" style={{ marginTop: "8px", opacity: 0.8 }}>복사했어.</p>}
+              {actionFeedback === "saved" && <p className="card-meta" role="status" data-testid="resume-export-action-feedback" style={{ marginTop: "8px", opacity: 0.8 }}>파일로 저장했어.</p>}
+              {actionFeedback === "copy_failed" && <p className="card-meta" role="alert" data-testid="resume-export-action-error" style={{ marginTop: "8px", color: "var(--moved)" }}>복사 실패</p>}
+              {actionFeedback === "save_failed" && <p className="card-meta" role="alert" data-testid="resume-export-action-error" style={{ marginTop: "8px", color: "var(--moved)" }}>파일 저장 실패</p>}
             </div>
           )}
         </div>

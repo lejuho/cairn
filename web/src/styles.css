@@ -608,6 +608,11 @@ p {
   padding: 10px;
 }
 
+/* Resume export file actions (cycle-58): copy / download buttons. */
+.thread-resume-export-actions {
+  align-items: center;
+}
+
 .thread-divider {
   display: flex;
   align-items: center;
