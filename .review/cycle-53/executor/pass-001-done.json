@@ -1,0 +1,9 @@
+{
+  "cycle": 53,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-26T06:23:32Z",
+  "summary": "Thread Settlement A (FR-THR-07): read-only settlement added to ThreadDetail via pure computeThreadSettlement (paid cost from moved/cancelled direct events + conservative avoided-missing count); Thread '정산' section renders only when status ready. No DB write/LLM/mutation/money-inference.",
+  "checks": ["corepack pnpm verify (EXIT=0, 605 tests)", "corepack pnpm db:generate (no schema changes)", "git diff --check master..HEAD", "static deterministic-boundary/no-LLM-mutation/scope scans"]
+}
