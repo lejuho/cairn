@@ -1,0 +1,9 @@
+{
+  "cycle": 54,
+  "pass": 2,
+  "kind": "fix",
+  "review": ".review/cycle-54/review-v1.md",
+  "createdAt": "2026-06-26T07:22:30Z",
+  "summary": "Resolved review-v1 ISSUE-1: getThreadDetail now passes the RAW persisted thread.kind (trim used only for the non-empty eligibility guard) to findCompletedThreadsByKind so same-kind evidence matching is exact per FR-THR-08. Added integration test for padded-kind exact match. RESOLVED appended below sentinel.",
+  "checks": ["corepack pnpm verify (EXIT=0, 610 tests)", "corepack pnpm db:generate (no schema changes)", "git diff --check master..HEAD"]
+}
