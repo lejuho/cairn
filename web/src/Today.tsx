@@ -706,6 +706,13 @@ function ConflictResolvedSheet({
 // feasibility → 조정 (opens feasibility settings via onAdjust); friction →
 // /mirror; single-person people → /people/:id. Neutral / multi-person stay
 // text-only. These actions never schedule/apply — apply is the candidate button.
+//
+// Evidence details (cycle-65 FR-SLOT-09C): when a contribution carries more than
+// one non-empty evidence line, a 근거 toggle expands the secondary lines in a
+// nested list. Expansion state is local to this instance (one per candidate) and
+// keyed by lens, so toggling one row never affects another candidate. The toggle
+// only flips local state — it never schedules, applies, dismisses, fetches, or
+// navigates.
 function SlotReasonList({
   contributions,
   onAdjust
@@ -713,29 +720,54 @@ function SlotReasonList({
   contributions: SlotSuggestionContribution[];
   onAdjust: () => void;
 }) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   return (
     <ul className="today-slot-reasons" role="list" aria-label="추천 이유">
-      {contributions.slice(0, 4).map((contrib) => (
-        <li key={contrib.lens} className={`today-slot-reason today-slot-reason--${contrib.impact}`}>
-          <span className="today-slot-reason-text">{contrib.evidence[0] ?? contrib.label}</span>
-          {contrib.lens === "feasibility" && contrib.impact !== "neutral" && (
-            <button className="today-slot-reason-link" onClick={onAdjust} aria-label="슬롯 체력 파라미터 조정">
-              조정
-            </button>
-          )}
-          {contrib.lens === "friction" && contrib.impact !== "neutral" && (
-            <a className="today-slot-reason-link" href="/mirror" aria-label="Mirror에서 패턴 보기">
-              패턴
-            </a>
-          )}
-          {contrib.lens === "people" && contrib.impact !== "neutral" &&
-           contrib.personIds !== undefined && contrib.personIds.length === 1 && (
-            <a className="today-slot-reason-link" href={`/people/${contrib.personIds[0]}`} aria-label="사람 상세 보기">
-              프로필
-            </a>
-          )}
-        </li>
-      ))}
+      {contributions.slice(0, 4).map((contrib) => {
+        // Keep the primary line "exactly as today"; secondary = additional
+        // non-empty evidence lines (blanks ignored).
+        const secondary = (contrib.evidence ?? []).slice(1).filter((s) => typeof s === "string" && s.trim() !== "");
+        const isOpen = expanded[contrib.lens] === true;
+        return (
+          <li key={contrib.lens} className={`today-slot-reason today-slot-reason--${contrib.impact}`}>
+            <span className="today-slot-reason-text">{contrib.evidence[0] ?? contrib.label}</span>
+            {contrib.lens === "feasibility" && contrib.impact !== "neutral" && (
+              <button className="today-slot-reason-link" onClick={onAdjust} aria-label="슬롯 체력 파라미터 조정">
+                조정
+              </button>
+            )}
+            {contrib.lens === "friction" && contrib.impact !== "neutral" && (
+              <a className="today-slot-reason-link" href="/mirror" aria-label="Mirror에서 패턴 보기">
+                패턴
+              </a>
+            )}
+            {contrib.lens === "people" && contrib.impact !== "neutral" &&
+             contrib.personIds !== undefined && contrib.personIds.length === 1 && (
+              <a className="today-slot-reason-link" href={`/people/${contrib.personIds[0]}`} aria-label="사람 상세 보기">
+                프로필
+              </a>
+            )}
+            {secondary.length > 0 && (
+              <button
+                type="button"
+                className="today-slot-evidence-toggle"
+                onClick={() => setExpanded((e) => ({ ...e, [contrib.lens]: !e[contrib.lens] }))}
+                aria-expanded={isOpen}
+                aria-label={`${contrib.label} 추가 근거 보기`}
+              >
+                근거
+              </button>
+            )}
+            {secondary.length > 0 && isOpen && (
+              <ul className="today-slot-evidence-list" role="list">
+                {secondary.map((line, i) => (
+                  <li key={i} className="today-slot-evidence-item">{line}</li>
+                ))}
+              </ul>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }

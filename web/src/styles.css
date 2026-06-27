@@ -808,6 +808,45 @@ p {
   color: var(--accent);
 }
 
+/* Evidence detail toggle + expanded list (cycle-65 FR-SLOT-09C). 44px touch
+   target; the expanded list is a full-width row under the reason so it never
+   crowds the inline text/actions on mobile. Semantic tokens only. */
+.today-slot-evidence-toggle {
+  font-size: 0.72rem;
+  padding: 8px 12px;
+  min-height: 44px;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+}
+
+.today-slot-evidence-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.today-slot-evidence-list {
+  list-style: none;
+  flex-basis: 100%;
+  width: 100%;
+  margin: 4px 0 0;
+  padding: 4px 0 4px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-left: 2px solid var(--border);
+}
+
+.today-slot-evidence-item {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
 /* Quick capture */
 .today-capture-form {
   display: flex;

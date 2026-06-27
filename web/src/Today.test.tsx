@@ -1311,6 +1311,59 @@ describe("Today — schedule prompt", () => {
     expect(link.getAttribute("href")).toBe("/people/7");
   });
 
+  it("event candidate evidence: 근거 toggle expands/collapses secondary lines with aria-expanded (no schedule)", async () => {
+    const multiEvidence = {
+      ...SLOT_CANDIDATE,
+      contributions: [
+        { lens: "feasibility", label: "체력", impact: "negative", points: -20, confidence: "observed", reasonCodes: ["energy_over_budget"], evidence: ["예상 load 9.0h / 예산 8.0h — 초과", "인접 일정 간격 빠듯함", "연속 일정 120분 — 최대 초과"] }
+      ]
+    };
+    const spy = vi.fn().mockImplementation((url: string) => {
+      if ((url as string).includes("slot-candidates")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { event: UNSCHEDULED_EVENT, candidates: [multiEvidence] } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: surfaceWithPrompt() }) });
+    });
+    vi.stubGlobal("fetch", spy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("독서 날짜 잡기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("독서 날짜 잡기"));
+    await waitFor(() => expect(screen.getByLabelText("체력 추가 근거 보기")).toBeInTheDocument());
+    const toggle = screen.getByLabelText("체력 추가 근거 보기");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    // primary line visible, secondary hidden while collapsed
+    expect(screen.getByText(/예상 load 9.0h/)).toBeInTheDocument();
+    expect(screen.queryByText("인접 일정 간격 빠듯함")).not.toBeInTheDocument();
+    // expand
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("인접 일정 간격 빠듯함")).toBeInTheDocument();
+    expect(screen.getByText("연속 일정 120분 — 최대 초과")).toBeInTheDocument();
+    // collapse again
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("인접 일정 간격 빠듯함")).not.toBeInTheDocument();
+    // toggling never schedules or makes extra network calls
+    const urls = spy.mock.calls.map((c) => c[0] as string);
+    expect(urls.some((u) => /\/schedule$/.test(u))).toBe(false);
+    expect(urls.some((u) => u.includes("schedule-block"))).toBe(false);
+  });
+
+  it("single-evidence event contributions render no 근거 toggle", async () => {
+    // default SLOT_CANDIDATE contributions each carry exactly one evidence line
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+      if ((url as string).includes("slot-candidates")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { event: UNSCHEDULED_EVENT, candidates: [SLOT_CANDIDATE] } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: surfaceWithPrompt() }) });
+    }));
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("독서 날짜 잡기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("독서 날짜 잡기"));
+    await waitFor(() => expect(screen.getByLabelText("2026-06-20 09:00 선택")).toBeInTheDocument());
+    expect(screen.queryByLabelText(/추가 근거 보기/)).not.toBeInTheDocument();
+  });
+
   it("candidate fetch failure keeps card visible with local alert", async () => {
     const fetchSpy = vi.fn().mockImplementation((url: string) => {
       if ((url as string).includes("slot-candidates")) {
@@ -3204,6 +3257,37 @@ describe("Today — due task schedule prompt (cycle-62)", () => {
     expect(screen.queryByLabelText("슬롯 체력 파라미터 조정")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Mirror에서 패턴 보기")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("사람 상세 보기")).not.toBeInTheDocument();
+  });
+
+  // --- Task slot evidence details (cycle-65 FR-SLOT-09C) ---
+
+  it("task candidate evidence: 근거 toggle expands secondary lines and never calls schedule-block", async () => {
+    const spy = mockTaskCandidateFetch(taskCandidate([
+      { lens: "friction", label: "마찰", impact: "negative", points: -15, confidence: "observed", reasonCodes: ["friction_high_weekday"], evidence: ["해당 요일 이탈률 75%", "유형 이탈률 60%", "스레드 이탈률 55%"] }
+    ]));
+    await loadTaskCandidates();
+    const toggle = screen.getByLabelText("마찰 추가 근거 보기");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByText("해당 요일 이탈률 75%")).toBeInTheDocument();
+    expect(screen.queryByText("유형 이탈률 60%")).not.toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("유형 이탈률 60%")).toBeInTheDocument();
+    expect(screen.getByText("스레드 이탈률 55%")).toBeInTheDocument();
+    const urls = spy.mock.calls.map((c) => c[0] as string);
+    expect(urls.some((u) => u.includes("/api/tasks/77/schedule-block"))).toBe(false);
+    expect(urls.some((u) => u.includes("/api/events/"))).toBe(false);
+  });
+
+  it("task contributions with single or blank-only secondary evidence render no 근거 toggle", async () => {
+    mockTaskCandidateFetch(taskCandidate([
+      { lens: "feasibility", label: "체력", impact: "neutral", points: 0, confidence: "unavailable", reasonCodes: ["feasibility_unavailable"], evidence: [] },
+      { lens: "people", label: "참여자", impact: "negative", points: -40, confidence: "observed", reasonCodes: ["person_unavailable_weekday"], evidence: ["Alice — 해당 요일 불가", "   ", ""], personIds: [7] }
+    ]));
+    await loadTaskCandidates();
+    expect(screen.queryByLabelText(/추가 근거 보기/)).not.toBeInTheDocument();
+    // the single-person profile action is still present (unchanged)
+    expect(screen.getByLabelText("사람 상세 보기")).toBeInTheDocument();
   });
 
   it("dismiss success PATCHes the task dismiss route with the Today date and refreshes the card away", async () => {
