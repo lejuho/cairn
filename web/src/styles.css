@@ -771,6 +771,9 @@ p {
 .today-slot-reason {
   display: flex;
   align-items: center;
+  /* Wrap so a 44px action + long evidence text stack instead of overflowing on
+     narrow mobile rows (cycle-64 review-v1 ISSUE-1). */
+  flex-wrap: wrap;
   gap: 6px;
   font-size: 0.78rem;
   color: var(--muted);
@@ -781,12 +784,14 @@ p {
 
 .today-slot-reason-text {
   flex: 1;
+  min-width: 60%;
 }
 
 .today-slot-reason-link {
   font-size: 0.72rem;
-  padding: 2px 6px;
-  min-height: 28px;
+  padding: 8px 12px;
+  /* 44px touch target for the evidence action (cycle-64 FR-SLOT-09B controls). */
+  min-height: 44px;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: transparent;
