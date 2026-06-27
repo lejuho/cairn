@@ -1,0 +1,15 @@
+{
+  "cycle": 67,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-27T14:21:16Z",
+  "summary": "FR-DOM-01 Thread Domain Filter A: personal|work domain tag on threads + read-only all|personal|work filtering on /threads and /today. DB: threads.domain text NOT NULL default personal CHECK(personal|work) via hand-written additive migration 0009 (drizzle-kit emitted a table rebuild whose INSERT referenced the not-yet-existing column → replaced with additive ALTER; legacy rows backfill personal, no rebuild). Shared: ThreadDomainSchema; ThreadRow requires domain; CreateThreadRequest.domain optional (server defaults personal); DomainFilterSchema/ThreadListQuerySchema/TodayQuery.domain (default all). Backend: THREAD_ROW_COLUMNS+domain, createThread persists domain, listThreads(db, domain?) where-filter (all keeps order), findThreadIdsByDomain; GET /api/threads?domain (invalid→400); Today route filters dayEvents/twoMinuteTasks/needsReviewEvents/unscheduledEvents/dueTaskSchedulePrompts (watchers=[] threadless) BEFORE feasibility/surface, domain=all=no filter. Frontend: shared DomainFilterControl (3-option, 44px, aria-pressed) on /threads (+card chip) and /today (quiet+live), 개인/업무 selector on /threads/new (default personal), domain chip on /threads/:id header; .domain-seg CSS. Read-only filters mutate nothing; only writes are create + migration. Committed 17b4989.",
+  "checks": [
+    "corepack pnpm lint / typecheck (PASS)",
+    "corepack pnpm test (shared 424 / web 449 incl. +8 domain) — note: one web waitFor flaked under parallel load, green on isolated + repeat runs",
+    "corepack pnpm test:integration (686 incl. threads +7, today +4: default/work/personal, cross-domain conflict dropped pre-surface, invalid→400+no-write, row-count preservation, DB default+CHECK, migration legacy backfill)",
+    "corepack pnpm build (web + server Done)",
+    "git diff --check master...HEAD (OK); exactly one migration 0009; no cross-domain/auto-link/LLM/external impl in code; no new backend write paths beyond thread create + migration"
+  ]
+}
