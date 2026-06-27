@@ -1,0 +1,13 @@
+{
+  "cycle": 65,
+  "pass": 2,
+  "kind": "fix",
+  "review": ".review/cycle-65/review-v1.md",
+  "createdAt": "2026-06-27T08:19:02Z",
+  "summary": "Resolve review-v1 ISSUE-1 (MEDIUM): SlotReasonList rendered a false 근거 toggle (and a blank primary) for evidence like [\"\", \"real\"] — one non-empty line should show no toggle. Fix (exact reviewer direction, frontend-only): normalize non-empty lines first via evidenceLines = (contrib.evidence ?? []).filter(non-empty); primary = evidenceLines[0] ?? label; secondary = evidenceLines.slice(1); toggle still gated on secondary.length > 0. Blank/whitespace-first single-line cases now show the real line as primary and render no toggle; behavior is byte-identical for non-empty evidence[0]. Added a task test for [\"\",\"real\"] and [\"   \",\"real\"]. No backend/shared/DB/route/CSS change; toggle still only flips local state. RESOLVED appended below sentinel. Committed 75b252a.",
+  "checks": [
+    "corepack pnpm verify (lint + typecheck + web Today 160 + build PASS)",
+    "git diff --check master...HEAD (PASS)",
+    "git diff --name-only master...HEAD | rg '^(server|shared)/' => no matches (frontend-only)"
+  ]
+}

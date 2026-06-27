@@ -1,0 +1,13 @@
+{
+  "cycle": 65,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-27T08:05:41Z",
+  "summary": "FR-SLOT-09C Slot Evidence Details A (frontend-only): added a tap-to-expand 근거 toggle to the shared SlotReasonList (event + task slot candidate rows). Each contribution keeps its primary evidence line (evidence[0] ?? label) unchanged; when it has >1 non-empty evidence line, a 44px keyboard-focusable button (type=button, aria-expanded + stable per-lens aria-label '{label} 추가 근거 보기') reveals the additional non-empty lines in a full-width nested list under the row. Expand state is local per SlotReasonList instance (one per candidate) keyed by lens, so toggling one row never affects another candidate; blank secondary lines are filtered; single/empty-evidence contributions show no toggle. The toggle only flips local state — no fetch/schedule/schedule-block/dismiss/navigation. Uses only the existing contributions[].evidence[] payload — no backend/shared/DB/route/scoring change. Existing 조정/패턴/프로필 actions and event/task apply behavior unchanged. Committed 371ce55.",
+  "checks": [
+    "corepack pnpm verify (lint + typecheck + web Today 159 (+4 evidence detail) + build PASS)",
+    "git diff --check master...HEAD (PASS)",
+    "negative greps: no ^(server|shared)/ changes; no LLM/Gmail/Mirror-fetch/movement/cron; no schedule/schedule-block line added in Today.tsx"
+  ]
+}

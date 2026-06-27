@@ -39,3 +39,21 @@ None.
 <!-- RESOLVED-BOUNDARY · above=Codex immutable, below=Executor append-only · check-resolved-immutable.sh enforces -->
 
 ## RESOLVED
+
+### Issue Classification
+- ISSUE-1: APPLY (plan Sprint Contract: "Contributions with one or zero non-empty evidence lines render no detail toggle". A blank/whitespace first item + one real line has exactly one non-empty line, so it must show no toggle. My pass-001 deferral of the find-non-empty normalization — citing "first line exactly as today" — was wrong: the reviewer's fix preserves that for all non-empty evidence[0] and only corrects the degenerate blank-first case.)
+
+### Applied
+
+RESOLVED: ISSUE-1 — Normalize non-empty evidence lines before deciding primary/secondary/toggle.
+
+- `web/src/Today.tsx` `SlotReasonList` (exactly the reviewer's fix direction):
+  - `const evidenceLines = (contrib.evidence ?? []).filter((s) => typeof s === "string" && s.trim() !== "");`
+  - primary = `evidenceLines[0] ?? contrib.label` (was `contrib.evidence[0] ?? contrib.label`).
+  - `const secondary = evidenceLines.slice(1);` (was `evidence.slice(1).filter(non-empty)`).
+  - 근거 toggle still gated on `secondary.length > 0` — now correctly counts genuine SECOND non-empty lines only.
+- Effect: `["", "real evidence"]` / `["   ", "real evidence"]` → the real line is the visible primary and NO toggle renders (only one non-empty line). For non-empty `evidence[0]` (all real server data) the output is byte-identical to before, so existing event/task evidence tests are unaffected.
+- `web/src/Today.test.tsx`: added a task test proving `["", "real"]` and `["   ", "real"]` show the real line as primary and render no `근거` toggle.
+- Scope: frontend only (Today.tsx + test). No backend/shared/DB/route/CSS change; toggle still only flips local state (no fetch/schedule/dismiss/nav).
+
+자동 체크: `corepack pnpm verify` ✅ (lint ✅ / typecheck ✅ / web Today 160 ✅ / build ✅) / `git diff --check master...HEAD` ✅ / `git diff --name-only master...HEAD | rg '^(server|shared)/'` → no matches ✅. Committed `75b252a`.
