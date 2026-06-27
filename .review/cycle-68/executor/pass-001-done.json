@@ -1,0 +1,15 @@
+{
+  "cycle": 68,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-27T16:47:09Z",
+  "summary": "Creation Result Cards A (frontend-only): unify creation-success feedback across surfaces into a shared presentational ResultCard (kind/title/status/primary action/secondary; role=status aria-live=polite, 44px primary as <a href> or <button onClick>, semantic tokens only). Wired: /input quick capture → 일정 (scheduled, 「Today에서 보기」→/today) or 미정 일정 (raw_stored, 「날짜 잡기」 refresh-to-list — capture response has no event id so nearest safe action; kept status strings 저장됐어/날짜 없이 저장됐어; removed old 4s auto-dismiss); /input manual event/task → 일정/할 일 (form.mode, 「Today에서 보기」→/today); /threads/new draft → 스레드 초안 (kept thread-draft-success + draft-open-link→/threads/:id testids + counts/warnings); /watch all 3 create modes → Watcher card set BEFORE await load() (refetch preserved), 「지켜볼 것에서 보기」 dismiss, cleared on openCreate. No backend/route/contract/DB/migration/LLM/Today-quick-capture change. Roadmap doc left as untracked context. Committed c5ca6c9.",
+  "checks": [
+    "corepack pnpm lint (PASS)",
+    "corepack pnpm typecheck (PASS)",
+    "corepack pnpm test (shared 424 / server 470 / web 460 incl. ResultCard 4 + InputHub +4 + Watchers +3)",
+    "corepack pnpm build (web + server Done)",
+    "git diff --check master...HEAD (OK); negative grep: no drizzle/ALTER TABLE/completeChat/LLM/today-behavior in non-test code (only test fetch-mocks reference /api/today); roadmap doc left untracked"
+  ]
+}
