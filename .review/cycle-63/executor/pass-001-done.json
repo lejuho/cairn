@@ -1,0 +1,14 @@
+{
+  "cycle": 63,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-27T07:05:27Z",
+  "summary": "FR-SLOT-07A Task Slot Apply A: explicit apply turns a due-task slot candidate into one scheduled Cairn block event. POST /api/tasks/:id/schedule-block validates strict body, revalidates eligibility (404/409 NOT_ELIGIBLE), rejects active block (409 TASK_ALREADY_SCHEDULED) and stale slots after recompute (409 TASK_SLOT_STALE), then in ONE transaction inserts the event (type=task, mode=async, source=cairn, self_imposed=1, status=planned, title/thread from task) and updates ONLY tasks.scheduled_event_id; 201 {task,event}. Migration 0008 adds nullable scheduled_event_id (ALTER ADD COLUMN inline FK, no rebuild). Active-block tasks (event live: start/end + cairn + self_imposed + status planned|confirmed|done) are excluded from Today prompts; cancelled/moved/missing resurface. Task status/due/estimate/optional/thread never mutated; no links. Frontend candidate rows become explicit apply buttons (copy: creates a block, not done) resending the captured date/now/days. Committed 9fc7c8c.",
+  "checks": [
+    "corepack pnpm db:generate (single ALTER ADD COLUMN inline FK, migration 0008)",
+    "corepack pnpm verify (lint + typecheck + unit incl. shared slots 24/web Today 150 + integration incl. task-slot-apply 6/task-slot-prompt 10/slots 29 + build PASS)",
+    "git diff --check master...HEAD (PASS)",
+    "negative greps: no insert(links); no LLM/Gmail/googleapis/mirror/movement/scheduler/cron; only server writes are insert(events)+update(tasks scheduled_event_id)"
+  ]
+}
