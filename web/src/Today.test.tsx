@@ -3290,6 +3290,19 @@ describe("Today — due task schedule prompt (cycle-62)", () => {
     expect(screen.getByLabelText("사람 상세 보기")).toBeInTheDocument();
   });
 
+  it("blank/whitespace FIRST evidence with one real line shows that line as primary and renders no 근거 toggle (review-v1 ISSUE-1)", async () => {
+    mockTaskCandidateFetch(taskCandidate([
+      { lens: "friction", label: "마찰", impact: "negative", points: -15, confidence: "observed", reasonCodes: ["friction_high_weekday"], evidence: ["", "실제 근거 한 줄"] },
+      { lens: "feasibility", label: "체력", impact: "negative", points: -20, confidence: "observed", reasonCodes: ["energy_over_budget"], evidence: ["   ", "체력 실제 근거"] }
+    ]));
+    await loadTaskCandidates();
+    // the single real line is the visible primary, not a blank
+    expect(screen.getByText("실제 근거 한 줄")).toBeInTheDocument();
+    expect(screen.getByText("체력 실제 근거")).toBeInTheDocument();
+    // only one non-empty evidence line each → NO toggle
+    expect(screen.queryByLabelText(/추가 근거 보기/)).not.toBeInTheDocument();
+  });
+
   it("dismiss success PATCHes the task dismiss route with the Today date and refreshes the card away", async () => {
     let dismissed = false;
     const fetchSpy = vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {

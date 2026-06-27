@@ -724,13 +724,16 @@ function SlotReasonList({
   return (
     <ul className="today-slot-reasons" role="list" aria-label="추천 이유">
       {contributions.slice(0, 4).map((contrib) => {
-        // Keep the primary line "exactly as today"; secondary = additional
-        // non-empty evidence lines (blanks ignored).
-        const secondary = (contrib.evidence ?? []).slice(1).filter((s) => typeof s === "string" && s.trim() !== "");
+        // Normalize to non-empty evidence lines first (blank/whitespace ignored,
+        // including a blank in the first position — cycle-65 review-v1 ISSUE-1).
+        // Primary = first real line (else label); secondary = the rest. The
+        // toggle only appears when there is a genuine SECOND non-empty line.
+        const evidenceLines = (contrib.evidence ?? []).filter((s) => typeof s === "string" && s.trim() !== "");
+        const secondary = evidenceLines.slice(1);
         const isOpen = expanded[contrib.lens] === true;
         return (
           <li key={contrib.lens} className={`today-slot-reason today-slot-reason--${contrib.impact}`}>
-            <span className="today-slot-reason-text">{contrib.evidence[0] ?? contrib.label}</span>
+            <span className="today-slot-reason-text">{evidenceLines[0] ?? contrib.label}</span>
             {contrib.lens === "feasibility" && contrib.impact !== "neutral" && (
               <button className="today-slot-reason-link" onClick={onAdjust} aria-label="슬롯 체력 파라미터 조정">
                 조정
