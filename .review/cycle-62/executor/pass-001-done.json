@@ -1,0 +1,14 @@
+{
+  "cycle": 62,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-27T06:27:58Z",
+  "summary": "FR-SLOT-06C Due Task Slot Preview A: Today surfaces up to 3 due-imminent task schedule prompts (real due date + positive estimate, overdue-first sort, dismissed-for-date excluded) and a READ-ONLY task slot candidate preview using task est_minutes as duration (no 60-min fallback). Migration 0007 adds nullable tasks.schedule_prompt_dismissed_on (ALTER ADD COLUMN, no rebuild). New GET /api/tasks/:id/slot-candidates (404/409/200, read-only) + PATCH /api/tasks/:id/schedule-prompt/dismiss (writes only the dismiss column, no updated_at on tasks, idempotent). slotCandidates refactored to a generateCandidatesFor core shared by events (identical behavior) and generateTaskSlotCandidates; addDays moved to utils. Frontend task prompt cards render preview-only non-selectable candidates + dismiss; existing event flow unchanged. No task-to-event write, status/due mutation, scheduling, cron, external, or LLM. Committed 179e92a.",
+  "checks": [
+    "corepack pnpm db:generate (single ALTER ADD COLUMN, migration 0007)",
+    "corepack pnpm verify (lint + typecheck + unit incl. shared 403/web Today 148 + integration incl. task-slot-prompt 10/today 41/slots 29 + build PASS)",
+    "git diff --check master...HEAD (PASS)",
+    "negative greps: no insert(events)/insert(links)/update(events); no completeChat/LLM/gmail/googleapis/mirror/scheduler/cron; sole new task write is dismissal"
+  ]
+}
