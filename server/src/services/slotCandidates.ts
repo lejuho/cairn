@@ -1,5 +1,5 @@
 import type { EventRow, SlotCandidate, SlotSuggestionContribution, Weekday, PreferredPeriod } from "@cairn/shared";
-import { addMinutesToRfc3339, rfc3339ToMs } from "../utils/rfc3339.js";
+import { addDays, addMinutesToRfc3339, rfc3339ToMs } from "../utils/rfc3339.js";
 import { findEventsInRange } from "../repositories/events.js";
 import { readFeasibilityParamSettings } from "./feasibility-params.js";
 import { computeDayFeasibility } from "./feasibility.js";
@@ -46,13 +46,6 @@ function extractOffset(rfc3339: string): string {
 function buildCandidateStart(dateStr: string, hour: number, offset: string): string {
   const hh = String(hour).padStart(2, "0");
   return `${dateStr}T${hh}:00:00${offset}`;
-}
-
-export function addDays(dateStr: string, n: number): string {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const dt = new Date(Date.UTC(y!, m! - 1, d! + n));
-  const pad = (x: number) => String(x).padStart(2, "0");
-  return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`;
 }
 
 export function getWeekday(dateStr: string): Weekday {
@@ -376,9 +369,21 @@ export function scoreFriction(
 
 // --- Main export ---
 
-export function generateSlotCandidates(
+// Scoring context for a candidate target (an event or a task's virtual event).
+// excludeEventId is the real event id to skip in overlap checks (null for a
+// task, which is not an events-table row). durationMinutes lets a task supply
+// its own est_minutes; events keep the fixed 60-minute window.
+type CandidateContext = {
+  durationMinutes: number;
+  type: string | null;
+  threadId: number | null;
+  people: PersonRow[];
+  excludeEventId: number | null;
+};
+
+function generateCandidatesFor(
   db: CairnDatabase,
-  event: EventRow,
+  ctx: CandidateContext,
   nowStr: string,
   startDate: string,
   days: number
@@ -390,7 +395,6 @@ export function generateSlotCandidates(
   const allEventsInRange = findEventsInRange(db, rangeStartStr, rangeEndStr);
 
   const { params } = readFeasibilityParamSettings(db);
-  const people = findEventPeopleFullProfiles(db, event.id);
   const annotations = findAllOutcomeAnnotations(db);
 
   type RawCandidate = {
@@ -411,12 +415,13 @@ export function generateSlotCandidates(
 
     for (const hour of WINDOW_HOURS) {
       const start = buildCandidateStart(dateStr, hour, offset);
-      const end = addMinutesToRfc3339(start, DURATION_MINUTES);
+      const end = addMinutesToRfc3339(start, ctx.durationMinutes);
 
       if (rfc3339ToMs(start) <= rfc3339ToMs(nowStr)) continue;
 
       const hasOverlap = allEventsInRange.some(
-        (e) => e.id !== event.id && e.start != null && e.end != null &&
+        (e) => (ctx.excludeEventId == null || e.id !== ctx.excludeEventId) &&
+          e.start != null && e.end != null &&
           overlaps(e.start, e.end, start, end)
       );
       if (hasOverlap) continue;
@@ -424,8 +429,8 @@ export function generateSlotCandidates(
       const contributions: SlotSuggestionContribution[] = [
         scoreAvailability(dateStr, hour),
         scoreFeasibility(dateStr, start, end, dayEvents, params, nowStr),
-        scorePeople(weekday, hour, people),
-        scoreFriction(weekday, event.type, event.threadId, annotations)
+        scorePeople(weekday, hour, ctx.people),
+        scoreFriction(weekday, ctx.type, ctx.threadId, annotations)
       ];
 
       const score = Math.max(0, contributions.reduce((acc, c) => acc + c.points, 0));
@@ -450,4 +455,40 @@ export function generateSlotCandidates(
       contributions: c.contributions
     };
   });
+}
+
+export function generateSlotCandidates(
+  db: CairnDatabase,
+  event: EventRow,
+  nowStr: string,
+  startDate: string,
+  days: number
+): SlotCandidate[] {
+  const people = findEventPeopleFullProfiles(db, event.id);
+  return generateCandidatesFor(
+    db,
+    { durationMinutes: DURATION_MINUTES, type: event.type, threadId: event.threadId, people, excludeEventId: event.id },
+    nowStr,
+    startDate,
+    days
+  );
+}
+
+// Read-only task slot preview (cycle-62 FR-SLOT-06C). Uses the task's own
+// est_minutes as the candidate duration — no 60-minute fallback. A task is not
+// an events-table row, so no self-exclusion and no event people are involved.
+export function generateTaskSlotCandidates(
+  db: CairnDatabase,
+  task: { threadId: number | null; estMinutes: number },
+  nowStr: string,
+  startDate: string,
+  days: number
+): SlotCandidate[] {
+  return generateCandidatesFor(
+    db,
+    { durationMinutes: task.estMinutes, type: null, threadId: task.threadId, people: [], excludeEventId: null },
+    nowStr,
+    startDate,
+    days
+  );
 }

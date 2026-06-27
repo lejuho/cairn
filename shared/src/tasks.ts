@@ -24,8 +24,34 @@ export const TaskRowSchema = z.object({
   context: z.string().nullable(),
   status: TaskStatusSchema.nullable(),
   optional: z.number().nullable(),
+  // Source-owned "hide this due-task schedule prompt for this Today date"
+  // marker (cycle-62 FR-SLOT-06C). Optional so existing TaskRow fixtures need
+  // not change; nullable for the default/legacy state.
+  schedulePromptDismissedOn: z.string().nullable().optional(),
   createdAt: z.string().nullable()
 });
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Dismissible due-task schedule prompt (cycle-62 FR-SLOT-06C). Strict body:
+// only the explicit Today query date. Rejects injected score/autoApply/
+// snoozedUntil/eventId — this is a one-date hide, not a snooze or task-to-event
+// action.
+export const DismissTaskSchedulePromptRequestSchema = z
+  .object({
+    dismissedOn: z
+      .string()
+      .regex(DATE_RE, "dismissedOn must be YYYY-MM-DD")
+      .refine(isCalendarDate, "dismissedOn must be a real calendar date")
+  })
+  .strict();
+
+export const DismissTaskSchedulePromptDataSchema = z
+  .object({
+    taskId: z.number().int().positive(),
+    dismissedOn: z.string()
+  })
+  .strict();
 
 // Thread node inline edit (cycle-50 FR-THR-06). Strict partial — status and
 // threadId are NOT editable here; `.strict()` rejects them. At least one field
@@ -46,3 +72,5 @@ export type CreateTaskRequest = z.infer<typeof CreateTaskRequestSchema>;
 export type PatchTaskStatusRequest = z.infer<typeof PatchTaskStatusRequestSchema>;
 export type TaskRow = z.infer<typeof TaskRowSchema>;
 export type PatchThreadTaskNodeRequest = z.infer<typeof PatchThreadTaskNodeRequestSchema>;
+export type DismissTaskSchedulePromptRequest = z.infer<typeof DismissTaskSchedulePromptRequestSchema>;
+export type DismissTaskSchedulePromptData = z.infer<typeof DismissTaskSchedulePromptDataSchema>;

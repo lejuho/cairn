@@ -41,6 +41,9 @@ export const TodaySurfaceSchema = z.object({
   watcherBubbles: z.array(WatcherABubbleSchema),
   needsReviewEvents: z.array(EventRowSchema),
   unscheduledEvents: z.array(EventRowSchema),
+  // Due-imminent tasks with a real due date + positive estimate (cycle-62
+  // FR-SLOT-06C), surfaced as read-only schedule prompts.
+  dueTaskSchedulePrompts: z.array(TaskRowSchema),
   dayEvents: z.array(EventRowSchema),
   cards: z.array(
     z.discriminatedUnion("kind", [
@@ -49,7 +52,8 @@ export const TodaySurfaceSchema = z.object({
       z.object({ kind: z.literal("next_event"), event: EventRowSchema }),
       z.object({ kind: z.literal("two_minute_task"), task: TaskRowSchema }),
       z.object({ kind: z.literal("needs_review"), event: EventRowSchema, placement: NeedsReviewPlacementSchema }),
-      z.object({ kind: z.literal("schedule_prompt"), event: EventRowSchema })
+      z.object({ kind: z.literal("schedule_prompt"), event: EventRowSchema }),
+      z.object({ kind: z.literal("task_schedule_prompt"), task: TaskRowSchema })
     ])
   ),
   feasibility: DayFeasibilitySchema

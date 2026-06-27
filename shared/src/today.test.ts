@@ -63,7 +63,7 @@ describe("TodaySurfaceSchema needs_review card", () => {
   const baseSurface = {
     date: "2026-06-20", now: "2026-06-20T22:00:00+09:00", state: "live" as const,
     nextEvent: null, conflicts: [], twoMinuteTasks: [], watcherBubbles: [],
-    needsReviewEvents: [EVENT], unscheduledEvents: [], dayEvents: [EVENT],
+    needsReviewEvents: [EVENT], unscheduledEvents: [], dueTaskSchedulePrompts: [], dayEvents: [EVENT],
     feasibility: FEASIBILITY
   };
 
@@ -93,5 +93,39 @@ describe("TodaySurfaceSchema needs_review card", () => {
     if (parsed.success) {
       expect(parsed.data.needsReviewEvents[0]).not.toHaveProperty("placement");
     }
+  });
+});
+
+describe("TodaySurfaceSchema task_schedule_prompt card (cycle-62)", () => {
+  const TASK = {
+    id: 7, threadId: null, title: "보고서", estMinutes: 90, due: "2026-06-20",
+    context: null, status: "todo", optional: 0, createdAt: null
+  };
+  const baseSurface = {
+    date: "2026-06-20", now: "2026-06-20T22:00:00+09:00", state: "live" as const,
+    nextEvent: null, conflicts: [], twoMinuteTasks: [], watcherBubbles: [],
+    needsReviewEvents: [], unscheduledEvents: [], dueTaskSchedulePrompts: [TASK], dayEvents: [],
+    feasibility: FEASIBILITY
+  };
+
+  it("accepts a task_schedule_prompt card and dueTaskSchedulePrompts array", () => {
+    const ok = { ...baseSurface, cards: [{ kind: "task_schedule_prompt", task: TASK }] };
+    expect(TodaySurfaceSchema.safeParse(ok).success).toBe(true);
+  });
+
+  it("rejects a task_schedule_prompt card carrying an event instead of a task", () => {
+    const bad = { ...baseSurface, cards: [{ kind: "task_schedule_prompt", event: EVENT }] };
+    expect(TodaySurfaceSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it("requires the dueTaskSchedulePrompts field", () => {
+    const withoutField: Record<string, unknown> = { ...baseSurface, cards: [] };
+    delete withoutField.dueTaskSchedulePrompts;
+    expect(TodaySurfaceSchema.safeParse(withoutField).success).toBe(false);
+  });
+
+  it("accepts a task row carrying schedulePromptDismissedOn", () => {
+    const ok = { ...baseSurface, dueTaskSchedulePrompts: [{ ...TASK, schedulePromptDismissedOn: "2026-06-19" }], cards: [] };
+    expect(TodaySurfaceSchema.safeParse(ok).success).toBe(true);
   });
 });

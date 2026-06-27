@@ -4,7 +4,8 @@ import {
   SlotSuggestionContributionSchema,
   SlotSuggestionLensSchema,
   SlotSuggestionImpactSchema,
-  SlotSuggestionConfidenceSchema
+  SlotSuggestionConfidenceSchema,
+  TaskSlotCandidatesResponseDataSchema
 } from "./slots.js";
 
 const BASE_CONTRIBUTION = {
@@ -111,6 +112,13 @@ describe("SlotCandidateSchema", () => {
     expect(SlotCandidateSchema.safeParse({ ...BASE_CANDIDATE, recommendation: "book it" }).success).toBe(false);
     expect(SlotCandidateSchema.safeParse({ ...BASE_CANDIDATE, advice: "go early" }).success).toBe(false);
     expect(SlotCandidateSchema.safeParse({ ...BASE_CANDIDATE, autoSchedule: true }).success).toBe(false);
+  });
+
+  it("TaskSlotCandidatesResponseDataSchema reuses task + strict SlotCandidate (cycle-62)", () => {
+    const TASK = { id: 7, threadId: null, title: "보고서", estMinutes: 90, due: "2026-06-20", context: null, status: "todo", optional: 0, createdAt: null };
+    expect(TaskSlotCandidatesResponseDataSchema.safeParse({ task: TASK, candidates: [BASE_CANDIDATE] }).success).toBe(true);
+    // a candidate with an injected mutation flag is rejected by the strict inner schema
+    expect(TaskSlotCandidatesResponseDataSchema.safeParse({ task: TASK, candidates: [{ ...BASE_CANDIDATE, autoSchedule: true }] }).success).toBe(false);
   });
 
   it("accepts multiple contributions with different lenses", () => {

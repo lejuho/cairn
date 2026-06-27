@@ -695,6 +695,9 @@ export function Today() {
   const [replyState, setReplyState] = useState<Record<number, ReplyState>>({});
   const [slotState, setSlotState] = useState<SlotStateMap>({});
   const [dismissError, setDismissError] = useState<Record<number, string>>({});
+  // Due-task schedule prompt preview + dismiss state (cycle-62), keyed by task id.
+  const [taskSlotState, setTaskSlotState] = useState<SlotStateMap>({});
+  const [taskDismissError, setTaskDismissError] = useState<Record<number, string>>({});
   const [sheet, setSheet] = useState<SheetState>({ open: false });
   const [threadOptions, setThreadOptions] = useState<ThreadSummary[]>([]);
   const [capture, setCapture] = useState<{ text: string; submitting: boolean; savedMsg: string | null }>({
@@ -868,6 +871,41 @@ export function Today() {
       await refresh();
     } catch (e) {
       setDismissError((s) => ({ ...s, [eventId]: e instanceof Error ? e.message : "오류" }));
+    }
+  }, [refresh]);
+
+  // Read-only task slot preview (cycle-62). Fetches task candidates; they render
+  // as evidence only — no schedule/apply action exists for tasks this cycle.
+  const handleLoadTaskCandidates = useCallback(async (taskId: number) => {
+    setTaskSlotState((s) => ({ ...s, [taskId]: { tag: "loading" } }));
+    try {
+      const now = new Date().toISOString().replace("Z", "+00:00");
+      const date = now.slice(0, 10);
+      const body = await apiJson<{ ok: boolean; data?: { candidates: SlotCandidate[] }; error?: { message: string } }>(
+        `/api/tasks/${taskId}/slot-candidates?date=${date}&now=${encodeURIComponent(now)}&days=7`
+      );
+      if (!body.ok) throw new Error(body.error?.message ?? "후보 로딩 실패");
+      setTaskSlotState((s) => ({ ...s, [taskId]: { tag: "loaded", candidates: body.data!.candidates } }));
+    } catch (e) {
+      setTaskSlotState((s) => ({ ...s, [taskId]: { tag: "error", message: e instanceof Error ? e.message : "오류" } }));
+    }
+  }, []);
+
+  const handleDismissTaskPrompt = useCallback(async (taskId: number, dismissedOn: string) => {
+    try {
+      const body = await apiJson<{ ok: boolean; error?: { message: string } }>(`/api/tasks/${taskId}/schedule-prompt/dismiss`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dismissedOn })
+      });
+      if (!body.ok) {
+        setTaskDismissError((s) => ({ ...s, [taskId]: body.error?.message ?? "오늘 숨기기 실패" }));
+        return;
+      }
+      setTaskDismissError((s) => { const n = { ...s }; delete n[taskId]; return n; });
+      await refresh();
+    } catch (e) {
+      setTaskDismissError((s) => ({ ...s, [taskId]: e instanceof Error ? e.message : "오류" }));
     }
   }, [refresh]);
 
@@ -1881,6 +1919,71 @@ export function Today() {
                 {dismissError[card.event.id] && (
                   <p className="today-slot-error" role="alert" data-testid={`dismiss-error-${card.event.id}`}>
                     {dismissError[card.event.id]}
+                  </p>
+                )}
+              </li>
+            );
+          }
+
+          if (card.kind === "task_schedule_prompt") {
+            const ts = taskSlotState[card.task.id] ?? { tag: "idle" };
+            return (
+              <li key={`task-slot-${card.task.id}`} className="today-card today-card--slot" style={delay} data-testid={`task-schedule-prompt-${card.task.id}`}>
+                <span className="card-chip">할 일</span>
+                <span className="card-title">마감 잡을까? — {card.task.title}</span>
+                <p className="card-meta" style={{ margin: "4px 0", opacity: 0.7 }}>
+                  마감 {card.task.due}{card.task.estMinutes != null ? ` · 예상 ${card.task.estMinutes}분` : ""}
+                </p>
+                {ts.tag === "idle" && (
+                  <button
+                    className="today-slot-btn"
+                    onClick={() => void handleLoadTaskCandidates(card.task.id)}
+                    aria-label={`${card.task.title} 후보 보기`}
+                  >
+                    후보 보기
+                  </button>
+                )}
+                {ts.tag === "loading" && <p className="today-slot-loading">후보 찾는 중…</p>}
+                {ts.tag === "loaded" && ts.candidates.length === 0 && (
+                  <p className="today-slot-empty">빈 시간이 없어. 나중에 다시 해봐.</p>
+                )}
+                {ts.tag === "loaded" && ts.candidates.length > 0 && (
+                  <>
+                    <p className="card-meta" style={{ opacity: 0.6, margin: "8px 0 4px", fontSize: "0.75rem" }}>미리보기 — 직접 일정을 잡아줘 (이 화면에선 예약 안 됨)</p>
+                    <ul className="today-slot-list" role="list" data-testid={`task-candidates-${card.task.id}`}>
+                      {ts.candidates.map((c) => (
+                        <li key={c.start} className="today-slot-item">
+                          {/* Preview-only: a non-interactive div, NOT a schedule button. */}
+                          <div className="today-slot-candidate today-slot-candidate--preview">
+                            <span className="today-slot-time">
+                              {c.start.slice(0, 10)} {c.start.slice(11, 16)} – {c.end.slice(11, 16)}
+                            </span>
+                            <span className="today-slot-score-label">{c.scoreLabel}</span>
+                          </div>
+                          <ul className="today-slot-reasons" role="list" aria-label="추천 이유">
+                            {c.contributions.slice(0, 4).map((contrib: SlotSuggestionContribution) => (
+                              <li key={contrib.lens} className={`today-slot-reason today-slot-reason--${contrib.impact}`}>
+                                <span className="today-slot-reason-text">{contrib.evidence[0] ?? contrib.label}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                {ts.tag === "error" && <p className="today-slot-error" role="alert">{ts.message}</p>}
+                <button
+                  className="today-dismiss-btn"
+                  onClick={() => void handleDismissTaskPrompt(card.task.id, surface.date)}
+                  aria-label={`${card.task.title} 오늘 숨기기`}
+                  data-testid={`task-dismiss-prompt-${card.task.id}`}
+                >
+                  오늘 숨기기
+                </button>
+                {taskDismissError[card.task.id] && (
+                  <p className="today-slot-error" role="alert" data-testid={`task-dismiss-error-${card.task.id}`}>
+                    {taskDismissError[card.task.id]}
                   </p>
                 )}
               </li>

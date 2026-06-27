@@ -40,6 +40,7 @@ const BASE_SURFACE: TodaySurface = {
   watcherBubbles: [],
   needsReviewEvents: [],
   unscheduledEvents: [],
+  dueTaskSchedulePrompts: [],
   dayEvents: [],
   cards: [],
   feasibility: BASE_FEASIBILITY
@@ -2659,6 +2660,7 @@ describe("Today — conflict sheet people guard", () => {
     date: "2026-06-20", now: "2026-06-20T09:00:00+09:00", state: "live",
     nextEvent: null, conflicts: [{ a: eventA, b: eventB }],
     twoMinuteTasks: [], watcherBubbles: [], needsReviewEvents: [], unscheduledEvents: [],
+    dueTaskSchedulePrompts: [],
     dayEvents: [], cards: [{ kind: "conflict", pair: { a: eventA, b: eventB } }],
     feasibility: {
       date: "2026-06-20", now: "2026-06-20T09:00:00+09:00",
@@ -3029,5 +3031,101 @@ describe("Today — feasibility settings sheet", () => {
     expect(previewCalls).toHaveLength(1);
     const body = JSON.parse(previewCalls[0]![1]!.body as string) as { params: { energyBudget: number } };
     expect(body.params.energyBudget).toBe(10);
+  });
+});
+
+const DUE_TASK = {
+  id: 77, threadId: null, title: "보고서", estMinutes: 90, due: "2026-06-16",
+  context: null, status: "todo" as const, optional: 0, createdAt: null
+};
+
+describe("Today — due task schedule prompt (cycle-62)", () => {
+  function surfaceWithTaskPrompt(): TodaySurface {
+    return {
+      ...BASE_SURFACE, state: "live",
+      dueTaskSchedulePrompts: [DUE_TASK],
+      cards: [{ kind: "task_schedule_prompt", task: DUE_TASK }]
+    };
+  }
+
+  it("renders due date, estimate, and a 후보 보기 preview CTA", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ json: () => Promise.resolve({ ok: true, data: surfaceWithTaskPrompt() }) }));
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("task-schedule-prompt-77")).toBeInTheDocument());
+    expect(screen.getByText(/마감 잡을까\?/)).toBeInTheDocument();
+    expect(screen.getByText(/마감 2026-06-16 · 예상 90분/)).toBeInTheDocument();
+    expect(screen.getByLabelText("보고서 후보 보기")).toBeInTheDocument();
+  });
+
+  it("loads task candidates as preview-only (no schedulable button, no event endpoints)", async () => {
+    const fetchSpy = vi.fn().mockImplementation((url: string) => {
+      if ((url as string).includes("/api/tasks/77/slot-candidates")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { task: DUE_TASK, candidates: [SLOT_CANDIDATE] } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: surfaceWithTaskPrompt() }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("보고서 후보 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("보고서 후보 보기"));
+    await waitFor(() => expect(screen.getByTestId("task-candidates-77")).toBeInTheDocument());
+    // preview shows the candidate time but NO selectable "선택" schedule button
+    expect(screen.getByText(/2026-06-20 09:00 – 10:00/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/선택/)).not.toBeInTheDocument();
+    // never hits the event slot-candidates or schedule endpoints
+    const urls = fetchSpy.mock.calls.map((c) => c[0] as string);
+    expect(urls.some((u) => u.includes("/api/events/"))).toBe(false);
+    expect(urls.some((u) => /\/schedule$/.test(u))).toBe(false);
+  });
+
+  it("dismiss success PATCHes the task dismiss route with the Today date and refreshes the card away", async () => {
+    let dismissed = false;
+    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if ((url as string).includes("/api/tasks/77/schedule-prompt/dismiss") && opts?.method === "PATCH") {
+        dismissed = true;
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { taskId: 77, dismissedOn: "2026-06-16" } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: dismissed ? { ...BASE_SURFACE, state: "quiet" } : surfaceWithTaskPrompt() }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("task-dismiss-prompt-77")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("task-dismiss-prompt-77"));
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining("/api/tasks/77/schedule-prompt/dismiss"),
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ dismissedOn: "2026-06-16" }) })
+    ));
+    await waitFor(() => expect(screen.queryByTestId("task-dismiss-prompt-77")).not.toBeInTheDocument());
+  });
+
+  it("dismiss failure keeps the card with scoped error copy", async () => {
+    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if ((url as string).includes("schedule-prompt/dismiss") && opts?.method === "PATCH") {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: false, error: { message: "숨기기 실패" } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: surfaceWithTaskPrompt() }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("task-dismiss-prompt-77")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("task-dismiss-prompt-77"));
+    await waitFor(() => expect(screen.getByTestId("task-dismiss-error-77")).toBeInTheDocument());
+    expect(screen.getByTestId("task-schedule-prompt-77")).toBeInTheDocument();
+    expect(screen.getByTestId("task-dismiss-error-77")).toHaveTextContent("숨기기 실패");
+  });
+
+  it("candidate fetch failure shows an error and keeps the card", async () => {
+    const fetchSpy = vi.fn().mockImplementation((url: string) => {
+      if ((url as string).includes("/api/tasks/77/slot-candidates")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: false, error: { message: "후보 로딩 실패" } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: surfaceWithTaskPrompt() }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("보고서 후보 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("보고서 후보 보기"));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("후보 로딩 실패"));
+    expect(screen.getByTestId("task-schedule-prompt-77")).toBeInTheDocument();
   });
 });

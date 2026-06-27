@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { TodayQuerySchema } from "@cairn/shared";
 import { findPlannedAndConfirmedByDate, findUnscheduledCairnEvents } from "../repositories/events.js";
 import { readNumericParam } from "../repositories/params.js";
-import { findTwoMinuteTodoTasks } from "../repositories/tasks.js";
+import { findDueTaskSchedulePrompts, findTwoMinuteTodoTasks } from "../repositories/tasks.js";
 import { findAllWatchersForEvaluation, findTaskStatusesByIds } from "../repositories/watchers.js";
 import { parseReversePlanRule } from "../services/watcher-reverse-plan.js";
 import { buildFeasibilityParams, computeDayFeasibility, dayEventIds, dayThreadIds } from "../services/feasibility.js";
@@ -37,6 +37,7 @@ export function registerTodayRoute(app: FastifyInstance, db: CairnDatabase): voi
     const watcherBubbles = evaluateWatcherA(watcherRows, date, now, taskStatuses);
     const needsReviewEvents = listNeedsReviewEvents(db, now);
     const unscheduledEvents = findUnscheduledCairnEvents(db, date);
+    const dueTaskSchedulePrompts = findDueTaskSchedulePrompts(db, date);
 
     const feasibilityParams = buildFeasibilityParams({
       energyBudget: readNumericParam(db, "energy_budget", 8),
@@ -49,7 +50,7 @@ export function registerTodayRoute(app: FastifyInstance, db: CairnDatabase): voi
     const dependencyLinks = findEventDependencyLinks(db, dayEventIds(dayEvents, date));
     const feasibility = computeDayFeasibility(date, now, dayEvents, feasibilityParams, relations, dependencyLinks);
 
-    const surface = buildTodaySurface(date, now, dayEvents, twoMinuteTasks, watcherBubbles, needsReviewEvents, unscheduledEvents, feasibility);
+    const surface = buildTodaySurface(date, now, dayEvents, twoMinuteTasks, watcherBubbles, needsReviewEvents, unscheduledEvents, dueTaskSchedulePrompts, feasibility);
     return reply.send({ ok: true, data: surface });
   });
 }

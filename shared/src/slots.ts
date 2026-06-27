@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { EventRowSchema } from "./events.js";
+import { TaskRowSchema } from "./tasks.js";
 
 export const SlotSuggestionLensSchema = z.enum(["availability", "feasibility", "people", "friction"]);
 export type SlotSuggestionLens = z.infer<typeof SlotSuggestionLensSchema>;
@@ -44,6 +45,14 @@ export const SlotCandidatesResponseDataSchema = z.object({
   candidates: z.array(SlotCandidateSchema)
 });
 
+// Read-only task slot preview response (cycle-62 FR-SLOT-06C). Reuses the
+// strict SlotCandidate shape; the candidates are preview evidence only and
+// carry no schedulable event row.
+export const TaskSlotCandidatesResponseDataSchema = z.object({
+  task: TaskRowSchema,
+  candidates: z.array(SlotCandidateSchema)
+});
+
 export const ScheduleEventRequestSchema = z.object({
   start: z.string().datetime({ offset: true }),
   end: z.string().datetime({ offset: true })
@@ -56,3 +65,4 @@ export const ScheduleEventResponseDataSchema = z.object({
 export type SlotCandidate = z.infer<typeof SlotCandidateSchema>;
 export type SlotCandidatesQuery = z.infer<typeof SlotCandidatesQuerySchema>;
 export type ScheduleEventRequest = z.infer<typeof ScheduleEventRequestSchema>;
+export type TaskSlotCandidatesResponseData = z.infer<typeof TaskSlotCandidatesResponseDataSchema>;

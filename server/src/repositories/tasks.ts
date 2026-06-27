@@ -1,7 +1,30 @@
 import { eq } from "drizzle-orm";
-import type { CreateTaskRequest, PatchThreadTaskNodeRequest, TaskRow } from "@cairn/shared";
+import { isCalendarDate, type CreateTaskRequest, type PatchThreadTaskNodeRequest, type TaskRow } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import { tasks } from "../db/schema.js";
+import { addDays } from "../utils/rfc3339.js";
+
+export const TASK_PROMPT_LOOKAHEAD_DAYS = 7;
+const TASK_PROMPT_LIMIT = 3;
+const PROMPT_STATUSES = new Set(["todo", "doing"]);
+
+// Due-task schedule-prompt eligibility (cycle-62 FR-SLOT-06C), evaluated
+// against a reference date (the Today query date for the prompt list, the
+// candidate query date, or the dismiss date). Date-only: a task is eligible
+// when it is open, has a positive estimate (no guessed duration), and has a
+// real calendar due date within `lookaheadDays` of the reference (overdue
+// included). The dismiss filter is applied separately by the prompt list.
+export function isTaskPromptEligible(
+  task: TaskRow,
+  referenceDate: string,
+  lookaheadDays = TASK_PROMPT_LOOKAHEAD_DAYS
+): boolean {
+  if (task.status == null || !PROMPT_STATUSES.has(task.status)) return false;
+  if (task.estMinutes == null || task.estMinutes <= 0) return false;
+  if (task.due == null || !isCalendarDate(task.due)) return false;
+  if (task.due > addDays(referenceDate, lookaheadDays)) return false;
+  return true;
+}
 
 export function createTask(db: CairnDatabase, input: CreateTaskRequest): TaskRow {
   const [row] = db
@@ -68,4 +91,45 @@ export function findTwoMinuteTodoTasks(db: CairnDatabase): TaskRow[] {
         t.estMinutes != null &&
         t.estMinutes <= 2
     ) as TaskRow[];
+}
+
+// Up to three due-imminent task schedule prompts for the Today date (cycle-62
+// FR-SLOT-06C). Excludes tasks dismissed for that exact date. Sort: overdue
+// first, then due date asc, then required-before-optional, then id asc.
+export function findDueTaskSchedulePrompts(
+  db: CairnDatabase,
+  todayDate: string,
+  lookaheadDays = TASK_PROMPT_LOOKAHEAD_DAYS
+): TaskRow[] {
+  const rows = db.select().from(tasks).all() as TaskRow[];
+  return rows
+    .filter((t) => isTaskPromptEligible(t, todayDate, lookaheadDays))
+    .filter((t) => t.schedulePromptDismissedOn !== todayDate)
+    .sort((a, b) => {
+      const aOverdue = a.due! < todayDate ? 0 : 1;
+      const bOverdue = b.due! < todayDate ? 0 : 1;
+      if (aOverdue !== bOverdue) return aOverdue - bOverdue;
+      if (a.due! !== b.due!) return a.due! < b.due! ? -1 : 1;
+      const aOpt = a.optional ?? 0;
+      const bOpt = b.optional ?? 0;
+      if (aOpt !== bOpt) return aOpt - bOpt;
+      return a.id - b.id;
+    })
+    .slice(0, TASK_PROMPT_LIMIT);
+}
+
+// Hide a due-task schedule prompt for one Today date. Re-checks eligibility
+// against the dismiss date (i.e. eligible "except for the current dismiss
+// value"); writes ONLY schedule_prompt_dismissed_on (tasks have no updated_at).
+// Idempotent: re-dismissing the same date re-writes the same value. Returns
+// true iff the task was prompt-eligible and written.
+export function dismissTaskSchedulePromptForDate(
+  db: CairnDatabase,
+  taskId: number,
+  dismissedOn: string
+): boolean {
+  const task = findTaskById(db, taskId);
+  if (!task || !isTaskPromptEligible(task, dismissedOn)) return false;
+  db.update(tasks).set({ schedulePromptDismissedOn: dismissedOn }).where(eq(tasks.id, taskId)).run();
+  return true;
 }

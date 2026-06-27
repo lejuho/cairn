@@ -1,0 +1,1 @@
+ALTER TABLE `tasks` ADD `schedule_prompt_dismissed_on` text;

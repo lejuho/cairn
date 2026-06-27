@@ -11,6 +11,7 @@ export function buildTodaySurface(
   watcherBubbles: WatcherABubble[],
   needsReviewEvents: EventRow[],
   unscheduledEvents: EventRow[],
+  dueTaskSchedulePrompts: TaskRow[],
   feasibility: DayFeasibility
 ): TodaySurface {
   const nextEvent = findNextEvent(dayEvents, now);
@@ -27,13 +28,15 @@ export function buildTodaySurface(
       event,
       placement: computeNeedsReviewPlacement(event, feasibility.transitionCosts, now)
     })),
-    ...schedulePrompts.map((event) => ({ kind: "schedule_prompt" as const, event }))
+    ...schedulePrompts.map((event) => ({ kind: "schedule_prompt" as const, event })),
+    // Task schedule prompts append after event schedule prompts (cycle-62).
+    ...dueTaskSchedulePrompts.map((task) => ({ kind: "task_schedule_prompt" as const, task }))
   ];
 
   const state =
     cards.length === 0 && dayEvents.length === 0 ? "quiet" : "live";
 
-  return { date, now, state, nextEvent, conflicts, twoMinuteTasks, watcherBubbles, needsReviewEvents, unscheduledEvents, dayEvents, cards, feasibility };
+  return { date, now, state, nextEvent, conflicts, twoMinuteTasks, watcherBubbles, needsReviewEvents, unscheduledEvents, dueTaskSchedulePrompts, dayEvents, cards, feasibility };
 }
 
 function findNextEvent(events: EventRow[], now: string): EventRow | null {
