@@ -701,6 +701,45 @@ function ConflictResolvedSheet({
   );
 }
 
+// Shared slot-candidate reason rows + lightweight evidence actions, used by
+// BOTH event and task candidates (cycle-64 FR-SLOT-09B). Non-neutral
+// feasibility → 조정 (opens feasibility settings via onAdjust); friction →
+// /mirror; single-person people → /people/:id. Neutral / multi-person stay
+// text-only. These actions never schedule/apply — apply is the candidate button.
+function SlotReasonList({
+  contributions,
+  onAdjust
+}: {
+  contributions: SlotSuggestionContribution[];
+  onAdjust: () => void;
+}) {
+  return (
+    <ul className="today-slot-reasons" role="list" aria-label="추천 이유">
+      {contributions.slice(0, 4).map((contrib) => (
+        <li key={contrib.lens} className={`today-slot-reason today-slot-reason--${contrib.impact}`}>
+          <span className="today-slot-reason-text">{contrib.evidence[0] ?? contrib.label}</span>
+          {contrib.lens === "feasibility" && contrib.impact !== "neutral" && (
+            <button className="today-slot-reason-link" onClick={onAdjust} aria-label="슬롯 체력 파라미터 조정">
+              조정
+            </button>
+          )}
+          {contrib.lens === "friction" && contrib.impact !== "neutral" && (
+            <a className="today-slot-reason-link" href="/mirror" aria-label="Mirror에서 패턴 보기">
+              패턴
+            </a>
+          )}
+          {contrib.lens === "people" && contrib.impact !== "neutral" &&
+           contrib.personIds !== undefined && contrib.personIds.length === 1 && (
+            <a className="today-slot-reason-link" href={`/people/${contrib.personIds[0]}`} aria-label="사람 상세 보기">
+              프로필
+            </a>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function Today() {
   const [view, setView] = useState<ViewState>({ tag: "loading" });
   const [replyState, setReplyState] = useState<Record<number, ReplyState>>({});
@@ -1908,39 +1947,10 @@ export function Today() {
                           </span>
                           <span className="today-slot-score-label">{c.scoreLabel}</span>
                         </button>
-                        <ul className="today-slot-reasons" role="list" aria-label="추천 이유">
-                          {c.contributions.slice(0, 4).map((contrib: SlotSuggestionContribution) => (
-                            <li key={contrib.lens} className={`today-slot-reason today-slot-reason--${contrib.impact}`}>
-                              <span className="today-slot-reason-text">
-                                {contrib.evidence[0] ?? contrib.label}
-                              </span>
-                              {contrib.lens === "feasibility" && contrib.impact !== "neutral" && (
-                                <button
-                                  className="today-slot-reason-link"
-                                  onClick={() => void handleOpenFeasSettings(surface.feasibility.params)}
-                                  aria-label="슬롯 체력 파라미터 조정"
-                                >
-                                  조정
-                                </button>
-                              )}
-                              {contrib.lens === "friction" && contrib.impact !== "neutral" && (
-                                <a className="today-slot-reason-link" href="/mirror" aria-label="Mirror에서 패턴 보기">
-                                  패턴
-                                </a>
-                              )}
-                              {contrib.lens === "people" && contrib.impact !== "neutral" &&
-                               contrib.personIds !== undefined && contrib.personIds.length === 1 && (
-                                <a
-                                  className="today-slot-reason-link"
-                                  href={`/people/${contrib.personIds[0]}`}
-                                  aria-label="사람 상세 보기"
-                                >
-                                  프로필
-                                </a>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
+                        <SlotReasonList
+                          contributions={c.contributions}
+                          onAdjust={() => void handleOpenFeasSettings(surface.feasibility.params)}
+                        />
                       </li>
                     ))}
                   </ul>
@@ -2006,13 +2016,10 @@ export function Today() {
                               </span>
                               <span className="today-slot-score-label">{c.scoreLabel}</span>
                             </button>
-                            <ul className="today-slot-reasons" role="list" aria-label="추천 이유">
-                              {c.contributions.slice(0, 4).map((contrib: SlotSuggestionContribution) => (
-                                <li key={contrib.lens} className={`today-slot-reason today-slot-reason--${contrib.impact}`}>
-                                  <span className="today-slot-reason-text">{contrib.evidence[0] ?? contrib.label}</span>
-                                </li>
-                              ))}
-                            </ul>
+                            <SlotReasonList
+                              contributions={c.contributions}
+                              onAdjust={() => void handleOpenFeasSettings(surface.feasibility.params)}
+                            />
                           </li>
                         );
                       })}

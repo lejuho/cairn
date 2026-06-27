@@ -3126,6 +3126,86 @@ describe("Today — due task schedule prompt (cycle-62)", () => {
     expect(screen.getByTestId("task-apply-error-77")).toHaveTextContent("선택한 시간이 더 이상 비어있지 않아");
   });
 
+  // --- Task slot evidence actions (cycle-64 FR-SLOT-09B) ---
+
+  const NEUTRAL_CONTRIB = { lens: "people", label: "참여자", impact: "neutral", points: 0, confidence: "cold_start", reasonCodes: ["people_no_data"], evidence: ["연결된 사람 없음"] };
+  function taskCandidate(contributions: unknown[]) {
+    return { ...SLOT_CANDIDATE, contributions };
+  }
+  function mockTaskCandidateFetch(candidate: unknown) {
+    const spy = vi.fn().mockImplementation((url: string) => {
+      if ((url as string).includes("/api/tasks/77/slot-candidates")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { task: DUE_TASK, candidates: [candidate] } }) });
+      }
+      if ((url as string).includes("feasibility/params")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: BASE_FEAS_SETTINGS }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: surfaceWithTaskPrompt() }) });
+    });
+    vi.stubGlobal("fetch", spy);
+    return spy;
+  }
+  async function loadTaskCandidates() {
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("보고서 후보 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("보고서 후보 보기"));
+    await waitFor(() => expect(screen.getByTestId("task-candidates-77")).toBeInTheDocument());
+  }
+
+  it("task feasibility evidence opens the feasibility settings sheet and does NOT schedule a block", async () => {
+    const spy = mockTaskCandidateFetch(taskCandidate([
+      { lens: "feasibility", label: "체력", impact: "negative", points: -20, confidence: "observed", reasonCodes: ["energy_over_budget"], evidence: ["예상 load 9.0h / 예산 8.0h — 초과"] },
+      NEUTRAL_CONTRIB
+    ]));
+    await loadTaskCandidates();
+    const adjust = screen.getByLabelText("슬롯 체력 파라미터 조정");
+    expect(adjust.tagName).toBe("BUTTON"); // keyboard-focusable
+    fireEvent.click(adjust);
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+    const urls = spy.mock.calls.map((c) => c[0] as string);
+    expect(urls.some((u) => u.includes("feasibility/params"))).toBe(true);
+    expect(urls.some((u) => u.includes("/api/tasks/77/schedule-block"))).toBe(false);
+    // the task prompt is still present (evidence action did not apply/hide it)
+    expect(screen.getByTestId("task-schedule-prompt-77")).toBeInTheDocument();
+  });
+
+  it("task friction evidence links to /mirror", async () => {
+    mockTaskCandidateFetch(taskCandidate([
+      { lens: "friction", label: "마찰", impact: "negative", points: -15, confidence: "observed", reasonCodes: ["friction_high_weekday"], evidence: ["해당 요일 이탈률 75%"] }
+    ]));
+    await loadTaskCandidates();
+    const link = screen.getByLabelText("Mirror에서 패턴 보기");
+    expect(link.getAttribute("href")).toBe("/mirror");
+  });
+
+  it("task people evidence links to /people/:id with exactly one personIds entry", async () => {
+    mockTaskCandidateFetch(taskCandidate([
+      { lens: "people", label: "참여자", impact: "negative", points: -40, confidence: "observed", reasonCodes: ["person_unavailable_weekday"], evidence: ["Alice — 해당 요일 불가"], personIds: [7] }
+    ]));
+    await loadTaskCandidates();
+    expect(screen.getByLabelText("사람 상세 보기").getAttribute("href")).toBe("/people/7");
+  });
+
+  it("task people evidence with multiple person ids has no profile link", async () => {
+    mockTaskCandidateFetch(taskCandidate([
+      { lens: "people", label: "참여자", impact: "negative", points: -40, confidence: "observed", reasonCodes: ["person_unavailable_weekday"], evidence: ["여러 명 — 해당 요일 불가"], personIds: [7, 8] }
+    ]));
+    await loadTaskCandidates();
+    expect(screen.queryByLabelText("사람 상세 보기")).not.toBeInTheDocument();
+  });
+
+  it("neutral task contributions have no evidence action", async () => {
+    mockTaskCandidateFetch(taskCandidate([
+      NEUTRAL_CONTRIB,
+      { lens: "feasibility", label: "체력", impact: "neutral", points: 0, confidence: "unavailable", reasonCodes: ["feasibility_unavailable"], evidence: [] },
+      { lens: "friction", label: "마찰", impact: "neutral", points: 0, confidence: "cold_start", reasonCodes: ["friction_low_sample"], evidence: ["과거 표본 부족"] }
+    ]));
+    await loadTaskCandidates();
+    expect(screen.queryByLabelText("슬롯 체력 파라미터 조정")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Mirror에서 패턴 보기")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("사람 상세 보기")).not.toBeInTheDocument();
+  });
+
   it("dismiss success PATCHes the task dismiss route with the Today date and refreshes the card away", async () => {
     let dismissed = false;
     const fetchSpy = vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
