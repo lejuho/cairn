@@ -1,0 +1,14 @@
+{
+  "cycle": 64,
+  "pass": 2,
+  "kind": "fix",
+  "review": ".review/cycle-64/review-v1.md",
+  "createdAt": "2026-06-27T07:45:13Z",
+  "summary": "Resolve review-v1 ISSUE-1 (MEDIUM): the new task slot evidence reason actions reused .today-slot-reason-link at 28px, below the Sprint Contract's 44px touch-target requirement for newly introduced controls. CSS-only fix: raise .today-slot-reason-link to min-height 44px with roomier 8px/12px padding (semantic tokens kept), and add flex-wrap + min-width:60% on the reason row/text so a 44px action + long evidence text stack instead of overflowing on narrow mobile rows. Shared class so event and task reason actions both meet 44px; behavior unchanged via the shared SlotReasonList. No backend/shared/DB/route change. RESOLVED appended below sentinel. Committed df7a5e6.",
+  "checks": [
+    "corepack pnpm verify (lint + typecheck + web Today 155 + build PASS)",
+    "git diff --check master...HEAD (PASS)",
+    "git diff --name-only master...HEAD | rg '^(server|shared)/' => no matches (frontend-only)",
+    "confirmed .today-slot-reason-link min-height: 44px"
+  ]
+}

@@ -36,3 +36,18 @@ None.
 <!-- RESOLVED-BOUNDARY · above=Codex immutable, below=Executor append-only · check-resolved-immutable.sh enforces -->
 
 ## RESOLVED
+
+### Issue Classification
+- ISSUE-1: APPLY (plan Sprint Contract: "all newly introduced controls have at least 44px touch targets". The task evidence reason actions are a new control surface this cycle, so the 44px criterion applies. My pass-001 reuse-28px decision misread the contract; reviewer's reading prevails.)
+
+### Applied
+
+RESOLVED: ISSUE-1 — Raise the slot evidence reason action hit area to 44px.
+
+- `web/src/styles.css` (CSS-only, per the fix direction):
+  - `.today-slot-reason-link` `min-height: 28px` → `min-height: 44px`; padding `2px 6px` → `8px 12px` for a comfortable tap area. Keeps semantic tokens (`var(--border)`/`var(--muted)`/`var(--accent)`), `inline-flex` centering, and `white-space: nowrap`.
+  - `.today-slot-reason` gains `flex-wrap: wrap` and `.today-slot-reason-text` gains `min-width: 60%` so a 44px action + long evidence text stack instead of overflowing on narrow mobile rows (addresses the plan's "crowd mobile rows / wrap long evidence text" edge case).
+- Shared class → both event and task reason actions get the 44px target; behavior stays equivalent via the shared `SlotReasonList` (no JS/DOM/behavior change, no event-action semantics change).
+- Scope: frontend CSS only. No backend/shared/DB/route/schema change. Apply remains the candidate-button tap; evidence actions still never schedule/apply.
+
+자동 체크: `corepack pnpm verify` ✅ (lint ✅ / typecheck ✅ / web Today 155 ✅ / build ✅) / `git diff --check master...HEAD` ✅ / `git diff --name-only master...HEAD | rg '^(server|shared)/'` → no matches ✅. Committed `df7a5e6`.
