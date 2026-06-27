@@ -133,6 +133,7 @@ export const tasks = sqliteTable(
     status: text("status").default("todo"),
     optional: integer("optional").default(0),
     schedulePromptDismissedOn: text("schedule_prompt_dismissed_on"),
+    scheduledEventId: integer("scheduled_event_id").references(() => events.id),
     createdAt: text("created_at").default(sql`(datetime('now'))`)
   },
   (table) => [

@@ -58,4 +58,9 @@ describe("TaskRowSchema — schedulePromptDismissedOn (cycle-62)", () => {
     expect(TaskRowSchema.safeParse({ ...BASE, schedulePromptDismissedOn: "2026-06-19" }).success).toBe(true);
     expect(TaskRowSchema.safeParse({ ...BASE, schedulePromptDismissedOn: null }).success).toBe(true);
   });
+  it("parses with scheduledEventId (number/null) and without it (cycle-63)", () => {
+    expect(TaskRowSchema.safeParse(BASE).success).toBe(true);
+    expect(TaskRowSchema.safeParse({ ...BASE, scheduledEventId: 42 }).success).toBe(true);
+    expect(TaskRowSchema.safeParse({ ...BASE, scheduledEventId: null }).success).toBe(true);
+  });
 });

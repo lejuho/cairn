@@ -3057,7 +3057,7 @@ describe("Today — due task schedule prompt (cycle-62)", () => {
     expect(screen.getByLabelText("보고서 후보 보기")).toBeInTheDocument();
   });
 
-  it("loads task candidates as preview-only (no schedulable button, no event endpoints)", async () => {
+  it("renders candidate rows as explicit schedule-block apply actions (cycle-63)", async () => {
     const fetchSpy = vi.fn().mockImplementation((url: string) => {
       if ((url as string).includes("/api/tasks/77/slot-candidates")) {
         return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { task: DUE_TASK, candidates: [SLOT_CANDIDATE] } }) });
@@ -3069,13 +3069,61 @@ describe("Today — due task schedule prompt (cycle-62)", () => {
     await waitFor(() => expect(screen.getByLabelText("보고서 후보 보기")).toBeInTheDocument());
     fireEvent.click(screen.getByLabelText("보고서 후보 보기"));
     await waitFor(() => expect(screen.getByTestId("task-candidates-77")).toBeInTheDocument());
-    // preview shows the candidate time but NO selectable "선택" schedule button
-    expect(screen.getByText(/2026-06-20 09:00 – 10:00/)).toBeInTheDocument();
-    expect(screen.queryByLabelText(/선택/)).not.toBeInTheDocument();
-    // never hits the event slot-candidates or schedule endpoints
-    const urls = fetchSpy.mock.calls.map((c) => c[0] as string);
-    expect(urls.some((u) => u.includes("/api/events/"))).toBe(false);
-    expect(urls.some((u) => /\/schedule$/.test(u))).toBe(false);
+    // an explicit "작업 블록 만들기" button (not a done/complete action)
+    const apply = screen.getByLabelText("2026-06-20 09:00 작업 블록 만들기");
+    expect(apply).toBeInTheDocument();
+    expect(screen.getByText(/작업 블록을 만들어 \(완료 처리는 아님\)/)).toBeInTheDocument();
+  });
+
+  it("applying a candidate POSTs schedule-block (only) and refreshes the card away", async () => {
+    let applied = false;
+    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if ((url as string).includes("/api/tasks/77/slot-candidates")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { task: DUE_TASK, candidates: [SLOT_CANDIDATE] } }) });
+      }
+      if ((url as string).includes("/api/tasks/77/schedule-block") && opts?.method === "POST") {
+        applied = true;
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { task: { ...DUE_TASK, scheduledEventId: 999 }, event: { id: 999 } } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: applied ? { ...BASE_SURFACE, state: "quiet" } : surfaceWithTaskPrompt() }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("보고서 후보 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("보고서 후보 보기"));
+    await waitFor(() => expect(screen.getByTestId("task-apply-77")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("2026-06-20 09:00 작업 블록 만들기"));
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining("/api/tasks/77/schedule-block"),
+      expect.objectContaining({ method: "POST", body: expect.stringContaining(SLOT_CANDIDATE.start) })
+    ));
+    await waitFor(() => expect(screen.queryByTestId("task-schedule-prompt-77")).not.toBeInTheDocument());
+    // never calls the event schedule endpoints nor a task status patch
+    const calls = fetchSpy.mock.calls;
+    expect(calls.some((c) => (c[0] as string).includes("/api/events/"))).toBe(false);
+    expect(calls.some((c) => /\/schedule$/.test(c[0] as string))).toBe(false);
+    expect(calls.some((c) => (c[0] as string).includes("/api/tasks/77/status"))).toBe(false);
+  });
+
+  it("apply failure keeps the prompt visible with scoped error copy", async () => {
+    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if ((url as string).includes("/api/tasks/77/slot-candidates")) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { task: DUE_TASK, candidates: [SLOT_CANDIDATE] } }) });
+      }
+      if ((url as string).includes("/api/tasks/77/schedule-block") && opts?.method === "POST") {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: false, error: { message: "선택한 시간이 더 이상 비어있지 않아" } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: surfaceWithTaskPrompt() }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("보고서 후보 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("보고서 후보 보기"));
+    await waitFor(() => expect(screen.getByTestId("task-apply-77")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("2026-06-20 09:00 작업 블록 만들기"));
+    await waitFor(() => expect(screen.getByTestId("task-apply-error-77")).toBeInTheDocument());
+    expect(screen.getByTestId("task-schedule-prompt-77")).toBeInTheDocument();
+    expect(screen.getByTestId("task-apply-error-77")).toHaveTextContent("선택한 시간이 더 이상 비어있지 않아");
   });
 
   it("dismiss success PATCHes the task dismiss route with the Today date and refreshes the card away", async () => {

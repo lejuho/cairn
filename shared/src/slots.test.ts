@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  ScheduleTaskBlockRequestSchema,
+  ScheduleTaskBlockResponseDataSchema,
   SlotCandidateSchema,
   SlotSuggestionContributionSchema,
   SlotSuggestionLensSchema,
@@ -132,5 +134,57 @@ describe("SlotCandidateSchema", () => {
       ]
     };
     expect(SlotCandidateSchema.parse(candidate).contributions).toHaveLength(4);
+  });
+});
+
+describe("ScheduleTaskBlockRequestSchema (cycle-63)", () => {
+  const VALID = { date: "2026-06-27", now: "2026-06-27T09:00:00+09:00", days: 7, start: "2026-06-28T14:00:00+09:00", end: "2026-06-28T15:30:00+09:00" };
+  it("parses a valid apply request", () => {
+    expect(ScheduleTaskBlockRequestSchema.safeParse(VALID).success).toBe(true);
+  });
+  it("defaults days to 7 when omitted", () => {
+    const rest: Record<string, unknown> = { ...VALID };
+    delete rest.days;
+    const r = ScheduleTaskBlockRequestSchema.safeParse(rest);
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.days).toBe(7);
+  });
+  it("rejects end before/equal start", () => {
+    expect(ScheduleTaskBlockRequestSchema.safeParse({ ...VALID, end: VALID.start }).success).toBe(false);
+    expect(ScheduleTaskBlockRequestSchema.safeParse({ ...VALID, start: VALID.end, end: VALID.start }).success).toBe(false);
+  });
+  it("rejects malformed date/now and out-of-range days", () => {
+    expect(ScheduleTaskBlockRequestSchema.safeParse({ ...VALID, date: "2026/06/27" }).success).toBe(false);
+    expect(ScheduleTaskBlockRequestSchema.safeParse({ ...VALID, now: "not-a-time" }).success).toBe(false);
+    expect(ScheduleTaskBlockRequestSchema.safeParse({ ...VALID, days: 0 }).success).toBe(false);
+    expect(ScheduleTaskBlockRequestSchema.safeParse({ ...VALID, days: 15 }).success).toBe(false);
+  });
+  it("rejects missing required fields", () => {
+    for (const k of ["date", "now", "start", "end"] as const) {
+      const rest: Record<string, unknown> = { ...VALID };
+      delete rest[k];
+      expect(ScheduleTaskBlockRequestSchema.safeParse(rest).success).toBe(false);
+    }
+  });
+  it("rejects injected fields (strict): score/apply/taskId/autoApply", () => {
+    for (const inj of [{ score: 1 }, { apply: true }, { taskId: 5 }, { autoApply: true }]) {
+      expect(ScheduleTaskBlockRequestSchema.safeParse({ ...VALID, ...inj }).success).toBe(false);
+    }
+  });
+});
+
+describe("ScheduleTaskBlockResponseDataSchema (cycle-63)", () => {
+  const TASK = { id: 7, threadId: null, title: "보고서", estMinutes: 90, due: "2026-06-20", context: null, status: "doing", optional: 0, scheduledEventId: 42, createdAt: null };
+  const EVENT = { id: 42, threadId: null, title: "보고서", type: "task", start: "2026-06-28T14:00:00+09:00", end: "2026-06-28T15:30:00+09:00", location: null, mode: "async", source: "cairn", selfImposed: 1, status: "planned", createdAt: null, updatedAt: null };
+  it("validates a task + event payload", () => {
+    expect(ScheduleTaskBlockResponseDataSchema.safeParse({ task: TASK, event: EVENT }).success).toBe(true);
+  });
+  it("requires both task and event", () => {
+    expect(ScheduleTaskBlockResponseDataSchema.safeParse({ task: TASK }).success).toBe(false);
+    expect(ScheduleTaskBlockResponseDataSchema.safeParse({ event: EVENT }).success).toBe(false);
+  });
+  it("rejects injected score/apply fields (strict)", () => {
+    expect(ScheduleTaskBlockResponseDataSchema.safeParse({ task: TASK, event: EVENT, score: 9 }).success).toBe(false);
+    expect(ScheduleTaskBlockResponseDataSchema.safeParse({ task: TASK, event: EVENT, applied: true }).success).toBe(false);
   });
 });

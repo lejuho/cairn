@@ -18,6 +18,17 @@ type SlotState =
   | { tag: "error"; message: string };
 type SlotStateMap = Record<number, SlotState>;
 
+// Task slot state also keeps the candidate query context (date/now/days) so an
+// apply resends the SAME context the candidates were generated from — otherwise
+// wall-clock drift would recompute a different list and stale a just-shown slot
+// (cycle-63 FR-SLOT-07A).
+type TaskSlotState =
+  | { tag: "idle" }
+  | { tag: "loading" }
+  | { tag: "loaded"; candidates: SlotCandidate[]; date: string; now: string; days: number }
+  | { tag: "error"; message: string };
+type TaskSlotStateMap = Record<number, TaskSlotState>;
+
 type ConflictSheetState =
   | { open: false }
   | { open: true; resolved: false; conflict: ConflictDecision; submitting: boolean; error: string | null }
@@ -695,9 +706,10 @@ export function Today() {
   const [replyState, setReplyState] = useState<Record<number, ReplyState>>({});
   const [slotState, setSlotState] = useState<SlotStateMap>({});
   const [dismissError, setDismissError] = useState<Record<number, string>>({});
-  // Due-task schedule prompt preview + dismiss state (cycle-62), keyed by task id.
-  const [taskSlotState, setTaskSlotState] = useState<SlotStateMap>({});
+  // Due-task schedule prompt candidate + dismiss + apply state (cycle-62/63), keyed by task id.
+  const [taskSlotState, setTaskSlotState] = useState<TaskSlotStateMap>({});
   const [taskDismissError, setTaskDismissError] = useState<Record<number, string>>({});
+  const [taskApplyError, setTaskApplyError] = useState<Record<number, string>>({});
   const [sheet, setSheet] = useState<SheetState>({ open: false });
   const [threadOptions, setThreadOptions] = useState<ThreadSummary[]>([]);
   const [capture, setCapture] = useState<{ text: string; submitting: boolean; savedMsg: string | null }>({
@@ -874,22 +886,50 @@ export function Today() {
     }
   }, [refresh]);
 
-  // Read-only task slot preview (cycle-62). Fetches task candidates; they render
-  // as evidence only — no schedule/apply action exists for tasks this cycle.
+  // Task slot candidates (cycle-62 preview, cycle-63 apply). Captures the
+  // date/now/days the candidates were generated from so apply can resend them.
   const handleLoadTaskCandidates = useCallback(async (taskId: number) => {
     setTaskSlotState((s) => ({ ...s, [taskId]: { tag: "loading" } }));
+    const now = new Date().toISOString().replace("Z", "+00:00");
+    const date = now.slice(0, 10);
+    const days = 7;
     try {
-      const now = new Date().toISOString().replace("Z", "+00:00");
-      const date = now.slice(0, 10);
       const body = await apiJson<{ ok: boolean; data?: { candidates: SlotCandidate[] }; error?: { message: string } }>(
-        `/api/tasks/${taskId}/slot-candidates?date=${date}&now=${encodeURIComponent(now)}&days=7`
+        `/api/tasks/${taskId}/slot-candidates?date=${date}&now=${encodeURIComponent(now)}&days=${days}`
       );
       if (!body.ok) throw new Error(body.error?.message ?? "후보 로딩 실패");
-      setTaskSlotState((s) => ({ ...s, [taskId]: { tag: "loaded", candidates: body.data!.candidates } }));
+      setTaskSlotState((s) => ({ ...s, [taskId]: { tag: "loaded", candidates: body.data!.candidates, date, now, days } }));
     } catch (e) {
       setTaskSlotState((s) => ({ ...s, [taskId]: { tag: "error", message: e instanceof Error ? e.message : "오류" } }));
     }
   }, []);
+
+  // Apply a task slot candidate (cycle-63): create a scheduled block from the
+  // selected candidate. Resends the candidate query context so the server
+  // recomputes the same list. On success Today refreshes (the prompt disappears
+  // because the task now has an active block); on failure the prompt stays with
+  // scoped copy. Does NOT mark the task done — it only creates a schedule block.
+  const handleApplyTaskBlock = useCallback(
+    async (taskId: number, start: string, end: string, ctx: { date: string; now: string; days: number }) => {
+      try {
+        const body = await apiJson<{ ok: boolean; error?: { message: string } }>(`/api/tasks/${taskId}/schedule-block`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ date: ctx.date, now: ctx.now, days: ctx.days, start, end })
+        });
+        if (!body.ok) {
+          setTaskApplyError((s) => ({ ...s, [taskId]: body.error?.message ?? "일정 만들기 실패" }));
+          return;
+        }
+        setTaskApplyError((s) => { const n = { ...s }; delete n[taskId]; return n; });
+        setTaskSlotState((s) => ({ ...s, [taskId]: { tag: "idle" } }));
+        await refresh();
+      } catch (e) {
+        setTaskApplyError((s) => ({ ...s, [taskId]: e instanceof Error ? e.message : "오류" }));
+      }
+    },
+    [refresh]
+  );
 
   const handleDismissTaskPrompt = useCallback(async (taskId: number, dismissedOn: string) => {
     try {
@@ -1949,27 +1989,39 @@ export function Today() {
                 )}
                 {ts.tag === "loaded" && ts.candidates.length > 0 && (
                   <>
-                    <p className="card-meta" style={{ opacity: 0.6, margin: "8px 0 4px", fontSize: "0.75rem" }}>미리보기 — 직접 일정을 잡아줘 (이 화면에선 예약 안 됨)</p>
+                    <p className="card-meta" style={{ opacity: 0.6, margin: "8px 0 4px", fontSize: "0.75rem" }}>이 시간에 작업 블록을 만들어 (완료 처리는 아님)</p>
                     <ul className="today-slot-list" role="list" data-testid={`task-candidates-${card.task.id}`}>
-                      {ts.candidates.map((c) => (
-                        <li key={c.start} className="today-slot-item">
-                          {/* Preview-only: a non-interactive div, NOT a schedule button. */}
-                          <div className="today-slot-candidate today-slot-candidate--preview">
-                            <span className="today-slot-time">
-                              {c.start.slice(0, 10)} {c.start.slice(11, 16)} – {c.end.slice(11, 16)}
-                            </span>
-                            <span className="today-slot-score-label">{c.scoreLabel}</span>
-                          </div>
-                          <ul className="today-slot-reasons" role="list" aria-label="추천 이유">
-                            {c.contributions.slice(0, 4).map((contrib: SlotSuggestionContribution) => (
-                              <li key={contrib.lens} className={`today-slot-reason today-slot-reason--${contrib.impact}`}>
-                                <span className="today-slot-reason-text">{contrib.evidence[0] ?? contrib.label}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </li>
-                      ))}
+                      {ts.candidates.map((c) => {
+                        const ctx = { date: ts.date, now: ts.now, days: ts.days };
+                        return (
+                          <li key={c.start} className="today-slot-item">
+                            <button
+                              className="today-slot-candidate"
+                              onClick={() => void handleApplyTaskBlock(card.task.id, c.start, c.end, ctx)}
+                              data-testid={`task-apply-${card.task.id}`}
+                              aria-label={`${c.start.slice(0, 10)} ${c.start.slice(11, 16)} 작업 블록 만들기`}
+                            >
+                              <span className="today-slot-time">
+                                {c.start.slice(0, 10)} {c.start.slice(11, 16)} – {c.end.slice(11, 16)}
+                              </span>
+                              <span className="today-slot-score-label">{c.scoreLabel}</span>
+                            </button>
+                            <ul className="today-slot-reasons" role="list" aria-label="추천 이유">
+                              {c.contributions.slice(0, 4).map((contrib: SlotSuggestionContribution) => (
+                                <li key={contrib.lens} className={`today-slot-reason today-slot-reason--${contrib.impact}`}>
+                                  <span className="today-slot-reason-text">{contrib.evidence[0] ?? contrib.label}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </li>
+                        );
+                      })}
                     </ul>
+                    {taskApplyError[card.task.id] && (
+                      <p className="today-slot-error" role="alert" data-testid={`task-apply-error-${card.task.id}`}>
+                        {taskApplyError[card.task.id]}
+                      </p>
+                    )}
                   </>
                 )}
                 {ts.tag === "error" && <p className="today-slot-error" role="alert">{ts.message}</p>}

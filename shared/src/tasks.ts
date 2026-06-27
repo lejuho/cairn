@@ -28,6 +28,10 @@ export const TaskRowSchema = z.object({
   // marker (cycle-62 FR-SLOT-06C). Optional so existing TaskRow fixtures need
   // not change; nullable for the default/legacy state.
   schedulePromptDismissedOn: z.string().nullable().optional(),
+  // Source-owned id of the scheduled Cairn event created from a task slot
+  // candidate (cycle-63 FR-SLOT-07A). Optional/nullable; null until applied.
+  // Completion stays manual — this never changes task status.
+  scheduledEventId: z.number().nullable().optional(),
   createdAt: z.string().nullable()
 });
 

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import { CreateTaskRequestSchema, DismissTaskSchedulePromptRequestSchema, PatchTaskStatusRequestSchema, PatchThreadTaskNodeRequestSchema, SlotCandidatesQuerySchema } from "@cairn/shared";
-import { createTask, dismissTaskSchedulePromptForDate, findTaskById, isTaskPromptEligible, updateTaskStatus, updateTaskThreadNode } from "../repositories/tasks.js";
+import { CreateTaskRequestSchema, DismissTaskSchedulePromptRequestSchema, PatchTaskStatusRequestSchema, PatchThreadTaskNodeRequestSchema, ScheduleTaskBlockRequestSchema, SlotCandidatesQuerySchema } from "@cairn/shared";
+import { createTask, dismissTaskSchedulePromptForDate, findTaskById, hasActiveScheduledBlock, isTaskPromptEligible, scheduleTaskBlock, updateTaskStatus, updateTaskThreadNode } from "../repositories/tasks.js";
 import { generateTaskSlotCandidates } from "../services/slotCandidates.js";
 import type { CairnDatabase } from "../db/index.js";
 
@@ -121,5 +121,43 @@ export function registerTaskRoutes(app: FastifyInstance, db: CairnDatabase): voi
       return reply.code(409).send({ ok: false, error: { code: "TASK_SCHEDULE_PROMPT_NOT_ELIGIBLE", message: "task is not an eligible schedule prompt" } });
     }
     return reply.send({ ok: true, data: { taskId: id, dismissedOn: parsed.data.dismissedOn } });
+  });
+
+  // Apply a due-task slot candidate (cycle-63 FR-SLOT-07A): create one scheduled
+  // Cairn block event and record it on the task. Revalidates eligibility +
+  // recomputes candidates against the supplied date/now/days so a stale start/end
+  // is rejected before any write. All failure paths write nothing.
+  app.post("/api/tasks/:id/schedule-block", async (req, reply) => {
+    const id = Number((req.params as Record<string, string>).id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: "id must be a positive integer" } });
+    }
+    const parsed = ScheduleTaskBlockRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: parsed.error.message } });
+    }
+    const task = findTaskById(db, id);
+    if (!task) {
+      return reply.code(404).send({ ok: false, error: { code: "NOT_FOUND", message: `task ${id} not found` } });
+    }
+    if (!isTaskPromptEligible(task, parsed.data.date)) {
+      return reply.code(409).send({ ok: false, error: { code: "TASK_SCHEDULE_PROMPT_NOT_ELIGIBLE", message: "task is not a due-imminent schedule prompt" } });
+    }
+    if (hasActiveScheduledBlock(db, task)) {
+      return reply.code(409).send({ ok: false, error: { code: "TASK_ALREADY_SCHEDULED", message: "task already has an active scheduled block" } });
+    }
+    const candidates = generateTaskSlotCandidates(
+      db,
+      { threadId: task.threadId, estMinutes: task.estMinutes! },
+      parsed.data.now,
+      parsed.data.date,
+      parsed.data.days
+    );
+    const match = candidates.some((c) => c.start === parsed.data.start && c.end === parsed.data.end);
+    if (!match) {
+      return reply.code(409).send({ ok: false, error: { code: "TASK_SLOT_STALE", message: "selected slot is no longer available" } });
+    }
+    const result = scheduleTaskBlock(db, task, parsed.data.start, parsed.data.end);
+    return reply.code(201).send({ ok: true, data: result });
   });
 }

@@ -736,16 +736,6 @@ p {
   color: var(--accent);
 }
 
-/* Read-only task slot candidate (cycle-62): preview evidence, not selectable.
-   No pointer affordance and no hover highlight. */
-.today-slot-candidate--preview {
-  cursor: default;
-}
-.today-slot-candidate--preview:hover {
-  border-color: var(--border);
-  color: var(--text);
-}
-
 .today-slot-item {
   display: flex;
   flex-direction: column;

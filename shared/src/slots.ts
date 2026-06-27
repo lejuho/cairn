@@ -62,7 +62,32 @@ export const ScheduleEventResponseDataSchema = z.object({
   event: EventRowSchema
 });
 
+// Task slot apply (cycle-63 FR-SLOT-07A). Strict: the candidate query context
+// (date/now/days) the client previewed PLUS the selected start/end, so the
+// server recomputes the SAME candidate list and rejects a stale selection.
+// Rejects injected score/apply/taskId — this creates a schedule block, it does
+// not complete the task.
+export const ScheduleTaskBlockRequestSchema = z
+  .object({
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD"),
+    now: z.string().datetime({ offset: true }),
+    days: z.coerce.number().int().min(1).max(14).default(7),
+    start: z.string().datetime({ offset: true }),
+    end: z.string().datetime({ offset: true })
+  })
+  .strict()
+  .refine((v) => Date.parse(v.end) > Date.parse(v.start), { message: "end must be after start" });
+
+export const ScheduleTaskBlockResponseDataSchema = z
+  .object({
+    task: TaskRowSchema,
+    event: EventRowSchema
+  })
+  .strict();
+
 export type SlotCandidate = z.infer<typeof SlotCandidateSchema>;
 export type SlotCandidatesQuery = z.infer<typeof SlotCandidatesQuerySchema>;
 export type ScheduleEventRequest = z.infer<typeof ScheduleEventRequestSchema>;
 export type TaskSlotCandidatesResponseData = z.infer<typeof TaskSlotCandidatesResponseDataSchema>;
+export type ScheduleTaskBlockRequest = z.infer<typeof ScheduleTaskBlockRequestSchema>;
+export type ScheduleTaskBlockResponseData = z.infer<typeof ScheduleTaskBlockResponseDataSchema>;

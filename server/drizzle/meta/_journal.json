@@ -57,6 +57,13 @@
       "when": 1782540374382,
       "tag": "0007_lame_madrox",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1782542770731,
+      "tag": "0008_mean_thor",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,1 @@
+ALTER TABLE `tasks` ADD `scheduled_event_id` integer REFERENCES events(id);
