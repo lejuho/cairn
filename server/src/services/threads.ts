@@ -36,6 +36,7 @@ import {
 } from "../repositories/threads.js";
 import { findThreadNodeLinks } from "../repositories/links.js";
 import { findEventsWithCostsByThreadId } from "../repositories/events.js";
+import { findThreadPersonFocus } from "../repositories/people.js";
 import { computeThreadUnknownBlockers } from "./thread-unknown-blockers.js";
 import { computeThreadSettlement } from "./thread-settlement.js";
 import { computeThreadMissingNodeSuggestions } from "./thread-missing-node-suggestions.js";
@@ -112,7 +113,8 @@ export function getThreadDetail(db: CairnDatabase, id: number): ThreadDetail | n
   }
 
   const resume = findThreadResume(db, id) ?? { resumeRelevant: false, starSituation: null, starAction: null, starResult: null, skillsTags: [] };
-  return { thread, events: threadEvents, tasks: threadTasks, progress, relations, rollup, nodeLinks, unknownBlockers, settlement, missingNodeSuggestions, resume };
+  const personFocus = { people: findThreadPersonFocus(db, threadEvents.map((e) => e.id)) };
+  return { thread, events: threadEvents, tasks: threadTasks, progress, relations, rollup, nodeLinks, unknownBlockers, settlement, missingNodeSuggestions, resume, personFocus };
 }
 
 function buildRollup(db: CairnDatabase, rootId: number): ThreadRollup {

@@ -367,6 +367,31 @@ export const ThreadResumeExportQuerySchema = z
   .object({ format: ThreadResumeExportFormatSchema })
   .strict();
 
+// Person Thread Focus A (cycle-66 FR-PPL-07/FR-XREL-03). Read-only highlight
+// layer: the people attached (via event_people) to events in this thread, with
+// the in-thread event ids they appear on. Strict — descriptive only, rejects
+// injected score/recommendation/action/autoApply fields.
+export const ThreadPersonFocusPersonSchema = z
+  .object({
+    id: z.number().int().positive(),
+    name: z.string(),
+    relation: z.string().nullable()
+  })
+  .strict();
+
+export const ThreadPersonFocusRowSchema = z
+  .object({
+    person: ThreadPersonFocusPersonSchema,
+    eventIds: z.array(z.number().int().positive())
+  })
+  .strict();
+
+export const ThreadPersonFocusSchema = z
+  .object({
+    people: z.array(ThreadPersonFocusRowSchema)
+  })
+  .strict();
+
 export const ThreadDetailSchema = z.object({
   thread: ThreadRowSchema,
   events: z.array(EventRowSchema),
@@ -378,7 +403,8 @@ export const ThreadDetailSchema = z.object({
   unknownBlockers: z.array(ThreadUnknownBlockerSchema),
   settlement: ThreadSettlementSchema,
   missingNodeSuggestions: z.array(ThreadMissingNodeSuggestionSchema),
-  resume: ThreadResumeDataSchema
+  resume: ThreadResumeDataSchema,
+  personFocus: ThreadPersonFocusSchema
 });
 
 export type ThreadRow = z.infer<typeof ThreadRowSchema>;
@@ -393,6 +419,8 @@ export type CreateThreadLinkRequest = z.infer<typeof CreateThreadLinkRequestSche
 export type ThreadRelationCounts = z.infer<typeof ThreadRelationCountsSchema>;
 export type ThreadSummary = z.infer<typeof ThreadSummarySchema>;
 export type ThreadDetail = z.infer<typeof ThreadDetailSchema>;
+export type ThreadPersonFocus = z.infer<typeof ThreadPersonFocusSchema>;
+export type ThreadPersonFocusRow = z.infer<typeof ThreadPersonFocusRowSchema>;
 export type ThreadResumeData = z.infer<typeof ThreadResumeDataSchema>;
 export type PatchThreadResumeRequest = z.infer<typeof PatchThreadResumeRequestSchema>;
 export type PatchThreadResumeResponseData = z.infer<typeof PatchThreadResumeResponseDataSchema>;

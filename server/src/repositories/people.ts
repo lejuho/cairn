@@ -1,5 +1,5 @@
 import { asc, eq, inArray } from "drizzle-orm";
-import type { AuthoredLeadTime, AuthoredPreferredWindows, CreatePersonRequest, EventPeopleResponse, EventRow, FrequencyBand, HardConstraint, PersonDirectoryRow, PersonRow, UpdatePersonProfileRequest, Weekday } from "@cairn/shared";
+import type { AuthoredLeadTime, AuthoredPreferredWindows, CreatePersonRequest, EventPeopleResponse, EventRow, FrequencyBand, HardConstraint, PersonDirectoryRow, PersonRow, ThreadPersonFocusRow, UpdatePersonProfileRequest, Weekday } from "@cairn/shared";
 import type { CairnDatabase, CairnDbExecutor } from "../db/index.js";
 import { eventPeople, events, people } from "../db/schema.js";
 import { parseHardConstraints, parseLeadTime, parsePreferredWindows, toFrequencyBand } from "../services/people-impact.js";
@@ -137,6 +137,40 @@ export function findEventPeopleContext(
     result.set(link.eventId, existing);
   }
   return result;
+}
+
+// Person Thread Focus A (cycle-66 FR-PPL-07/FR-XREL-03). READ-ONLY: the people
+// attached (via event_people) to the given in-thread event ids, each with the
+// in-thread event ids they appear on. Deterministic: eventIds unique + asc;
+// people sorted name asc then id asc. Caller passes only events that belong to
+// the thread, so out-of-thread links never appear. No write.
+export function findThreadPersonFocus(db: CairnDatabase, eventIds: number[]): ThreadPersonFocusRow[] {
+  if (eventIds.length === 0) return [];
+  const rows = db
+    .select({
+      eventId: eventPeople.eventId,
+      personId: people.id,
+      personName: people.name,
+      relation: people.relation
+    })
+    .from(eventPeople)
+    .innerJoin(people, eq(eventPeople.personId, people.id))
+    .where(inArray(eventPeople.eventId, eventIds))
+    .all();
+
+  const byPerson = new Map<number, { person: { id: number; name: string; relation: string | null }; eventIds: Set<number> }>();
+  for (const r of rows) {
+    let entry = byPerson.get(r.personId);
+    if (!entry) {
+      entry = { person: { id: r.personId, name: r.personName, relation: r.relation ?? null }, eventIds: new Set<number>() };
+      byPerson.set(r.personId, entry);
+    }
+    if (r.eventId != null) entry.eventIds.add(r.eventId);
+  }
+
+  return [...byPerson.values()]
+    .map((e) => ({ person: e.person, eventIds: [...e.eventIds].sort((a, b) => a - b) }))
+    .sort((a, b) => (a.person.name < b.person.name ? -1 : a.person.name > b.person.name ? 1 : a.person.id - b.person.id));
 }
 
 export function replaceHardConstraints(

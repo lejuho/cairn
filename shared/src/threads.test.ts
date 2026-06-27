@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   CreateThreadLinkRequestSchema,
   ThreadDetailSchema,
+  ThreadPersonFocusSchema,
+  ThreadPersonFocusRowSchema,
   ThreadNodeLinkSchema,
   ThreadUnknownBlockerSchema,
   ThreadSettlementSchema,
@@ -42,6 +44,8 @@ const EMPTY_SETTLEMENT = {
 const EMPTY_RESUME = {
   resumeRelevant: false, starSituation: null, starAction: null, starResult: null, skillsTags: []
 };
+
+const EMPTY_PERSON_FOCUS = { people: [] };
 
 // Zero decomposed paid cost — reused across rollup fixtures (cycle-60).
 const ZERO_PC = { eventCount: 0, money: 0, social: 0, effort: { none: 0, low: 0, medium: 0, high: 0, unknown: 0 }, windowCount: 0 };
@@ -180,7 +184,7 @@ describe("ThreadDetailSchema.relations", () => {
       unknownBlockers: [],
       settlement: EMPTY_SETTLEMENT,
       missingNodeSuggestions: [],
-      resume: EMPTY_RESUME
+      resume: EMPTY_RESUME, personFocus: EMPTY_PERSON_FOCUS
     });
     expect(r.success).toBe(true);
   });
@@ -291,6 +295,43 @@ describe("ThreadDetailSchema.relations", () => {
       progress: { done: 1, total: 5 }
     });
     expect(r.success).toBe(false);
+  });
+});
+
+describe("ThreadPersonFocus schemas (cycle-66)", () => {
+  const ROW = { person: { id: 7, name: "홍길동", relation: "동료" }, eventIds: [10, 12] };
+
+  it("accepts an empty person focus and a multi-person payload", () => {
+    expect(ThreadPersonFocusSchema.safeParse({ people: [] }).success).toBe(true);
+    expect(ThreadPersonFocusSchema.safeParse({
+      people: [ROW, { person: { id: 8, name: "김철수", relation: null }, eventIds: [10] }]
+    }).success).toBe(true);
+  });
+
+  it("accepts a person with null relation", () => {
+    expect(ThreadPersonFocusRowSchema.safeParse({ person: { id: 1, name: "익명", relation: null }, eventIds: [] }).success).toBe(true);
+  });
+
+  it("rejects injected fields inside a person focus row (strict): score/recommendation/action/autoApply", () => {
+    for (const inj of [{ score: 1 }, { recommendation: "x" }, { action: "schedule" }, { autoApply: true }]) {
+      expect(ThreadPersonFocusRowSchema.safeParse({ ...ROW, ...inj }).success).toBe(false);
+    }
+    // injected on the nested person object too
+    expect(ThreadPersonFocusRowSchema.safeParse({ person: { ...ROW.person, score: 9 }, eventIds: [10] }).success).toBe(false);
+  });
+
+  it("rejects an injected field at the person-focus container (strict)", () => {
+    expect(ThreadPersonFocusSchema.safeParse({ people: [], action: "apply" }).success).toBe(false);
+  });
+
+  it("ThreadDetailSchema accepts a detail carrying a multi-person focus and rejects injected focus-row fields", () => {
+    const base = {
+      thread: THREAD_ROW, events: [], tasks: [], progress: { done: 0, total: 0 },
+      relations: { incoming: [], outgoing: [] }, rollup: EMPTY_ROLLUP, nodeLinks: [],
+      unknownBlockers: [], settlement: EMPTY_SETTLEMENT, missingNodeSuggestions: [], resume: EMPTY_RESUME
+    };
+    expect(ThreadDetailSchema.safeParse({ ...base, personFocus: { people: [ROW] } }).success).toBe(true);
+    expect(ThreadDetailSchema.safeParse({ ...base, personFocus: { people: [{ ...ROW, score: 1 }] } }).success).toBe(false);
   });
 });
 

@@ -101,6 +101,9 @@ export function Thread({ id }: { id: number }) {
   const [linkSheet, setLinkSheet] = useState<LinkSheetState>({ tag: "closed" });
   const [focus, setFocus] = useState<ThreadResourceFocusData | null>(null);
   const [activeResourceId, setActiveResourceId] = useState<number | null>(null);
+  // Person focus (cycle-66 FR-PPL-07/FR-XREL-03). A single focus mode: resource
+  // or person, never both — selecting one clears the other.
+  const [activePersonId, setActivePersonId] = useState<number | null>(null);
   const [suggestions, setSuggestions] = useState<PromotionSuggestion[]>([]);
   const [approvingKey, setApprovingKey] = useState<string | null>(null);
   const [approveError, setApproveError] = useState<string | null>(null);
@@ -343,16 +346,24 @@ export function Thread({ id }: { id: number }) {
   );
   const highlightThread = activeItem?.links.some((l) => l.targetType === "thread") ?? false;
 
-  function nodeClass(base: string, highlighted: boolean): string {
-    if (activeResourceId == null) return base;
-    return highlighted ? `${base} resource-highlight` : `${base} resource-dimmed`;
+  // Active person focus row + its in-thread event ids (cycle-66).
+  const activePersonRow = detail.personFocus.people.find((p) => p.person.id === activePersonId) ?? null;
+  const personEventIds = new Set<number>(activePersonRow?.eventIds ?? []);
+
+  // Single focus mode: resource OR person. `resourceHL`/`personHL` say whether
+  // this node is highlighted in the corresponding mode. Person focus highlights
+  // only event nodes (tasks/header pass personHL=false → dimmed).
+  function nodeClass(base: string, resourceHL: boolean, personHL: boolean): string {
+    if (activeResourceId != null) return resourceHL ? `${base} resource-highlight` : `${base} resource-dimmed`;
+    if (activePersonId != null) return personHL ? `${base} person-highlight` : `${base} person-dimmed`;
+    return base;
   }
 
   return (
     <>
       <main className="app-shell today-live" aria-labelledby="thread-title" inert={linkSheet.tag === "open" ? true : undefined}>
         <div
-          className={nodeClass("thread-header", highlightThread)}
+          className={nodeClass("thread-header", highlightThread, false)}
           data-testid="thread-header"
           style={{ width: "min(100%, 480px)", marginBottom: "16px" }}
         >
@@ -381,7 +392,7 @@ export function Thread({ id }: { id: number }) {
             <TaskNodeCard
               key={`task-${task.id}`}
               task={task}
-              liClassName={nodeClass("today-card today-card--task", highlightedTaskIds.has(task.id))}
+              liClassName={nodeClass("today-card today-card--task", highlightedTaskIds.has(task.id), false)}
               chip="작업"
               onSaved={refresh}
             />
@@ -391,7 +402,7 @@ export function Thread({ id }: { id: number }) {
             <EventNodeCard
               key={`event-${event.id}`}
               event={event}
-              liClassName={nodeClass("today-card today-card--event", highlightedEventIds.has(event.id))}
+              liClassName={nodeClass("today-card today-card--event", highlightedEventIds.has(event.id), personEventIds.has(event.id))}
               chip="예정"
               onSaved={refresh}
             />
@@ -407,7 +418,7 @@ export function Thread({ id }: { id: number }) {
             <EventNodeCard
               key={`event-past-${event.id}`}
               event={event}
-              liClassName={nodeClass("today-card today-card--event thread-node--past", highlightedEventIds.has(event.id))}
+              liClassName={nodeClass("today-card today-card--event thread-node--past", highlightedEventIds.has(event.id), personEventIds.has(event.id))}
               chip={event.status === "done" ? "완료" : event.start ? "지남" : "미정"}
               onSaved={refresh}
             />
@@ -417,7 +428,7 @@ export function Thread({ id }: { id: number }) {
             <TaskNodeCard
               key={`task-done-${task.id}`}
               task={task}
-              liClassName={nodeClass("today-card today-card--task thread-node--past", highlightedTaskIds.has(task.id))}
+              liClassName={nodeClass("today-card today-card--task thread-node--past", highlightedTaskIds.has(task.id), false)}
               chip={task.status === "dropped" ? "드롭" : "완료"}
               onSaved={refresh}
             />
@@ -515,12 +526,27 @@ export function Thread({ id }: { id: number }) {
           )}
         </section>
 
+        {/* Person focus section (cycle-66 FR-PPL-07/FR-XREL-03) */}
+        {detail.personFocus.people.length > 0 && (
+          <PersonFocusSection
+            people={detail.personFocus.people}
+            activePersonId={activePersonId}
+            onSelect={(pid) => {
+              setActiveResourceId(null); // single focus mode — clear resource focus
+              setActivePersonId((prev) => (prev === pid ? null : pid));
+            }}
+          />
+        )}
+
         {/* Resource focus section (FR-XREL cycle-38) */}
         {focus && focus.resources.length > 0 && (
           <ResourceFocusSection
             focus={focus}
             activeResourceId={activeResourceId}
-            onSelect={(rid) => setActiveResourceId((prev) => (prev === rid ? null : rid))}
+            onSelect={(rid) => {
+              setActivePersonId(null); // single focus mode — clear person focus
+              setActiveResourceId((prev) => (prev === rid ? null : rid));
+            }}
           />
         )}
 
@@ -1324,6 +1350,43 @@ const FIRMNESS_LABEL: Record<string, string> = {
   soft: "연결",
   tentative: "가능성"
 };
+
+// Person focus chips (cycle-66 FR-PPL-07/FR-XREL-03). Read-only: tapping a chip
+// only sets local focus state — no fetch, mutation, navigation, or graph.
+function PersonFocusSection({
+  people,
+  activePersonId,
+  onSelect
+}: {
+  people: ThreadDetail["personFocus"]["people"];
+  activePersonId: number | null;
+  onSelect: (id: number) => void;
+}) {
+  return (
+    <section
+      aria-labelledby="person-focus-title"
+      style={{ width: "min(100%, 480px)", marginTop: "24px" }}
+      data-testid="person-focus"
+    >
+      <h2 id="person-focus-title" className="eyebrow" style={{ marginBottom: "8px" }}>관련 사람</h2>
+      <ul className="person-chip-list" role="list" style={{ display: "flex", flexWrap: "wrap", gap: "8px", listStyle: "none", padding: 0, margin: 0 }}>
+        {people.map((row) => (
+          <li key={row.person.id}>
+            <button
+              className={`person-chip${activePersonId === row.person.id ? " person-chip--active" : ""}`}
+              onClick={() => onSelect(row.person.id)}
+              aria-pressed={activePersonId === row.person.id}
+              data-person-id={row.person.id}
+            >
+              {row.person.name}
+              {row.person.relation && <span className="person-chip-relation"> · {row.person.relation}</span>}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
 
 function ResourceFocusSection({
   focus,

@@ -770,3 +770,86 @@ describe("GET /api/threads/:id — paid-cost rollup (FR-THR-10 cycle-60)", () =>
     expect(counts()).toEqual(before);
   });
 });
+
+// ── GET /api/threads/:id — person focus (cycle-66 FR-PPL-07/FR-XREL-03) ──────
+
+describe("GET /api/threads/:id — person focus", () => {
+  let app: FastifyInstance;
+  let conn: ReturnType<typeof makeTestDb>;
+  beforeEach(() => { conn = makeTestDb(); app = buildServer(conn.db); });
+
+  function insertThread(name: string): number {
+    return Number(conn.sqlite.prepare("INSERT INTO threads (name) VALUES (?)").run(name).lastInsertRowid);
+  }
+  function insertEvent(title: string, threadId: number): number {
+    return Number(conn.sqlite
+      .prepare("INSERT INTO events (title, start, end, source, self_imposed, status, thread_id) VALUES (?, '2026-06-20T10:00:00+09:00', '2026-06-20T11:00:00+09:00', 'cairn', 1, 'planned', ?)")
+      .run(title, threadId).lastInsertRowid);
+  }
+  function insertPerson(name: string, relation: string | null): number {
+    return Number(conn.sqlite.prepare("INSERT INTO people (name, relation, channel) VALUES (?, ?, 'none')").run(name, relation).lastInsertRowid);
+  }
+  function link(eventId: number, personId: number): void {
+    conn.sqlite.prepare("INSERT INTO event_people (event_id, person_id) VALUES (?, ?)").run(eventId, personId);
+  }
+  async function personFocus(threadId: number) {
+    const body = JSON.parse((await app.inject({ method: "GET", url: `/api/threads/${threadId}` })).body);
+    return body.data.personFocus.people as Array<{ person: { id: number; name: string; relation: string | null }; eventIds: number[] }>;
+  }
+
+  it("returns each person once with all matching in-thread event ids (deduped, sorted asc)", async () => {
+    const t = insertThread("프로젝트");
+    const e1 = insertEvent("회의1", t);
+    const e2 = insertEvent("회의2", t);
+    const alice = insertPerson("Alice", "동료");
+    const bob = insertPerson("Bob", null);
+    link(e1, alice); link(e2, alice); // Alice on both events
+    link(e1, bob);                    // Bob on one
+    const people = await personFocus(t);
+    expect(people).toEqual([
+      { person: { id: alice, name: "Alice", relation: "동료" }, eventIds: [e1, e2].sort((a, b) => a - b) },
+      { person: { id: bob, name: "Bob", relation: null }, eventIds: [e1] }
+    ]);
+  });
+
+  it("sorts people by name asc then id asc", async () => {
+    const t = insertThread("정렬");
+    const e = insertEvent("이벤트", t);
+    const z = insertPerson("박", null);   // inserted first, name 박
+    const a = insertPerson("김", null);   // name 김 sorts before 박
+    link(e, z); link(e, a);
+    const people = await personFocus(t);
+    expect(people.map((p) => p.person.name)).toEqual(["김", "박"]);
+  });
+
+  it("excludes event_people rows that belong to another thread's events", async () => {
+    const t1 = insertThread("스레드1");
+    const t2 = insertThread("스레드2");
+    const e1 = insertEvent("t1 이벤트", t1);
+    const e2 = insertEvent("t2 이벤트", t2);
+    const p = insertPerson("Carol", null);
+    link(e2, p); // Carol only on the OTHER thread's event
+    expect(await personFocus(t1)).toEqual([]);
+    expect((await personFocus(t2)).map((x) => x.person.name)).toEqual(["Carol"]);
+    // e1 silences an unused-var lint while documenting t1 has its own (person-less) event
+    expect(e1).toBeGreaterThan(0);
+  });
+
+  it("returns an empty array for a thread with no attached people", async () => {
+    const t = insertThread("사람없음");
+    insertEvent("이벤트", t);
+    expect(await personFocus(t)).toEqual([]);
+  });
+
+  it("GET detail is read-only: preserves all table row counts", async () => {
+    const t = insertThread("카운트");
+    const e = insertEvent("이벤트", t);
+    const p = insertPerson("Dave", null);
+    link(e, p);
+    const tables = ["people", "event_people", "events", "tasks", "threads", "links", "thread_links", "resources", "resource_links", "annotations"];
+    const counts = () => Object.fromEntries(tables.map((tbl) => [tbl, (conn.sqlite.prepare(`SELECT count(*) AS n FROM ${tbl}`).get() as { n: number }).n]));
+    const before = counts();
+    await app.inject({ method: "GET", url: `/api/threads/${t}` });
+    expect(counts()).toEqual(before);
+  });
+});
