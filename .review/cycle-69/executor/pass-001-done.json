@@ -1,0 +1,16 @@
+{
+  "cycle": 69,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-27T17:20:35Z",
+  "summary": "Composer Core A (frontend-only): /input is now primarily a mode-selected Composer. Replaced the quick-capture section + capture state/handler with a unified `composer` state {mode:event|thread|task, text, submitting, error, result(discriminated union)} and handleComposerSubmit that routes ONLY by the explicitly selected mode (no classifier): event→POST /api/capture/flat-event {text,now} (+loadData); thread→POST /api/threads/draft {text}; task→POST /api/tasks {title} (title-only this slice). 3-mode segmented control (.composer-mode, role=group, aria-pressed, data-mode, 44px) + central textarea (만들기 입력) + submit (만들기). Each success reuses the cycle-68 ResultCard: capture→일정/미정 일정 (capture-result, byte-identical to 68); thread→스레드 초안 (thread-draft-success, draft-open-link→/threads/:id, counts+warnings); task→할 일 (task-result→/today). Clears text + keeps mode on success; switching mode clears result+error keeps text; empty/whitespace submit disabled; failure→local role=alert keeping text+mode. Existing manual event/task forms moved behind a default-collapsed 고급 입력 toggle (aria-expanded) in quiet+live; unscheduled list/slot apply/domain filter/4 states untouched. styles.css composer/advanced-toggle styles (semantic tokens, 44px, reduced-motion). Promoted the composer roadmap doc into versioned docs. No backend/shared/route/DB/migration/LLM change. Committed af11252.",
+  "checks": [
+    "corepack pnpm lint (PASS)",
+    "corepack pnpm typecheck (PASS)",
+    "corepack pnpm test (web 468 incl. InputHub 54: capture tests migrated to Composer 일정, manual/constraint tests open 고급 입력, +8 new Composer mode/submit/result/error/endpoint-isolation tests)",
+    "corepack pnpm test:integration (686)",
+    "corepack pnpm build (web + server Done)",
+    "git diff --check master...HEAD (OK); no server|shared|drizzle diff; InputHub writes only to capture/flat-event, threads/draft, tasks (manual /api/events path unchanged); no watcher/annotation/mirror/today/LLM/DDL impl (Today-adoption/diary matches are roadmap text only)"
+  ]
+}
