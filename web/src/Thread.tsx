@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ApprovePromotionRequest, EgoGraphData, EventMode, EventRow, PromotionSuggestion, TaskRow, ThreadDetail, ThreadLinkKind, ThreadMissingNodeSuggestion, ThreadNodeLink, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadResumeData, ThreadResumeExportData, ThreadResumeExportFormat, ThreadRollup, ThreadRow, ThreadSettlement, ThreadStarDraftResponseData, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
+import type { ApprovePromotionRequest, EgoGraphData, EventMode, EventRow, PromotionSuggestion, TaskRow, ThreadDetail, ThreadLinkKind, ThreadMissingNodeSuggestion, ThreadNodeLink, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadResumeData, ThreadResumeExportData, ThreadResumeExportFormat, ThreadRollup, ThreadRow, ThreadSettlement, ThreadSettlementPaidCost, ThreadStarDraftResponseData, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
 import { EgoSheet, loadEgoGraph } from "./EgoSheet.js";
 
@@ -1222,6 +1222,13 @@ function MissingNodeSuggestionsSection({ suggestions }: { suggestions: ThreadMis
   );
 }
 
+// Compact paid-cost label for rollup chips: observed money + paid event count.
+// Decomposed evidence (effort/social/window) stays in the per-thread settlement
+// view; the rollup chip surfaces the headline observed cost only.
+function paidCostLabel(pc: ThreadSettlementPaidCost): string {
+  return `${pc.money.toLocaleString()}원 · ${pc.eventCount}건`;
+}
+
 function ThreadRollupSection({ rollup }: { rollup: ThreadRollup }) {
   const hasChildren = rollup.children.length > 0;
 
@@ -1272,8 +1279,14 @@ function ThreadRollupSection({ rollup }: { rollup: ThreadRollup }) {
             </tbody>
           </table>
 
-          <p className="card-meta" style={{ opacity: 0.6, margin: "4px 0 12px", fontSize: "0.75rem" }}>
-            누락 비용 모델은 아직 없어
+          <p className="card-meta" style={{ margin: "8px 0 4px", opacity: 0.7 }}>치른 비용 (이동·취소 관찰)</p>
+          <p className="card-meta" data-testid="rollup-paid" style={{ display: "flex", flexWrap: "wrap", gap: "6px", margin: "0 0 6px" }}>
+            <span className="card-chip" data-testid="rollup-paid-direct">직접 {paidCostLabel(rollup.direct.paidCost)}</span>
+            <span className="card-chip" data-testid="rollup-paid-contains">하위 {paidCostLabel(rollup.contains.paidCost)}</span>
+            <span className="card-chip" data-testid="rollup-paid-total">합계 {paidCostLabel(rollup.total.paidCost)}</span>
+          </p>
+          <p className="card-meta" style={{ opacity: 0.6, margin: "0 0 12px", fontSize: "0.75rem" }}>
+            관찰된 치른 비용만 표시 — 누락·회피 비용 모델은 아직 없어
           </p>
 
           <ul className="today-stack" role="list" style={{ marginTop: "8px" }} data-testid="rollup-children">
@@ -1286,8 +1299,16 @@ function ThreadRollupSection({ rollup }: { rollup: ThreadRollup }) {
                     <span className="card-chip" style={{ marginLeft: "4px", opacity: 0.6 }}>+{child.descendantCount}</span>
                   )}
                 </div>
-                <span className="card-meta" style={{ whiteSpace: "nowrap", paddingLeft: "8px" }}>
+                <span className="card-meta" style={{ whiteSpace: "nowrap", paddingLeft: "8px", textAlign: "right" }}>
                   {child.progress.done}/{child.progress.total} · {child.energyHours.toFixed(1)}h
+                  {child.paidCost.eventCount > 0 && (
+                    <>
+                      <br />
+                      <span data-testid={`rollup-child-paid-${child.thread.id}`} style={{ opacity: 0.8 }}>
+                        치름 {paidCostLabel(child.paidCost)}
+                      </span>
+                    </>
+                  )}
                 </span>
               </li>
             ))}

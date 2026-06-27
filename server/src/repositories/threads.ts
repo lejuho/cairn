@@ -385,8 +385,21 @@ export function findHardContainsEdges(db: CairnDatabase): ContainsEdge[] {
   return edges;
 }
 
-// Minimal event rows for rollup: id, threadId, start, end, status.
-export type EventSlim = { id: number; threadId: number; start: string | null; end: string | null; status: string | null };
+// Minimal event rows for rollup: id, threadId, start, end, status, plus the
+// cancel cost columns needed for paid-cost rollup (cycle-60 FR-THR-10). The
+// cancel fields match the shared PaidCostEventInput shape so the rollup service
+// can aggregate them directly.
+export type EventSlim = {
+  id: number;
+  threadId: number;
+  start: string | null;
+  end: string | null;
+  status: string | null;
+  cancelMoney: number | null;
+  cancelSocial: number | null;
+  cancelEffort: string | null;
+  cancelWindow: string | null;
+};
 
 export function findEventsSlimByThreadIds(db: CairnDatabase, threadIds: number[]): EventSlim[] {
   if (threadIds.length === 0) return [];
@@ -396,7 +409,11 @@ export function findEventsSlimByThreadIds(db: CairnDatabase, threadIds: number[]
       threadId: events.threadId,
       start: events.start,
       end: events.end,
-      status: events.status
+      status: events.status,
+      cancelMoney: events.cancelMoney,
+      cancelSocial: events.cancelSocial,
+      cancelEffort: events.cancelEffort,
+      cancelWindow: events.cancelWindow
     })
     .from(events)
     .all()

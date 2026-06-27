@@ -2,10 +2,10 @@ import type {
   TaskRow,
   ThreadRow,
   ThreadSettlement,
-  ThreadSettlementEffortBucket,
   ThreadSettlementReasonCode,
   ThreadSettlementSampleStatus
 } from "@cairn/shared";
+import { aggregatePaidCost, type PaidCostEventInput } from "./paid-cost.js";
 
 // Settlement A (cycle-53 FR-THR-07). Pure deterministic — no DB, LLM, time,
 // randomness, or mutation. Summarizes a thread's direct paid-cost evidence and a
@@ -13,19 +13,12 @@ import type {
 
 // Minimal cost-bearing event shape (the Drizzle full row is structurally
 // compatible). Settlement reads cancel fields the standard EventRow omits.
-export type SettlementEventInput = {
-  status: string | null;
-  cancelMoney: number | null;
-  cancelSocial: number | null;
-  cancelEffort: string | null;
-  cancelWindow: string | null;
-};
+// Reuses the shared paid-cost input shape (cycle-60).
+export type SettlementEventInput = PaidCostEventInput;
 
 // Matches computeProgressFromRows: cancelled events / dropped tasks (and null
 // statuses) are excluded from the progress denominator.
 const EXCLUDED_STATUSES = new Set(["cancelled", "dropped"]);
-const PAID_COST_STATUSES = new Set(["moved", "cancelled"]);
-const KNOWN_EFFORT = new Set(["none", "low", "medium", "high"]);
 
 function isCountable(status: string | null): boolean {
   return status != null && !EXCLUDED_STATUSES.has(status);
@@ -47,20 +40,9 @@ export function computeThreadSettlement(
   const doneCount = countableStatuses.filter((s) => s === "done").length;
 
   // Paid cost: only moved/cancelled direct events are actual cost evidence.
-  const effort: ThreadSettlementEffortBucket = { none: 0, low: 0, medium: 0, high: 0, unknown: 0 };
-  let money = 0;
-  let social = 0;
-  let windowCount = 0;
-  let paidEventCount = 0;
-  for (const e of events) {
-    if (e.status == null || !PAID_COST_STATUSES.has(e.status)) continue;
-    paidEventCount += 1;
-    money += e.cancelMoney ?? 0;
-    social += e.cancelSocial ?? 0;
-    const bucket = e.cancelEffort != null && KNOWN_EFFORT.has(e.cancelEffort) ? (e.cancelEffort as keyof ThreadSettlementEffortBucket) : "unknown";
-    effort[bucket] += 1;
-    if (e.cancelWindow != null && e.cancelWindow.trim() !== "") windowCount += 1;
-  }
+  // Shared with rollup via the neutral paid-cost helper (cycle-60).
+  const paidCost = aggregatePaidCost(events);
+  const paidEventCount = paidCost.eventCount;
 
   const sampleStatus: ThreadSettlementSampleStatus =
     totalCount === 0 ? "empty" : doneCount === totalCount ? "complete" : "partial";
@@ -76,7 +58,7 @@ export function computeThreadSettlement(
 
   return {
     status,
-    paidCost: { eventCount: paidEventCount, money, social, effort, windowCount },
+    paidCost,
     avoidedMissing: {
       doneCount,
       totalCount,

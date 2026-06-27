@@ -43,6 +43,9 @@ const EMPTY_RESUME = {
   resumeRelevant: false, starSituation: null, starAction: null, starResult: null, skillsTags: []
 };
 
+// Zero decomposed paid cost — reused across rollup fixtures (cycle-60).
+const ZERO_PC = { eventCount: 0, money: 0, social: 0, effort: { none: 0, low: 0, medium: 0, high: 0, unknown: 0 }, windowCount: 0 };
+
 const THREAD_ROW = {
   id: 1,
   name: "프로젝트 알파",
@@ -167,9 +170,9 @@ describe("ThreadDetailSchema.relations", () => {
       progress: { done: 1, total: 5 },
       relations: { incoming: [VIEW], outgoing: [] },
       rollup: {
-        direct: { progress: { done: 1, total: 5 }, energyHours: 2 },
-        contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, missingCost: null, missingCostStatus: "unavailable" },
-        total: { progress: { done: 1, total: 5 }, energyHours: 2, missingCost: null, missingCostStatus: "unavailable" },
+        direct: { progress: { done: 1, total: 5 }, energyHours: 2, paidCost: ZERO_PC },
+        contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, paidCost: ZERO_PC, missingCost: null, missingCostStatus: "unavailable" },
+        total: { progress: { done: 1, total: 5 }, energyHours: 2, paidCost: ZERO_PC, missingCost: null, missingCostStatus: "unavailable" },
         children: [],
         warnings: []
       },
@@ -187,9 +190,9 @@ describe("ThreadDetailSchema.relations", () => {
       thread: THREAD_ROW, events: [], tasks: [], progress: { done: 1, total: 5 },
       relations: { incoming: [VIEW], outgoing: [] },
       rollup: {
-        direct: { progress: { done: 1, total: 5 }, energyHours: 2 },
-        contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, missingCost: null, missingCostStatus: "unavailable" },
-        total: { progress: { done: 1, total: 5 }, energyHours: 2, missingCost: null, missingCostStatus: "unavailable" },
+        direct: { progress: { done: 1, total: 5 }, energyHours: 2, paidCost: ZERO_PC },
+        contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, paidCost: ZERO_PC, missingCost: null, missingCostStatus: "unavailable" },
+        total: { progress: { done: 1, total: 5 }, energyHours: 2, paidCost: ZERO_PC, missingCost: null, missingCostStatus: "unavailable" },
         children: [], warnings: []
       },
       nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT, missingNodeSuggestions: []
@@ -202,9 +205,9 @@ describe("ThreadDetailSchema.relations", () => {
       thread: THREAD_ROW, events: [], tasks: [], progress: { done: 1, total: 5 },
       relations: { incoming: [VIEW], outgoing: [] },
       rollup: {
-        direct: { progress: { done: 1, total: 5 }, energyHours: 2 },
-        contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, missingCost: null, missingCostStatus: "unavailable" },
-        total: { progress: { done: 1, total: 5 }, energyHours: 2, missingCost: null, missingCostStatus: "unavailable" },
+        direct: { progress: { done: 1, total: 5 }, energyHours: 2, paidCost: ZERO_PC },
+        contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, paidCost: ZERO_PC, missingCost: null, missingCostStatus: "unavailable" },
+        total: { progress: { done: 1, total: 5 }, energyHours: 2, paidCost: ZERO_PC, missingCost: null, missingCostStatus: "unavailable" },
         children: [], warnings: []
       },
       nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT
@@ -220,9 +223,9 @@ describe("ThreadDetailSchema.relations", () => {
       progress: { done: 1, total: 5 },
       relations: { incoming: [VIEW], outgoing: [] },
       rollup: {
-        direct: { progress: { done: 1, total: 5 }, energyHours: 2 },
-        contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, missingCost: null, missingCostStatus: "unavailable" },
-        total: { progress: { done: 1, total: 5 }, energyHours: 2, missingCost: null, missingCostStatus: "unavailable" },
+        direct: { progress: { done: 1, total: 5 }, energyHours: 2, paidCost: ZERO_PC },
+        contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, paidCost: ZERO_PC, missingCost: null, missingCostStatus: "unavailable" },
+        total: { progress: { done: 1, total: 5 }, energyHours: 2, paidCost: ZERO_PC, missingCost: null, missingCostStatus: "unavailable" },
         children: [],
         warnings: []
       },
@@ -240,9 +243,9 @@ describe("ThreadDetailSchema.relations", () => {
       progress: { done: 1, total: 5 },
       relations: { incoming: [VIEW], outgoing: [] },
       rollup: {
-        direct: { progress: { done: 1, total: 5 }, energyHours: 2 },
-        contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, missingCost: null, missingCostStatus: "unavailable" },
-        total: { progress: { done: 1, total: 5 }, energyHours: 2, missingCost: null, missingCostStatus: "unavailable" },
+        direct: { progress: { done: 1, total: 5 }, energyHours: 2, paidCost: ZERO_PC },
+        contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, paidCost: ZERO_PC, missingCost: null, missingCostStatus: "unavailable" },
+        total: { progress: { done: 1, total: 5 }, energyHours: 2, paidCost: ZERO_PC, missingCost: null, missingCostStatus: "unavailable" },
         children: [],
         warnings: []
       },
@@ -259,9 +262,9 @@ describe("ThreadDetailSchema.relations", () => {
       progress: { done: 1, total: 5 },
       relations: { incoming: [VIEW], outgoing: [] },
       rollup: {
-        direct: { progress: { done: 1, total: 5 }, energyHours: 2 },
-        contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, missingCost: null, missingCostStatus: "unavailable" },
-        total: { progress: { done: 1, total: 5 }, energyHours: 2, missingCost: null, missingCostStatus: "unavailable" },
+        direct: { progress: { done: 1, total: 5 }, energyHours: 2, paidCost: ZERO_PC },
+        contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, paidCost: ZERO_PC, missingCost: null, missingCostStatus: "unavailable" },
+        total: { progress: { done: 1, total: 5 }, energyHours: 2, paidCost: ZERO_PC, missingCost: null, missingCostStatus: "unavailable" },
         children: [],
         warnings: []
       }
@@ -292,9 +295,9 @@ describe("ThreadDetailSchema.relations", () => {
 });
 
 const EMPTY_ROLLUP = {
-  direct: { progress: { done: 0, total: 0 }, energyHours: 0 },
-  contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, missingCost: null, missingCostStatus: "unavailable" as const },
-  total: { progress: { done: 0, total: 0 }, energyHours: 0, missingCost: null, missingCostStatus: "unavailable" as const },
+  direct: { progress: { done: 0, total: 0 }, energyHours: 0, paidCost: ZERO_PC },
+  contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, paidCost: ZERO_PC, missingCost: null, missingCostStatus: "unavailable" as const },
+  total: { progress: { done: 0, total: 0 }, energyHours: 0, paidCost: ZERO_PC, missingCost: null, missingCostStatus: "unavailable" as const },
   children: [],
   warnings: []
 };
@@ -307,12 +310,40 @@ describe("ThreadRollupSchema", () => {
   it("parses rollup with children and warnings", () => {
     const r = ThreadRollupSchema.safeParse({
       ...EMPTY_ROLLUP,
-      contains: { childCount: 1, descendantCount: 2, progress: { done: 3, total: 7 }, energyHours: 5.5, missingCost: null, missingCostStatus: "unavailable" },
-      total: { progress: { done: 4, total: 10 }, energyHours: 7.5, missingCost: null, missingCostStatus: "unavailable" },
-      children: [{ thread: { id: 2, name: "하위" }, depth: 1, relationId: 10, progress: { done: 3, total: 7 }, energyHours: 5.5, descendantCount: 1 }],
+      contains: { childCount: 1, descendantCount: 2, progress: { done: 3, total: 7 }, energyHours: 5.5, paidCost: ZERO_PC, missingCost: null, missingCostStatus: "unavailable" },
+      total: { progress: { done: 4, total: 10 }, energyHours: 7.5, paidCost: ZERO_PC, missingCost: null, missingCostStatus: "unavailable" },
+      children: [{ thread: { id: 2, name: "하위" }, depth: 1, relationId: 10, progress: { done: 3, total: 7 }, energyHours: 5.5, paidCost: ZERO_PC, descendantCount: 1 }],
       warnings: ["CONTAINS_CYCLE_DETECTED"]
     });
     expect(r.success).toBe(true);
+  });
+
+  it("parses decomposed paidCost on direct/contains/total/child", () => {
+    const PC = { eventCount: 2, money: 5000, social: 1, effort: { none: 1, low: 0, medium: 1, high: 0, unknown: 0 }, windowCount: 1 };
+    const r = ThreadRollupSchema.safeParse({
+      ...EMPTY_ROLLUP,
+      direct: { progress: { done: 1, total: 2 }, energyHours: 1, paidCost: PC },
+      contains: { childCount: 1, descendantCount: 1, progress: { done: 1, total: 1 }, energyHours: 1, paidCost: PC, missingCost: null, missingCostStatus: "unavailable" },
+      total: { progress: { done: 2, total: 3 }, energyHours: 2, paidCost: PC, missingCost: null, missingCostStatus: "unavailable" },
+      children: [{ thread: { id: 2, name: "하위" }, depth: 1, relationId: 10, progress: { done: 1, total: 1 }, energyHours: 1, paidCost: PC, descendantCount: 0 }]
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects a rollup metric missing paidCost", () => {
+    const r = ThreadRollupSchema.safeParse({
+      ...EMPTY_ROLLUP,
+      direct: { progress: { done: 0, total: 0 }, energyHours: 0 }
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("rejects paidCost with an injected non-decomposed scalar field (strict)", () => {
+    const r = ThreadRollupSchema.safeParse({
+      ...EMPTY_ROLLUP,
+      direct: { progress: { done: 0, total: 0 }, energyHours: 0, paidCost: { ...ZERO_PC, score: 9 } }
+    });
+    expect(r.success).toBe(false);
   });
 
   it("rejects missingCostStatus other than unavailable", () => {
@@ -334,7 +365,7 @@ describe("ThreadRollupSchema", () => {
   it("rejects child with non-positive depth", () => {
     const r = ThreadRollupSchema.safeParse({
       ...EMPTY_ROLLUP,
-      children: [{ thread: { id: 2, name: "하위" }, depth: 0, relationId: 10, progress: { done: 0, total: 0 }, energyHours: 0, descendantCount: 0 }]
+      children: [{ thread: { id: 2, name: "하위" }, depth: 0, relationId: 10, progress: { done: 0, total: 0 }, energyHours: 0, paidCost: ZERO_PC, descendantCount: 0 }]
     });
     expect(r.success).toBe(false);
   });

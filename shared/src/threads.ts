@@ -78,11 +78,38 @@ export const ThreadSummarySchema = z.object({
   relationCounts: ThreadRelationCountsSchema
 });
 
-// Thread rollup schemas (FR-THR-10 Rollup A)
+// Decomposed paid-cost shape. Defined here (above the rollup schemas) so both
+// FR-THR-10 rollup paid cost and FR-THR-07 settlement reuse the SAME strict
+// shape rather than introducing a second cost model. Strict → rejects injected
+// scalar score/recommendation fields.
+export const ThreadSettlementEffortBucketSchema = z
+  .object({
+    none: z.number().int().nonnegative(),
+    low: z.number().int().nonnegative(),
+    medium: z.number().int().nonnegative(),
+    high: z.number().int().nonnegative(),
+    unknown: z.number().int().nonnegative()
+  })
+  .strict();
+
+export const ThreadSettlementPaidCostSchema = z
+  .object({
+    eventCount: z.number().int().nonnegative(),
+    money: z.number().int().nonnegative(),
+    social: z.number().int().nonnegative(),
+    effort: ThreadSettlementEffortBucketSchema,
+    windowCount: z.number().int().nonnegative()
+  })
+  .strict();
+
+// Thread rollup schemas (FR-THR-10 Rollup A). `paidCost` (cycle-60) reuses the
+// decomposed settlement paid-cost shape: observed moved/cancelled event cost
+// only; no scalar score, avoided money, or recommendation.
 
 export const ThreadRollupMetricSchema = z.object({
   progress: ThreadProgressSchema,
-  energyHours: z.number()
+  energyHours: z.number(),
+  paidCost: ThreadSettlementPaidCostSchema
 });
 
 export const ThreadRollupBucketSchema = z.object({
@@ -90,6 +117,7 @@ export const ThreadRollupBucketSchema = z.object({
   descendantCount: z.number(),
   progress: ThreadProgressSchema,
   energyHours: z.number(),
+  paidCost: ThreadSettlementPaidCostSchema,
   missingCost: z.null(),
   missingCostStatus: z.literal("unavailable")
 });
@@ -100,6 +128,7 @@ export const ThreadRollupChildSchema = z.object({
   relationId: z.number(),
   progress: ThreadProgressSchema,
   energyHours: z.number(),
+  paidCost: ThreadSettlementPaidCostSchema,
   descendantCount: z.number()
 });
 
@@ -109,6 +138,7 @@ export const ThreadRollupSchema = z.object({
   total: z.object({
     progress: ThreadProgressSchema,
     energyHours: z.number(),
+    paidCost: ThreadSettlementPaidCostSchema,
     missingCost: z.null(),
     missingCostStatus: z.literal("unavailable")
   }),
@@ -191,15 +221,8 @@ export const ThreadUnknownBlockerSchema = z
 export const ThreadSettlementStatusSchema = z.enum(["not_ready", "ready"]);
 export const ThreadSettlementSampleStatusSchema = z.enum(["empty", "partial", "complete"]);
 
-export const ThreadSettlementEffortBucketSchema = z
-  .object({
-    none: z.number().int().nonnegative(),
-    low: z.number().int().nonnegative(),
-    medium: z.number().int().nonnegative(),
-    high: z.number().int().nonnegative(),
-    unknown: z.number().int().nonnegative()
-  })
-  .strict();
+// ThreadSettlementEffortBucketSchema is defined above the rollup schemas so both
+// rollup and settlement reuse it (cycle-60).
 
 export const ThreadSettlementReasonCodeSchema = z.enum([
   "settlement_not_done",
@@ -211,15 +234,7 @@ export const ThreadSettlementReasonCodeSchema = z.enum([
   "settlement_avoided_money_unavailable"
 ]);
 
-export const ThreadSettlementPaidCostSchema = z
-  .object({
-    eventCount: z.number().int().nonnegative(),
-    money: z.number().int().nonnegative(),
-    social: z.number().int().nonnegative(),
-    effort: ThreadSettlementEffortBucketSchema,
-    windowCount: z.number().int().nonnegative()
-  })
-  .strict();
+// ThreadSettlementPaidCostSchema is defined above the rollup schemas (cycle-60).
 
 export const ThreadSettlementAvoidedMissingSchema = z
   .object({
@@ -395,6 +410,7 @@ export type ThreadUnknownBlocker = z.infer<typeof ThreadUnknownBlockerSchema>;
 export type ThreadSettlementStatus = z.infer<typeof ThreadSettlementStatusSchema>;
 export type ThreadSettlementSampleStatus = z.infer<typeof ThreadSettlementSampleStatusSchema>;
 export type ThreadSettlementEffortBucket = z.infer<typeof ThreadSettlementEffortBucketSchema>;
+export type ThreadSettlementPaidCost = z.infer<typeof ThreadSettlementPaidCostSchema>;
 export type ThreadSettlementReasonCode = z.infer<typeof ThreadSettlementReasonCodeSchema>;
 export type ThreadSettlement = z.infer<typeof ThreadSettlementSchema>;
 export type ThreadMissingNodeSuggestionReasonCode = z.infer<typeof ThreadMissingNodeSuggestionReasonCodeSchema>;

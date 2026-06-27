@@ -1,5 +1,6 @@
 import type { EventRow, TaskRow, ThreadProgress, ThreadRollup, ThreadRollupChild } from "@cairn/shared";
 import type { ContainsEdge, EventSlim, TaskSlim } from "../repositories/threads.js";
+import { aggregatePaidCost, emptyPaidCost, sumPaidCost } from "./paid-cost.js";
 
 const EXCLUDED_STATUSES = new Set(["cancelled", "dropped"]);
 
@@ -93,11 +94,16 @@ export function computeRollup(input: RollupInput): ThreadRollup {
   const directTasks = tasksByThread.get(rootId) ?? [];
   const directProgress = computeProgressFromSlim(directEvents, directTasks);
   const directEnergy = computeEnergyHours(directEvents);
+  const directPaidCost = aggregatePaidCost(directEvents);
 
-  // Descendant aggregate
+  // Descendant aggregate. `descendantNodes` is already deduped by the BFS
+  // `visited` set, so a contains cycle / duplicate path is counted once for
+  // paid cost just like progress/energy. children[].paidCost is each child's
+  // DIRECT events only (matching the child progress/energy row semantics).
   let descDone = 0;
   let descTotal = 0;
   let descEnergy = 0;
+  let containsPaidCost = emptyPaidCost();
   const childrenOutput: ThreadRollupChild[] = [];
 
   for (const node of descendantNodes) {
@@ -105,9 +111,11 @@ export function computeRollup(input: RollupInput): ThreadRollup {
     const tsks = tasksByThread.get(node.threadId) ?? [];
     const prog = computeProgressFromSlim(evts, tsks);
     const energy = computeEnergyHours(evts);
+    const paidCost = aggregatePaidCost(evts);
     descDone += prog.done;
     descTotal += prog.total;
     descEnergy += energy;
+    containsPaidCost = sumPaidCost(containsPaidCost, paidCost);
 
     childrenOutput.push({
       thread: { id: node.threadId, name: nameById.get(node.threadId) ?? String(node.threadId) },
@@ -115,6 +123,7 @@ export function computeRollup(input: RollupInput): ThreadRollup {
       relationId: node.relationId,
       progress: prog,
       energyHours: energy,
+      paidCost,
       descendantCount: 0 // filled below
     });
   }
@@ -148,18 +157,21 @@ export function computeRollup(input: RollupInput): ThreadRollup {
   const directChildren = descendantNodes.filter((n) => n.depth === 1);
 
   return {
-    direct: { progress: directProgress, energyHours: directEnergy },
+    direct: { progress: directProgress, energyHours: directEnergy, paidCost: directPaidCost },
     contains: {
       childCount: directChildren.length,
       descendantCount: descendantNodes.length,
       progress: { done: descDone, total: descTotal },
       energyHours: descEnergy,
+      paidCost: containsPaidCost,
       missingCost: null,
       missingCostStatus: "unavailable"
     },
     total: {
       progress: { done: directProgress.done + descDone, total: directProgress.total + descTotal },
       energyHours: directEnergy + descEnergy,
+      // total.paidCost = direct + contains (never re-aggregated) so it always equals its parts.
+      paidCost: sumPaidCost(directPaidCost, containsPaidCost),
       missingCost: null,
       missingCostStatus: "unavailable"
     },

@@ -49,10 +49,12 @@ const EMPTY_SETTLEMENT_T: ThreadSettlement = {
 
 const EMPTY_RESUME_T: ThreadResumeData = { resumeRelevant: false, starSituation: null, starAction: null, starResult: null, skillsTags: [] };
 
+const ZERO_PC = { eventCount: 0, money: 0, social: 0, effort: { none: 0, low: 0, medium: 0, high: 0, unknown: 0 }, windowCount: 0 };
+
 const EMPTY_ROLLUP: ThreadRollup = {
-  direct: { progress: { done: 0, total: 0 }, energyHours: 0 },
-  contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, missingCost: null, missingCostStatus: "unavailable" },
-  total: { progress: { done: 0, total: 0 }, energyHours: 0, missingCost: null, missingCostStatus: "unavailable" },
+  direct: { progress: { done: 0, total: 0 }, energyHours: 0, paidCost: ZERO_PC },
+  contains: { childCount: 0, descendantCount: 0, progress: { done: 0, total: 0 }, energyHours: 0, paidCost: ZERO_PC, missingCost: null, missingCostStatus: "unavailable" },
+  total: { progress: { done: 0, total: 0 }, energyHours: 0, paidCost: ZERO_PC, missingCost: null, missingCostStatus: "unavailable" },
   children: [],
   warnings: []
 };
@@ -424,16 +426,43 @@ describe("Thread — rollup section", () => {
   it("shows metrics table and child drilldown when rollup has children", async () => {
     const rollup = {
       ...EMPTY_ROLLUP,
-      direct: { progress: { done: 1, total: 3 }, energyHours: 2 },
-      contains: { childCount: 1, descendantCount: 1, progress: { done: 2, total: 4 }, energyHours: 3, missingCost: null as null, missingCostStatus: "unavailable" as const },
-      total: { progress: { done: 3, total: 7 }, energyHours: 5, missingCost: null as null, missingCostStatus: "unavailable" as const },
-      children: [{ thread: { id: 2, name: "하위 스레드" }, depth: 1, relationId: 10, progress: { done: 2, total: 4 }, energyHours: 3, descendantCount: 0 }]
+      direct: { progress: { done: 1, total: 3 }, energyHours: 2, paidCost: ZERO_PC },
+      contains: { childCount: 1, descendantCount: 1, progress: { done: 2, total: 4 }, energyHours: 3, paidCost: ZERO_PC, missingCost: null as null, missingCostStatus: "unavailable" as const },
+      total: { progress: { done: 3, total: 7 }, energyHours: 5, paidCost: ZERO_PC, missingCost: null as null, missingCostStatus: "unavailable" as const },
+      children: [{ thread: { id: 2, name: "하위 스레드" }, depth: 1, relationId: 10, progress: { done: 2, total: 4 }, energyHours: 3, paidCost: ZERO_PC, descendantCount: 0 }]
     };
     mockFetch({ thread: BASE_THREAD, events: [BASE_EVENT], tasks: [], progress: { done: 1, total: 1 }, rollup });
     render(<Thread id={1} />);
     await waitFor(() => expect(screen.getByTestId("rollup-metrics")).toBeInTheDocument());
     expect(screen.getByTestId("rollup-children")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "하위 스레드" })).toHaveAttribute("href", "/threads/2");
+  });
+
+  it("renders direct/contains/total paid-cost chips when rollup has children", async () => {
+    const PC = { eventCount: 2, money: 15000, social: 1, effort: { none: 0, low: 1, medium: 0, high: 1, unknown: 0 }, windowCount: 1 };
+    const childPC = { eventCount: 1, money: 4000, social: 0, effort: { none: 0, low: 0, medium: 0, high: 0, unknown: 1 }, windowCount: 0 };
+    const rollup = {
+      ...EMPTY_ROLLUP,
+      direct: { progress: { done: 1, total: 3 }, energyHours: 2, paidCost: { ...ZERO_PC, money: 11000, eventCount: 1 } },
+      contains: { childCount: 1, descendantCount: 1, progress: { done: 2, total: 4 }, energyHours: 3, paidCost: childPC, missingCost: null as null, missingCostStatus: "unavailable" as const },
+      total: { progress: { done: 3, total: 7 }, energyHours: 5, paidCost: PC, missingCost: null as null, missingCostStatus: "unavailable" as const },
+      children: [{ thread: { id: 2, name: "하위 스레드" }, depth: 1, relationId: 10, progress: { done: 2, total: 4 }, energyHours: 3, paidCost: childPC, descendantCount: 0 }]
+    };
+    mockFetch({ thread: BASE_THREAD, events: [BASE_EVENT], tasks: [], progress: { done: 1, total: 1 }, rollup });
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByTestId("rollup-paid")).toBeInTheDocument());
+    expect(screen.getByTestId("rollup-paid-direct")).toHaveTextContent("11,000원 · 1건");
+    expect(screen.getByTestId("rollup-paid-contains")).toHaveTextContent("4,000원 · 1건");
+    expect(screen.getByTestId("rollup-paid-total")).toHaveTextContent("15,000원 · 2건");
+    // child row shows its own paid-cost evidence
+    expect(screen.getByTestId("rollup-child-paid-2")).toHaveTextContent("4,000원 · 1건");
+  });
+
+  it("does not render paid-cost chips in the quiet no-children state", async () => {
+    mockFetch({ thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 } });
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByTestId("rollup-no-children")).toBeInTheDocument());
+    expect(screen.queryByTestId("rollup-paid")).not.toBeInTheDocument();
   });
 
   it("shows warning when rollup.warnings is non-empty", async () => {

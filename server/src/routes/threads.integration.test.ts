@@ -657,3 +657,116 @@ describe("GET /api/threads/:id — rollup (FR-THR-10 Rollup A)", () => {
     expect(children[2]!.thread.name).toBe("Deep");
   });
 });
+
+describe("GET /api/threads/:id — paid-cost rollup (FR-THR-10 cycle-60)", () => {
+  let app: FastifyInstance;
+  let conn: ReturnType<typeof makeTestDb>;
+  beforeEach(() => {
+    conn = makeTestDb();
+    app = buildServer(conn.db);
+  });
+  afterEach(() => conn.sqlite.close());
+
+  async function createThread(name: string) {
+    const res = await app.inject({ method: "POST", url: "/api/threads", payload: { name } });
+    return res.json().data.id as number;
+  }
+  async function linkThreads(fromId: number, toId: number, kind = "contains", firmness = "hard") {
+    return app.inject({ method: "POST", url: `/api/threads/${fromId}/links`, payload: { toThreadId: toId, kind, firmness } });
+  }
+  // Cancel cost columns are not settable via the API; insert directly. status
+  // must be a real EVENT_STATUS; only moved/cancelled count as paid cost.
+  function insertCostEvent(
+    threadId: number,
+    status: string,
+    opts: { money?: number; social?: number; effort?: string | null; window?: string | null } = {}
+  ) {
+    const { money = 0, social = 0, effort = null, window = null } = opts;
+    conn.sqlite
+      .prepare(
+        "INSERT INTO events (title, source, self_imposed, status, thread_id, cancel_money, cancel_social, cancel_effort, cancel_window) VALUES (?, 'cairn', 1, ?, ?, ?, ?, ?, ?)"
+      )
+      .run(`evt-${status}`, status, threadId, money, social, effort, window);
+  }
+
+  it("aggregates direct/contains/total paid cost for a hard parent→child→grandchild chain", async () => {
+    const parent = await createThread("PCParent");
+    const child = await createThread("PCChild");
+    const grand = await createThread("PCGrand");
+    await linkThreads(parent, child);
+    await linkThreads(child, grand);
+
+    insertCostEvent(parent, "cancelled", { money: 1000, effort: "high", window: "tight" });
+    insertCostEvent(parent, "planned", { money: 9999, window: "ignored" }); // not paid cost
+    insertCostEvent(child, "moved", { money: 2000, social: 1 });
+    insertCostEvent(grand, "cancelled", { money: 4000, effort: "bogus" });
+
+    const res = await app.inject({ method: "GET", url: `/api/threads/${parent}` });
+    const rollup = res.json().data.rollup;
+
+    expect(rollup.direct.paidCost.eventCount).toBe(1);
+    expect(rollup.direct.paidCost.money).toBe(1000);
+    expect(rollup.direct.paidCost.effort.high).toBe(1);
+    expect(rollup.direct.paidCost.windowCount).toBe(1);
+
+    expect(rollup.contains.paidCost.eventCount).toBe(2);
+    expect(rollup.contains.paidCost.money).toBe(6000);
+    // child 'moved' has null effort, grand 'cancelled' has 'bogus' effort → both unknown
+    expect(rollup.contains.paidCost.effort.unknown).toBe(2);
+
+    expect(rollup.total.paidCost.eventCount).toBe(3);
+    expect(rollup.total.paidCost.money).toBe(7000);
+    // total == direct + contains bucket by bucket
+    expect(rollup.total.paidCost.social).toBe(rollup.direct.paidCost.social + rollup.contains.paidCost.social);
+  });
+
+  it("child row exposes only its own direct paid cost; parent contains includes all descendants", async () => {
+    const parent = await createThread("PC2Parent");
+    const child = await createThread("PC2Child");
+    const grand = await createThread("PC2Grand");
+    await linkThreads(parent, child);
+    await linkThreads(child, grand);
+    insertCostEvent(child, "moved", { money: 2000 });
+    insertCostEvent(grand, "cancelled", { money: 4000 });
+
+    const res = await app.inject({ method: "GET", url: `/api/threads/${parent}` });
+    const children = res.json().data.rollup.children as Array<{ thread: { id: number }; paidCost: { money: number } }>;
+    const childRow = children.find((c) => c.thread.id === child)!;
+    const grandRow = children.find((c) => c.thread.id === grand)!;
+    expect(childRow.paidCost.money).toBe(2000); // child's own event only
+    expect(grandRow.paidCost.money).toBe(4000);
+    expect(res.json().data.rollup.contains.paidCost.money).toBe(6000); // all descendants
+  });
+
+  it("direct settlement stays direct-thread only and is unaffected by descendant paid cost", async () => {
+    const parent = await createThread("PC3Parent");
+    const child = await createThread("PC3Child");
+    await linkThreads(parent, child);
+    insertCostEvent(parent, "cancelled", { money: 1000 });
+    insertCostEvent(child, "cancelled", { money: 5000 });
+
+    const data = (await app.inject({ method: "GET", url: `/api/threads/${parent}` })).json().data;
+    // settlement reflects only the parent's direct events
+    expect(data.settlement.paidCost.money).toBe(1000);
+    // rollup total includes the descendant
+    expect(data.rollup.total.paidCost.money).toBe(6000);
+  });
+
+  it("GET /api/threads/:id stays read-only (no row-count change)", async () => {
+    const parent = await createThread("PC4Parent");
+    const child = await createThread("PC4Child");
+    await linkThreads(parent, child);
+    insertCostEvent(parent, "cancelled", { money: 1000 });
+    insertCostEvent(child, "moved", { money: 2000 });
+
+    const counts = () => {
+      const tables = ["threads", "events", "tasks", "thread_links", "links", "annotations", "params"];
+      return Object.fromEntries(
+        tables.map((t) => [t, (conn.sqlite.prepare(`SELECT count(*) AS n FROM ${t}`).get() as { n: number }).n])
+      );
+    };
+    const before = counts();
+    await app.inject({ method: "GET", url: `/api/threads/${parent}` });
+    expect(counts()).toEqual(before);
+  });
+});
