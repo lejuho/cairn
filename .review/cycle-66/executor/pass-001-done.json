@@ -1,0 +1,13 @@
+{
+  "cycle": 66,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-27T08:57:59Z",
+  "summary": "FR-PPL-07/FR-XREL-03 Person Thread Focus A: read-only person focus layer on the thread spine. Shared ThreadDetail gains a strict required personFocus.people[] ({person:{id,name,relation}, eventIds}); new read-only repo helper findThreadPersonFocus(db, eventIds) joins event_people+people for the thread's events, dedupes person→eventIds (eventIds asc), sorts people name asc/id asc; getThreadDetail composes it (eventIds scoped to threadEvents, so out-of-thread links excluded). Frontend /threads/:id renders 관련 사람 chips (44px, aria-pressed) only when non-empty; tapping highlights matching event nodes (person-highlight) and dims unrelated event/task nodes (person-dimmed) via a unified single-mode nodeClass(base, resourceHL, personHL); person and resource focus are mutually exclusive (selecting one clears the other). CSS uses grouped selectors reusing resource highlight/dim/chip values (no drift). Chip clicks only set local state — no fetch/mutation/navigation. No new route handler, migration, column, DB write, LLM, or external. Committed 86b9064.",
+  "checks": [
+    "corepack pnpm verify (lint + typecheck + unit shared 418/web 441 incl. Thread 95 + integration 675 incl. threads +5 person focus + build PASS)",
+    "git diff --check master...HEAD (PASS)",
+    "negative greps: no server/drizzle or db/schema.ts; code-only no LLM/Gmail/GCal/mirror/movement/cron/procurement/Typst/pcli/resume-export/notificationDraft; no .insert/.update/.delete in person-focus path; routes/threads.ts handler unchanged (personFocus composed in services/threads.ts)"
+  ]
+}
