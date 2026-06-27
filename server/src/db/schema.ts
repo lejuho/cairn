@@ -79,6 +79,7 @@ export const events = sqliteTable(
     cancelEffort: text("cancel_effort").default("none"),
     cancelWindow: text("cancel_window"),
     refundCutoff: text("refund_cutoff"),
+    schedulePromptDismissedOn: text("schedule_prompt_dismissed_on"),
     createdAt: text("created_at").default(sql`(datetime('now'))`),
     updatedAt: text("updated_at"),
     externalCalendarId: text("external_calendar_id"),

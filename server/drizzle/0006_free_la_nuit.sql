@@ -1,0 +1,1 @@
+ALTER TABLE `events` ADD `schedule_prompt_dismissed_on` text;

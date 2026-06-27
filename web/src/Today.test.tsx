@@ -1024,6 +1024,68 @@ describe("Today — schedule prompt", () => {
     expect(screen.getByText(/날짜 잡을까\?/)).toBeInTheDocument();
   });
 
+  it("schedule_prompt card renders both the date-pick and dismiss actions", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      json: () => Promise.resolve({ ok: true, data: surfaceWithPrompt() })
+    }));
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("독서 날짜 잡기")).toBeInTheDocument());
+    expect(screen.getByTestId("dismiss-prompt-42")).toBeInTheDocument();
+  });
+
+  it("dismiss success PATCHes with the Today date and refreshes the card away", async () => {
+    let dismissed = false;
+    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if ((url as string).includes("schedule-prompt/dismiss") && opts?.method === "PATCH") {
+        dismissed = true;
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { eventId: 42, dismissedOn: "2026-06-16" } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: dismissed ? { ...BASE_SURFACE, state: "quiet" } : surfaceWithPrompt() }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("dismiss-prompt-42")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("dismiss-prompt-42"));
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining("/api/events/42/schedule-prompt/dismiss"),
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ dismissedOn: "2026-06-16" }) })
+    ));
+    await waitFor(() => expect(screen.queryByTestId("dismiss-prompt-42")).not.toBeInTheDocument());
+  });
+
+  it("dismiss failure keeps the card visible with scoped error copy", async () => {
+    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if ((url as string).includes("schedule-prompt/dismiss") && opts?.method === "PATCH") {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: false, error: { message: "숨기기 실패" } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: surfaceWithPrompt() }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("dismiss-prompt-42")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("dismiss-prompt-42"));
+    await waitFor(() => expect(screen.getByTestId("dismiss-error-42")).toBeInTheDocument());
+    expect(screen.getByTestId("dismiss-prompt-42")).toBeInTheDocument(); // card stays
+    expect(screen.getByTestId("dismiss-error-42")).toHaveTextContent("숨기기 실패");
+  });
+
+  it("dismiss does not fetch slot candidates or call the schedule PATCH", async () => {
+    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if ((url as string).includes("schedule-prompt/dismiss") && opts?.method === "PATCH") {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { eventId: 42, dismissedOn: "2026-06-16" } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: surfaceWithPrompt() }) });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("dismiss-prompt-42")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("dismiss-prompt-42"));
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining("schedule-prompt/dismiss"), expect.anything()));
+    const urls = fetchSpy.mock.calls.map((c) => c[0] as string);
+    expect(urls.some((u) => u.includes("slot-candidates"))).toBe(false);
+    expect(urls.some((u) => /\/schedule$/.test(u))).toBe(false); // the scheduling endpoint, not dismiss
+  });
+
   it("clicking '날짜 잡기' loads candidates", async () => {
     const fetchSpy = vi.fn().mockImplementation((url: string) => {
       if ((url as string).includes("slot-candidates")) {

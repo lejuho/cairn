@@ -633,3 +633,133 @@ describe("GET /api/events/:id — preparationSuggestions", () => {
     expect(brief.preparations.some((p: { resource: { name: string } }) => p.resource.name === "노트북")).toBe(true);
   });
 });
+
+// ── PATCH /api/events/:id/schedule-prompt/dismiss (cycle-61 FR-SLOT-06B) ──────
+
+function insertUnscheduled(
+  conn: SqliteConnection,
+  title: string,
+  opts: { source?: string; selfImposed?: number; status?: string; start?: string | null; end?: string | null } = {}
+): number {
+  const { source = "cairn", selfImposed = 1, status = "planned", start = null, end = null } = opts;
+  conn.sqlite
+    .prepare("INSERT INTO events (title, start, end, source, self_imposed, status) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(title, start, end, source, selfImposed, status);
+  return (conn.sqlite.prepare("SELECT id FROM events WHERE title = ? ORDER BY id DESC LIMIT 1").get(title) as { id: number }).id;
+}
+
+const TODAY = "2026-06-27";
+const NEXT_DAY = "2026-06-28";
+const NOW = "2026-06-27T10:00:00+09:00";
+
+function unscheduledIdsOnToday(body: { data: { unscheduledEvents: Array<{ id: number }> } }): number[] {
+  return body.data.unscheduledEvents.map((e) => e.id);
+}
+
+describe("PATCH /api/events/:id/schedule-prompt/dismiss", () => {
+  it("migration adds the schedule_prompt_dismissed_on column (nullable, no rebuild)", () => {
+    const conn = makeTestDb();
+    const cols = conn.sqlite.prepare("pragma table_info(events)").all() as Array<{ name: string; notnull: number }>;
+    const col = cols.find((c) => c.name === "schedule_prompt_dismissed_on");
+    expect(col).toBeDefined();
+    expect(col!.notnull).toBe(0);
+    // legacy-style row reads back NULL
+    const id = insertUnscheduled(conn, "레거시");
+    const row = conn.sqlite.prepare("SELECT schedule_prompt_dismissed_on AS d FROM events WHERE id = ?").get(id) as { d: string | null };
+    expect(row.d).toBeNull();
+  });
+
+  it("hides an eligible prompt for the dismissed date and lets it reappear the next date", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const id = insertUnscheduled(conn, "산책");
+
+    // appears before dismiss
+    const before = JSON.parse((await app.inject({ method: "GET", url: `/api/today?date=${TODAY}&now=${encodeURIComponent(NOW)}` })).body);
+    expect(unscheduledIdsOnToday(before)).toContain(id);
+
+    const res = await app.inject({ method: "PATCH", url: `/api/events/${id}/schedule-prompt/dismiss`, payload: { dismissedOn: TODAY } });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ ok: true, data: { eventId: id, dismissedOn: TODAY } });
+
+    // gone for TODAY
+    const after = JSON.parse((await app.inject({ method: "GET", url: `/api/today?date=${TODAY}&now=${encodeURIComponent(NOW)}` })).body);
+    expect(unscheduledIdsOnToday(after)).not.toContain(id);
+
+    // reappears for NEXT_DAY (no background job)
+    const next = JSON.parse((await app.inject({ method: "GET", url: `/api/today?date=${NEXT_DAY}&now=${encodeURIComponent("2026-06-28T10:00:00+09:00")}` })).body);
+    expect(unscheduledIdsOnToday(next)).toContain(id);
+  });
+
+  it("is idempotent for the same event/date", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const id = insertUnscheduled(conn, "재시도");
+    const first = await app.inject({ method: "PATCH", url: `/api/events/${id}/schedule-prompt/dismiss`, payload: { dismissedOn: TODAY } });
+    const second = await app.inject({ method: "PATCH", url: `/api/events/${id}/schedule-prompt/dismiss`, payload: { dismissedOn: TODAY } });
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(JSON.parse(second.body).data).toEqual({ eventId: id, dismissedOn: TODAY });
+  });
+
+  it("mutates only schedule_prompt_dismissed_on + updated_at", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const id = insertUnscheduled(conn, "범위확인");
+    const beforeRow = conn.sqlite.prepare("SELECT start, end, status, source, self_imposed AS si, thread_id AS tid FROM events WHERE id = ?").get(id);
+
+    await app.inject({ method: "PATCH", url: `/api/events/${id}/schedule-prompt/dismiss`, payload: { dismissedOn: TODAY } });
+
+    const afterRow = conn.sqlite.prepare("SELECT start, end, status, source, self_imposed AS si, thread_id AS tid, schedule_prompt_dismissed_on AS d, updated_at AS u FROM events WHERE id = ?").get(id) as Record<string, unknown>;
+    expect({ start: afterRow.start, end: afterRow.end, status: afterRow.status, source: afterRow.source, si: afterRow.si, tid: afterRow.tid }).toEqual(beforeRow);
+    expect(afterRow.d).toBe(TODAY);
+    expect(afterRow.u).not.toBeNull();
+  });
+
+  it("returns 404 for an unknown event", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const res = await app.inject({ method: "PATCH", url: `/api/events/9999/schedule-prompt/dismiss`, payload: { dismissedOn: TODAY } });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("returns 409 SCHEDULE_PROMPT_NOT_ELIGIBLE for scheduled/external/cancelled/non-self-imposed events and does not write", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const cases = [
+      insertUnscheduled(conn, "이미잡힘", { start: "2026-06-27T09:00:00+09:00", end: "2026-06-27T10:00:00+09:00" }),
+      insertUnscheduled(conn, "외부", { source: "gcal", selfImposed: 0 }),
+      insertUnscheduled(conn, "취소됨", { status: "cancelled" }),
+      insertUnscheduled(conn, "비자발", { selfImposed: 0 })
+    ];
+    for (const id of cases) {
+      const res = await app.inject({ method: "PATCH", url: `/api/events/${id}/schedule-prompt/dismiss`, payload: { dismissedOn: TODAY } });
+      expect(res.statusCode).toBe(409);
+      expect(JSON.parse(res.body).error.code).toBe("SCHEDULE_PROMPT_NOT_ELIGIBLE");
+      const d = conn.sqlite.prepare("SELECT schedule_prompt_dismissed_on AS d FROM events WHERE id = ?").get(id) as { d: string | null };
+      expect(d.d).toBeNull(); // no write
+    }
+  });
+
+  it("returns 400 for a bad id or invalid body", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const id = insertUnscheduled(conn, "검증");
+    expect((await app.inject({ method: "PATCH", url: `/api/events/abc/schedule-prompt/dismiss`, payload: { dismissedOn: TODAY } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "PATCH", url: `/api/events/${id}/schedule-prompt/dismiss`, payload: { dismissedOn: "2026-13-40" } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "PATCH", url: `/api/events/${id}/schedule-prompt/dismiss`, payload: { dismissedOn: TODAY, taskId: 5 } })).statusCode).toBe(400);
+  });
+
+  it("changes no table row counts; only the target event fields change", async () => {
+    const conn = makeTestDb();
+    const app = buildServer(conn.db);
+    const id = insertUnscheduled(conn, "카운트");
+    const counts = () => {
+      const tables = ["events", "tasks", "threads", "watchers", "annotations", "params"];
+      return Object.fromEntries(tables.map((t) => [t, (conn.sqlite.prepare(`SELECT count(*) AS n FROM ${t}`).get() as { n: number }).n]));
+    };
+    const before = counts();
+    await app.inject({ method: "PATCH", url: `/api/events/${id}/schedule-prompt/dismiss`, payload: { dismissedOn: TODAY } });
+    expect(counts()).toEqual(before);
+  });
+});

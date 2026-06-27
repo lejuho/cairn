@@ -153,7 +153,11 @@ export function updateEventThreadNode(
   return (row as EventRow) ?? null;
 }
 
-export function findUnscheduledCairnEvents(db: CairnDatabase): EventRow[] {
+// Unscheduled Cairn schedule-prompt sources for the given Today date. Excludes
+// an event only when it was dismissed FOR THAT date (cycle-61); a NULL or
+// different dismiss date still surfaces, so a prompt reappears on a later date
+// without a background job.
+export function findUnscheduledCairnEvents(db: CairnDatabase, date: string): EventRow[] {
   return db
     .select()
     .from(events)
@@ -163,11 +167,45 @@ export function findUnscheduledCairnEvents(db: CairnDatabase): EventRow[] {
         eq(events.selfImposed, 1),
         isNull(events.start),
         isNull(events.end),
-        eq(events.status, "planned")
+        eq(events.status, "planned"),
+        or(
+          isNull(events.schedulePromptDismissedOn),
+          ne(events.schedulePromptDismissedOn, date)
+        )
       )
     )
     .orderBy(asc(events.id))
     .all() as EventRow[];
+}
+
+// Hide a schedule prompt for one Today date. Single guarded UPDATE: the WHERE
+// re-checks schedule-prompt eligibility (cairn / self-imposed / still
+// unscheduled / planned) so a stale or ineligible event matches no row and the
+// route maps that to 409. Mutates ONLY schedule_prompt_dismissed_on + updated_at;
+// re-dismissing the same date re-writes the same value (idempotent). Returns
+// true iff an eligible row was updated.
+export function dismissSchedulePromptForDate(
+  db: CairnDatabase,
+  eventId: number,
+  dismissedOn: string,
+  updatedAt: string
+): boolean {
+  const rows = db
+    .update(events)
+    .set({ schedulePromptDismissedOn: dismissedOn, updatedAt })
+    .where(
+      and(
+        eq(events.id, eventId),
+        eq(events.source, "cairn"),
+        eq(events.selfImposed, 1),
+        isNull(events.start),
+        isNull(events.end),
+        eq(events.status, "planned")
+      )
+    )
+    .returning()
+    .all();
+  return rows.length > 0;
 }
 
 export function findEventsInRange(

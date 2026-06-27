@@ -694,6 +694,7 @@ export function Today() {
   const [view, setView] = useState<ViewState>({ tag: "loading" });
   const [replyState, setReplyState] = useState<Record<number, ReplyState>>({});
   const [slotState, setSlotState] = useState<SlotStateMap>({});
+  const [dismissError, setDismissError] = useState<Record<number, string>>({});
   const [sheet, setSheet] = useState<SheetState>({ open: false });
   const [threadOptions, setThreadOptions] = useState<ThreadSummary[]>([]);
   const [capture, setCapture] = useState<{ text: string; submitting: boolean; savedMsg: string | null }>({
@@ -846,6 +847,27 @@ export function Today() {
       await refresh();
     } catch (e) {
       setSlotState((s) => ({ ...s, [eventId]: { tag: "error", message: e instanceof Error ? e.message : "오류" } }));
+    }
+  }, [refresh]);
+
+  // Hide a schedule prompt for the current Today date (cycle-61). dismissedOn is
+  // the viewed Today date (not wall-clock); on success Today refreshes and the
+  // server filters the card out. On failure the card stays with scoped copy.
+  const handleDismissPrompt = useCallback(async (eventId: number, dismissedOn: string) => {
+    try {
+      const body = await apiJson<{ ok: boolean; error?: { message: string } }>(`/api/events/${eventId}/schedule-prompt/dismiss`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dismissedOn })
+      });
+      if (!body.ok) {
+        setDismissError((s) => ({ ...s, [eventId]: body.error?.message ?? "오늘 숨기기 실패" }));
+        return;
+      }
+      setDismissError((s) => { const n = { ...s }; delete n[eventId]; return n; });
+      await refresh();
+    } catch (e) {
+      setDismissError((s) => ({ ...s, [eventId]: e instanceof Error ? e.message : "오류" }));
     }
   }, [refresh]);
 
@@ -1847,6 +1869,19 @@ export function Today() {
                 )}
                 {ss.tag === "error" && (
                   <p className="today-slot-error" role="alert">{ss.message}</p>
+                )}
+                <button
+                  className="today-dismiss-btn"
+                  onClick={() => void handleDismissPrompt(card.event.id, surface.date)}
+                  aria-label={`${card.event.title} 오늘 숨기기`}
+                  data-testid={`dismiss-prompt-${card.event.id}`}
+                >
+                  오늘 숨기기
+                </button>
+                {dismissError[card.event.id] && (
+                  <p className="today-slot-error" role="alert" data-testid={`dismiss-error-${card.event.id}`}>
+                    {dismissError[card.event.id]}
+                  </p>
                 )}
               </li>
             );

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import { CreateEventPreparationRequestSchema, CreateEventRequestSchema, PatchEventStatusRequestSchema, PatchThreadEventNodeRequestSchema } from "@cairn/shared";
-import { createEventWithPeople, findEventById, findNearestPriorThreadEvent, updateEventStatus, updateEventThreadNode } from "../repositories/events.js";
+import { CreateEventPreparationRequestSchema, CreateEventRequestSchema, DismissSchedulePromptRequestSchema, PatchEventStatusRequestSchema, PatchThreadEventNodeRequestSchema } from "@cairn/shared";
+import { createEventWithPeople, dismissSchedulePromptForDate, findEventById, findNearestPriorThreadEvent, updateEventStatus, updateEventThreadNode } from "../repositories/events.js";
 import { findAnnotationsByEvent } from "../repositories/annotations.js";
 import { findEventWithPeople, findPeopleByIds } from "../repositories/people.js";
 import { findThreadById } from "../repositories/threads.js";
@@ -131,6 +131,30 @@ export function registerEventRoutes(app: FastifyInstance, db: CairnDatabase): vo
     }
     const updated = updateEventThreadNode(db, id, parsed.data)!;
     return reply.send({ ok: true, data: { event: updated } });
+  });
+
+  // Dismiss a schedule prompt for one Today date (cycle-61 FR-SLOT-06B/
+  // FR-TODAY-05). Hides the unscheduled-event card from /api/today for the
+  // given date only. 404 when the event is unknown; 409 when it exists but is
+  // no longer an eligible schedule-prompt source (scheduled/external/cancelled/
+  // non-self-imposed). Idempotent.
+  app.patch("/api/events/:id/schedule-prompt/dismiss", async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: "id must be a positive integer" } });
+    }
+    const parsed = DismissSchedulePromptRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: parsed.error.message } });
+    }
+    if (!findEventById(db, id)) {
+      return reply.code(404).send({ ok: false, error: { code: "NOT_FOUND", message: "event not found" } });
+    }
+    const dismissed = dismissSchedulePromptForDate(db, id, parsed.data.dismissedOn, new Date().toISOString());
+    if (!dismissed) {
+      return reply.code(409).send({ ok: false, error: { code: "SCHEDULE_PROMPT_NOT_ELIGIBLE", message: "event is not an eligible schedule prompt" } });
+    }
+    return reply.send({ ok: true, data: { eventId: id, dismissedOn: parsed.data.dismissedOn } });
   });
 
   // Manual one-line preparation entry (cycle-46 FR-BRF-04). Find-or-create an

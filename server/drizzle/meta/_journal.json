@@ -43,6 +43,13 @@
       "when": 1782462632312,
       "tag": "0005_zippy_nico_minoru",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1782538391207,
+      "tag": "0006_free_la_nuit",
+      "breakpoints": true
     }
   ]
 }

@@ -36,7 +36,7 @@ export function registerTodayRoute(app: FastifyInstance, db: CairnDatabase): voi
     const taskStatuses = findTaskStatusesByIds(db, rpTaskIds);
     const watcherBubbles = evaluateWatcherA(watcherRows, date, now, taskStatuses);
     const needsReviewEvents = listNeedsReviewEvents(db, now);
-    const unscheduledEvents = findUnscheduledCairnEvents(db);
+    const unscheduledEvents = findUnscheduledCairnEvents(db, date);
 
     const feasibilityParams = buildFeasibilityParams({
       energyBudget: readNumericParam(db, "energy_budget", 8),
