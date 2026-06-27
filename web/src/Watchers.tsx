@@ -2,8 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ManualExogenousView, ReversePlanView, SourceStability, WatcherDeepRow } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
 import { localDateString } from "./dateUtils.js";
+import { ResultCard } from "./ResultCard.js";
 
 type CreateMode = "date_threshold" | "reverse_plan" | "manual_exogenous";
+type WatcherCreateResult = { kind: string; label: string };
 
 type ReversePlanStep = { label: string; leadDays: string };
 
@@ -44,6 +46,7 @@ export function Watchers() {
 
   const [createError, setCreateError] = useState<string | null>(null);
   const [createSubmitting, setCreateSubmitting] = useState(false);
+  const [createResult, setCreateResult] = useState<WatcherCreateResult | null>(null);
   const createLabelRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -80,6 +83,7 @@ export function Watchers() {
     setMeLabel(""); setMeCategory(""); setMeSourceLabel(""); setMeSourceUrl(""); setMeSourceStability("unknown");
     setCreateMode("date_threshold");
     setCreateError(null);
+    setCreateResult(null);
     setShowCreate(true);
     setTimeout(() => createLabelRef.current?.focus(), 50);
   };
@@ -139,6 +143,13 @@ export function Watchers() {
         });
         if (!body.ok) throw new Error(body.error?.message ?? "생성 실패");
       }
+      // Set the result before refetch (cycle-68) so a slow `load()` cannot race it
+      // away; the card lives in separate state and survives the list refresh.
+      const createdLabel =
+        createMode === "date_threshold" ? createLabel.trim()
+        : createMode === "reverse_plan" ? rpLabel.trim()
+        : meLabel.trim();
+      setCreateResult({ kind: "Watcher", label: createdLabel });
       setShowCreate(false);
       await load();
     } catch (e) {
@@ -638,6 +649,17 @@ export function Watchers() {
           + 추가
         </button>
       </div>
+
+      {createResult && (
+        <ResultCard
+          testId="watcher-result"
+          kind={createResult.kind}
+          title={createResult.label}
+          status="지켜볼 것이 만들어졌어"
+          primary={{ label: "지켜볼 것에서 보기", onClick: () => setCreateResult(null) }}
+          secondary="아래 목록에서 방금 만든 Watcher를 확인할 수 있어."
+        />
+      )}
 
       {due.length > 0 && (
         <section className="watcher-section" aria-labelledby="watcher-due-heading">

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { CreateThreadDraftResponseData, ThreadDomain } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
+import { ResultCard } from "./ResultCard.js";
 
 type FormState = { name: string; kind: string; goal: string; deadline: string; domain: ThreadDomain };
 type SubmitState = { submitting: boolean; error: string | null };
@@ -180,22 +181,29 @@ export function ThreadNew() {
         </form>
 
         {draft.tag === "success" && (
-          <div className="thread-draft-success" data-testid="thread-draft-success" style={{ marginTop: "12px" }}>
-            <p className="card-title">초안 “{draft.data.thread.name}” 만들어졌어</p>
-            <p className="card-meta" style={{ display: "flex", flexWrap: "wrap", gap: "6px", margin: "6px 0" }}>
-              <span className="card-chip">이벤트 {draft.data.events.length}</span>
-              <span className="card-chip">작업 {draft.data.tasks.length}</span>
-              <span className="card-chip">연결 {draft.data.nodeLinks.length}</span>
-            </p>
-            {draft.data.warnings.length > 0 && (
-              <ul className="thread-draft-warnings" role="list" style={{ listStyle: "none", padding: 0, margin: "4px 0" }}>
-                {draft.data.warnings.map((w, i) => (
-                  <li key={i} className="card-meta" data-testid="draft-warning" style={{ color: "var(--moved)" }}>확인 필요: {w.message}</li>
-                ))}
-              </ul>
-            )}
-            <a className="thread-draft-link" data-testid="draft-open-link" href={`/threads/${draft.data.thread.id}`}>초안 열어서 수정·확인하기 →</a>
-          </div>
+          <ResultCard
+            testId="thread-draft-success"
+            kind="스레드 초안"
+            title={`“${draft.data.thread.name}”`}
+            status="초안이 만들어졌어"
+            primary={{ label: "스레드 열기", href: `/threads/${draft.data.thread.id}`, testId: "draft-open-link" }}
+            secondary={
+              <>
+                <p className="card-meta" style={{ display: "flex", flexWrap: "wrap", gap: "6px", margin: "0 0 6px" }}>
+                  <span className="card-chip">이벤트 {draft.data.events.length}</span>
+                  <span className="card-chip">작업 {draft.data.tasks.length}</span>
+                  <span className="card-chip">연결 {draft.data.nodeLinks.length}</span>
+                </p>
+                {draft.data.warnings.length > 0 && (
+                  <ul className="thread-draft-warnings" role="list" style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                    {draft.data.warnings.map((w, i) => (
+                      <li key={i} className="card-meta" data-testid="draft-warning" style={{ color: "var(--moved)" }}>확인 필요: {w.message}</li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            }
+          />
         )}
       </section>
     </main>

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { EventMode, EventRow, PersonRow, SlotCandidate, ThreadSummary, TodaySurface, Weekday } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString, localNowRfc3339 } from "./dateUtils.js";
 import { apiJson, type AccessSessionError } from "./api.js";
+import { ResultCard } from "./ResultCard.js";
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -12,7 +13,9 @@ type HubViewState =
   | { tag: "error"; message: string }
   | { tag: "access_error" };
 
-type CaptureState = { text: string; submitting: boolean; savedMsg: string | null; error: string | null };
+// Quick-capture result (cycle-68): scheduled → 일정, raw_stored/unscheduled → 미정 일정.
+type CaptureResult = { kind: string; status: string; scheduled: boolean };
+type CaptureState = { text: string; submitting: boolean; result: CaptureResult | null; error: string | null };
 
 type EventForm = { title: string; start: string; end: string; threadId: string; personIds: number[]; eventMode: EventMode | null };
 type NewPersonState = { show: boolean; name: string; channel: string; relation: string; submitting: boolean; error: string | null };
@@ -50,7 +53,7 @@ const EMPTY_TASK: TaskForm = { title: "", estMinutes: "", threadId: "" };
 
 export function InputHub() {
   const [view, setView] = useState<HubViewState>({ tag: "loading" });
-  const [capture, setCapture] = useState<CaptureState>({ text: "", submitting: false, savedMsg: null, error: null });
+  const [capture, setCapture] = useState<CaptureState>({ text: "", submitting: false, result: null, error: null });
   const [form, setForm] = useState<FormSectionState>({
     mode: "event", eventForm: EMPTY_EVENT, taskForm: EMPTY_TASK,
     submitting: false, error: null, saved: false
@@ -59,7 +62,6 @@ export function InputHub() {
   const [people, setPeople] = useState<PersonRow[]>([]);
   const [newPerson, setNewPerson] = useState<NewPersonState>({ show: false, name: "", channel: "none", relation: "", submitting: false, error: null });
   const [constraintSheet, setConstraintSheet] = useState<ConstraintSheetState>({ open: false });
-  const savedMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadData = useCallback(async () => {
     setView({ tag: "loading" });
@@ -100,8 +102,7 @@ export function InputHub() {
 
   const handleCapture = useCallback(async () => {
     if (!capture.text.trim() || capture.submitting) return;
-    setCapture((c) => ({ ...c, submitting: true, savedMsg: null, error: null }));
-    if (savedMsgTimer.current) clearTimeout(savedMsgTimer.current);
+    setCapture((c) => ({ ...c, submitting: true, result: null, error: null }));
     try {
       const body = await apiJson<{ ok: boolean; data?: { captureStatus: string }; error?: { message: string } }>("/api/capture/flat-event", {
         method: "POST",
@@ -109,13 +110,13 @@ export function InputHub() {
         body: JSON.stringify({ text: capture.text.trim(), now: localNowRfc3339() })
       });
       if (!body.ok) throw new Error(body.error?.message ?? "캡처 실패");
-      const msg = body.data?.captureStatus === "scheduled" ? "저장됐어" : "날짜 없이 저장됐어";
-      setCapture((c) => ({ ...c, text: "", submitting: false, savedMsg: msg, error: null }));
-      savedMsgTimer.current = setTimeout(() => setCapture((c) => ({ ...c, savedMsg: null })), 4000);
+      const scheduled = body.data?.captureStatus === "scheduled";
+      const status = scheduled ? "저장됐어" : "날짜 없이 저장됐어";
+      setCapture((c) => ({ ...c, text: "", submitting: false, result: { kind: scheduled ? "일정" : "미정 일정", status, scheduled }, error: null }));
       await loadData();
     } catch (e) {
       const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "캡처 실패";
-      setCapture((c) => ({ ...c, submitting: false, savedMsg: null, error: msg }));
+      setCapture((c) => ({ ...c, submitting: false, result: null, error: msg }));
     }
   }, [capture, loadData]);
 
@@ -305,8 +306,18 @@ export function InputHub() {
           {capture.submitting ? "…" : "→"}
         </button>
       </form>
-      {capture.savedMsg && (
-        <p className="today-capture-saved" role="status" aria-live="polite">{capture.savedMsg}</p>
+      {capture.result && (
+        <ResultCard
+          kind={capture.result.kind}
+          status={capture.result.status}
+          primary={capture.result.scheduled
+            ? { label: "Today에서 보기", href: "/today" }
+            : { label: "날짜 잡기", onClick: () => { setCapture((c) => ({ ...c, result: null })); void loadData(); } }}
+          secondary={capture.result.scheduled
+            ? "방금 만든 일정은 오늘 화면에서 볼 수 있어."
+            : "날짜를 잡으면 일정으로 확정돼 — 아래 미정 일정 목록에서 잡을 수 있어."}
+          testId="capture-result"
+        />
       )}
       {capture.error && (
         <p className="input-error" role="alert">{capture.error}</p>
@@ -548,7 +559,15 @@ export function InputHub() {
       )}
 
       {form.error && <p className="input-error" role="alert">{form.error}</p>}
-      {form.saved && <p className="input-saved" role="status">저장됐어</p>}
+      {form.saved && (
+        <ResultCard
+          kind={form.mode === "event" ? "일정" : "할 일"}
+          status="저장됐어"
+          primary={{ label: "Today에서 보기", href: "/today" }}
+          secondary={form.mode === "event" ? "오늘 화면에서 확인할 수 있어." : "오늘 화면에서 할 일을 확인할 수 있어."}
+          testId="manual-result"
+        />
+      )}
     </section>
   );
 

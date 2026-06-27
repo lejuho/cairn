@@ -2937,3 +2937,68 @@ p {
 @media (prefers-reduced-motion: reduce) {
   .domain-seg { transition: none; }
 }
+
+/* Creation result card (cycle-68). Semantic-token success feedback for created
+   objects across /input, /threads/new, /watch. 44px primary action. */
+.result-card {
+  width: min(100%, 480px);
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.result-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+}
+.result-card-kind {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+  color: var(--accent);
+}
+.result-card-title {
+  font-weight: 600;
+  color: var(--text);
+}
+.result-card-status {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+.result-card-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 8px 16px;
+  border-radius: 22px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+.result-card-action:hover {
+  background: color-mix(in srgb, var(--accent) 85%, var(--text));
+}
+.result-card-secondary {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+@media (prefers-reduced-motion: reduce) {
+  .result-card-action { transition: none; }
+}

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Watchers } from "./Watchers.js";
 import { AppNav } from "./AppNav.js";
@@ -461,5 +461,72 @@ describe("Watchers — manual-exogenous create form", () => {
     const payload = JSON.parse(opts.body) as { label: string; sourceStability: string };
     expect(payload.label).toBe("비자 공고");
     expect(payload.sourceStability).toBe("volatile");
+  });
+});
+
+describe("Watchers — creation result card (cycle-68)", () => {
+  function mockCreate() {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (typeof url === "string" && url.includes("/api/watchers") && opts?.method === "POST") {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { id: 9 } }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { watchers: [WATCHER_DUE] } }) });
+    }));
+  }
+  async function openSheet() {
+    await waitFor(() => expect(screen.getByLabelText("Watcher 추가")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("Watcher 추가"));
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+  }
+
+  it("date-threshold create shows a Watcher result card (label + view action) and keeps the refetch", async () => {
+    let listCalls = 0;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
+      if (typeof url === "string" && url.includes("/api/watchers") && opts?.method === "POST") {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { id: 9 } }) });
+      }
+      listCalls++;
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { watchers: [WATCHER_DUE] } }) });
+    }));
+    render(<Watchers />);
+    await openSheet();
+    fireEvent.change(screen.getByLabelText("watcher 이름"), { target: { value: "비자 마감" } });
+    fireEvent.change(screen.getByLabelText("watcher 마감일"), { target: { value: "2026-07-01" } });
+    const callsBefore = listCalls;
+    fireEvent.click(screen.getByLabelText("watcher 저장"));
+    const card = await screen.findByTestId("watcher-result");
+    expect(card).toHaveTextContent("Watcher");
+    expect(card).toHaveTextContent("비자 마감");
+    expect(listCalls).toBeGreaterThan(callsBefore); // refetch not removed
+    fireEvent.click(within(card).getByText("지켜볼 것에서 보기"));
+    await waitFor(() => expect(screen.queryByTestId("watcher-result")).not.toBeInTheDocument());
+  });
+
+  it("reverse-plan create shows a Watcher result card with its label", async () => {
+    mockCreate();
+    render(<Watchers />);
+    await openSheet();
+    fireEvent.click(screen.getByText("역산 계획"));
+    await waitFor(() => expect(screen.getByLabelText("역산 watcher 이름")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("역산 watcher 이름"), { target: { value: "여권 갱신" } });
+    fireEvent.change(screen.getByLabelText("목표 날짜"), { target: { value: "2026-07-30" } });
+    fireEvent.change(screen.getByLabelText("단계 1 이름"), { target: { value: "여권 신청" } });
+    fireEvent.click(screen.getByLabelText("watcher 저장"));
+    const card = await screen.findByTestId("watcher-result");
+    expect(card).toHaveTextContent("Watcher");
+    expect(card).toHaveTextContent("여권 갱신");
+  });
+
+  it("manual-exogenous create shows a Watcher result card with its label", async () => {
+    mockCreate();
+    render(<Watchers />);
+    await openSheet();
+    fireEvent.click(screen.getByText("수동 확인"));
+    await waitFor(() => expect(screen.getByLabelText("수동 확인 watcher 이름")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("수동 확인 watcher 이름"), { target: { value: "환율 고시" } });
+    fireEvent.click(screen.getByLabelText("watcher 저장"));
+    const card = await screen.findByTestId("watcher-result");
+    expect(card).toHaveTextContent("Watcher");
+    expect(card).toHaveTextContent("환율 고시");
   });
 });

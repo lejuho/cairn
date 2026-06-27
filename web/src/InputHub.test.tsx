@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EventRow, PersonRow, TodaySurface } from "@cairn/shared";
 import { InputHub } from "./InputHub.js";
@@ -770,5 +770,77 @@ describe("InputHub — constraint sheet", () => {
     await renderAndOpenSheet();
     fireEvent.click(screen.getByRole("button", { name: "취소" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+});
+
+describe("InputHub — creation result cards (cycle-68)", () => {
+  function mockCapture(captureStatus: string) {
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      if (url.includes("/api/threads")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url.includes("/api/today")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { captureStatus } }) });
+    }));
+  }
+  function mockSaveOk() {
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      if (url.includes("/api/threads")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url.includes("/api/today")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true }) });
+    }));
+  }
+
+  it("scheduled quick capture shows a 일정 result card linking to Today", async () => {
+    mockCapture("scheduled");
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("빠른 입력"), { target: { value: "내일 3시 치과" } });
+    fireEvent.click(screen.getByLabelText("빠른 입력 저장"));
+    const card = await screen.findByTestId("capture-result");
+    expect(card).toHaveTextContent("일정");
+    expect(card).toHaveTextContent("저장됐어");
+    const link = within(card).getByText("Today에서 보기");
+    expect(link.tagName).toBe("A");
+    expect(link).toHaveAttribute("href", "/today");
+  });
+
+  it("raw-stored quick capture shows a 미정 일정 result card with a 날짜 잡기 action", async () => {
+    mockCapture("raw_stored");
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("빠른 입력"), { target: { value: "운동" } });
+    fireEvent.click(screen.getByLabelText("빠른 입력 저장"));
+    const card = await screen.findByTestId("capture-result");
+    expect(card).toHaveTextContent("미정 일정");
+    expect(card).toHaveTextContent("날짜 없이 저장됐어");
+    const action = within(card).getByText("날짜 잡기");
+    expect(action.tagName).toBe("BUTTON"); // refresh-to-list, not navigation
+    fireEvent.click(action);
+    await waitFor(() => expect(screen.queryByTestId("capture-result")).not.toBeInTheDocument());
+  });
+
+  it("manual event success shows a 일정 result card", async () => {
+    mockSaveOk();
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("일정 제목"), { target: { value: "팀 회의" } });
+    fireEvent.change(screen.getByLabelText("시작 시간"), { target: { value: "2026-06-20T10:00" } });
+    fireEvent.change(screen.getByLabelText("종료 시간"), { target: { value: "2026-06-20T11:00" } });
+    fireEvent.click(screen.getByLabelText("일정 저장"));
+    const card = await screen.findByTestId("manual-result");
+    expect(card).toHaveTextContent("일정");
+    expect(within(card).getByText("Today에서 보기")).toHaveAttribute("href", "/today");
+  });
+
+  it("manual task success shows a 할 일 result card", async () => {
+    mockSaveOk();
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("tab", { name: "할 일" }));
+    fireEvent.change(screen.getByLabelText("할 일 제목"), { target: { value: "코드 리뷰" } });
+    fireEvent.change(screen.getByLabelText("예상 시간"), { target: { value: "30" } });
+    fireEvent.click(screen.getByLabelText("할 일 저장"));
+    const card = await screen.findByTestId("manual-result");
+    expect(card).toHaveTextContent("할 일");
+    expect(within(card).getByText("Today에서 보기")).toHaveAttribute("href", "/today");
   });
 });
