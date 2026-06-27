@@ -124,6 +124,30 @@ CAIRN_DB_PATH=/path/to/cairn.sqlite3 \
 - On `410 Gone`, sync token is cleared and a full resync runs automatically.
 - No cron — run manually or via an external scheduler.
 
+### Gmail cancellation-cost sync (one-shot, local)
+
+```bash
+# First-time authorization (opens browser, stores readonly Gmail token in .cairn/)
+GMAIL_CLIENT_ID=<id> GMAIL_CLIENT_SECRET=<secret> pnpm gmail:auth
+
+# One-shot cost sync (uses stored token; reads Gmail, fills empty event cost fields)
+CAIRN_DB_PATH=/path/to/cairn.sqlite3 \
+  GMAIL_CLIENT_ID=<id> GMAIL_CLIENT_SECRET=<secret> \
+  pnpm gmail:cost-sync
+```
+
+- READ-ONLY: uses the `gmail.readonly` scope only. No mail send, Gmail
+  webhook/history-watch, cron, or LLM call. One-shot/manual like GCal sync.
+- Tokens/credentials stay under `.cairn/` (gitignored) or env vars.
+  `CAIRN_GMAIL_TOKEN_PATH` overrides the default `.cairn/gmail-token.json`.
+- Scans imminent external GCal events (`source='gcal'`, `self_imposed=0`,
+  `planned`/`confirmed`, start within `[now, now + lookahead]`) still missing a
+  cost field, and fills only `cancel_money`/`refund_cutoff` from high-confidence
+  deterministic evidence. Existing nonzero money / non-null cutoff is never
+  overwritten; the job is idempotent.
+- `CAIRN_GMAIL_LOOKAHEAD_DAYS` overrides the default `14`. `CAIRN_GMAIL_NOW`
+  pins the clock for deterministic local/test runs.
+
 Current setup verification:
 
 ```bash
