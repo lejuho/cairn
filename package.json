@@ -19,6 +19,8 @@
     "db:migrate": "corepack pnpm --filter @cairn/server db:migrate",
     "gcal:auth": "corepack pnpm --filter @cairn/server gcal:auth",
     "gcal:sync": "corepack pnpm --filter @cairn/server gcal:sync",
+    "gmail:auth": "corepack pnpm --filter @cairn/server gmail:auth",
+    "gmail:cost-sync": "corepack pnpm --filter @cairn/server gmail:cost-sync",
     "watcher:push": "corepack pnpm --filter @cairn/server watcher:push",
     "verify": "corepack pnpm lint && corepack pnpm typecheck && corepack pnpm test && corepack pnpm --filter @cairn/shared build && corepack pnpm test:integration && corepack pnpm build"
   },

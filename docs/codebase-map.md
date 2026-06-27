@@ -264,6 +264,15 @@ External boundaries:
 - `server/src/gcal/`
   - Google Calendar inbound-only sync.
   - Auth, client, event mapping, sync token behavior.
+- `server/src/gmail/`
+  - Gmail cancellation-cost sync boundary (cycle-59 FR-SYNC-05 A). READ-ONLY:
+    `gmail.readonly` scope only; no send/webhook/history-watch.
+  - `auth.ts` — readonly OAuth flow + `resolveGmailAuthConfig(env)`; token store
+    default `.cairn/gmail-token.json` (`CAIRN_GMAIL_TOKEN_PATH` override).
+  - `client.ts` — `GmailClient` interface (`searchMessages`/`getMessage`) and
+    `createGmailClient` adapter over `google.gmail({version:'v1'})`; walks the
+    MIME tree for text/plain, base64url-decodes. Tests use fake clients.
+  - Cost-sync logic lives in `server/src/services/gmail-cost-*` (parser + sync).
 - `server/src/telegram/`
   - Telegram Bot API client and long-poll worker for real needs-review prompts.
   - Uses `params` for offset/dedupe/message mapping state.
@@ -271,8 +280,10 @@ External boundaries:
     `TELEGRAM_CHAT_ID`, `TELEGRAM_FORCE_IPV4`, `TELEGRAM_POLL_TIMEOUT_SECONDS`,
     and error backoff/log-throttle knobs.
 - `server/scripts/`
-  - One-shot operational entrypoints: `gcal:auth`, `gcal:sync`, `watcher:push`.
+  - One-shot operational entrypoints: `gcal:auth`, `gcal:sync`, `gmail:auth`, `gmail:cost-sync`, `watcher:push`.
   - `watcher-daily-push.ts` — requires `CAIRN_DB_PATH`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`. Opens DB, runs `runWatcherDailyPush`, exits 0 on success/no-due, exits 1 on delivery failure or missing config.
+  - `gmail-auth.ts` — `resolveGmailAuthConfig(process.env)` then `runAuth`; exits 1 (before any network/file work) on missing `GMAIL_CLIENT_ID`/`GMAIL_CLIENT_SECRET`.
+  - `gmail-cost-sync.ts` — `resolveGmailCostSyncConfig(process.env)` then opens DB, loads token, runs `runGmailCostSync`; exits 1 (before DB access) on missing `CAIRN_DB_PATH` or Gmail OAuth env. Optional env `CAIRN_GMAIL_LOOKAHEAD_DAYS` (default 14), `CAIRN_GMAIL_TOKEN_PATH`, `CAIRN_GMAIL_NOW` (deterministic clock).
 - `server/src/jobs/`
   - `watcher-daily-push.ts` — `runWatcherDailyPush(db, sender, opts?)` job runner. Fetches armed kind-A rows → `selectDueForPush` → sender (once) → `markWatchersFired`. No mutation on sender failure. `markWatchersFired` failure after successful send is logged and does not suppress the sentCount result. `date` defaults to local today; `now` defaults to `new Date().toISOString()`.
 - `server/src/services/watcher-daily-push.ts`
@@ -486,6 +497,7 @@ Runtime boundary: Fastify binds `127.0.0.1:3100` (loopback only). Caddy fronts a
   - [server/src/routes/today.integration.test.ts](/home/pi/cairn/server/src/routes/today.integration.test.ts)
   - [server/src/routes/annotations.integration.test.ts](/home/pi/cairn/server/src/routes/annotations.integration.test.ts)
   - [server/src/gcal/gcal.integration.test.ts](/home/pi/cairn/server/src/gcal/gcal.integration.test.ts)
+  - [server/src/repositories/events.gmail-cost.integration.test.ts](/home/pi/cairn/server/src/repositories/events.gmail-cost.integration.test.ts) — Gmail cost candidate selection + guarded write preservation/idempotency (cycle-59).
 - Server unit:
   - [server/src/app.test.ts](/home/pi/cairn/server/src/app.test.ts)
   - [server/src/llm/gateway.test.ts](/home/pi/cairn/server/src/llm/gateway.test.ts)

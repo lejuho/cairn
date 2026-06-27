@@ -4,6 +4,14 @@ import type { CairnDatabase } from "../db/index.js";
 import { annotations, eventPeople, events } from "../db/schema.js";
 import { rfc3339ToMs } from "../utils/rfc3339.js";
 
+// Structural cost-evidence shape applied to an event. Defined locally so the
+// repository layer does not import from the service layer (the parser's
+// GmailCostEvidence is structurally assignable to this).
+export type GmailCostEvidenceInput = {
+  cancelMoney?: number;
+  refundCutoff?: string;
+};
+
 export function insertRawEvent(db: CairnDatabase, title: string): EventRow {
   const [row] = db
     .insert(events)
@@ -302,4 +310,83 @@ export function findNearestPriorThreadEvent(
       return diff !== 0 ? diff : b.id - a.id;
     });
   return candidates.length > 0 ? (candidates[0] as EventRow) : null;
+}
+
+// Gmail cost-sync candidates (FR-SYNC-05): imminent EXTERNAL calendar events
+// (source='gcal', self_imposed=0) that are still planned/confirmed, start
+// within [now, now+lookaheadDays], and are still missing at least one cost
+// field. Epoch (UTC) comparison via rfc3339ToMs is offset-safe; the populated
+// guard mirrors the write guards so a fully-populated event is never a
+// candidate. Deterministic order: start asc, then id asc.
+export function findGmailCostCandidateEvents(
+  db: CairnDatabase,
+  now: string,
+  lookaheadDays: number
+): (typeof events.$inferSelect)[] {
+  const nowMs = rfc3339ToMs(now);
+  if (Number.isNaN(nowMs)) return [];
+  const horizonMs = nowMs + lookaheadDays * 24 * 60 * 60 * 1000;
+  return db
+    .select()
+    .from(events)
+    .where(
+      and(
+        eq(events.source, "gcal"),
+        eq(events.selfImposed, 0),
+        or(eq(events.status, "planned"), eq(events.status, "confirmed")),
+        isNotNull(events.start)
+      )
+    )
+    .orderBy(asc(events.start), asc(events.id))
+    .all()
+    .filter((e) => {
+      const startMs = rfc3339ToMs(e.start!);
+      if (Number.isNaN(startMs)) return false;
+      if (startMs < nowMs || startMs > horizonMs) return false;
+      const moneyEmpty = e.cancelMoney === 0 || e.cancelMoney === null;
+      const cutoffEmpty = e.refundCutoff === null;
+      return moneyEmpty || cutoffEmpty;
+    });
+}
+
+// Apply extracted Gmail cost evidence to a single event. Each field is a separate
+// guarded UPDATE so a populated value is never overwritten (cancel_money only
+// upgrades from 0/empty; refund_cutoff only fills from null). The WHERE guards
+// make the write atomic and idempotent — a rerun with the same evidence changes
+// nothing. updated_at is touched only on a real field write.
+export function applyGmailCostEvidence(
+  db: CairnDatabase,
+  eventId: number,
+  evidence: GmailCostEvidenceInput,
+  updatedAt: string
+): { updatedMoney: boolean; updatedCutoff: boolean } {
+  let updatedMoney = false;
+  let updatedCutoff = false;
+
+  if (evidence.cancelMoney !== undefined && evidence.cancelMoney > 0) {
+    const rows = db
+      .update(events)
+      .set({ cancelMoney: evidence.cancelMoney, updatedAt })
+      .where(
+        and(
+          eq(events.id, eventId),
+          or(eq(events.cancelMoney, 0), isNull(events.cancelMoney))
+        )
+      )
+      .returning()
+      .all();
+    updatedMoney = rows.length > 0;
+  }
+
+  if (evidence.refundCutoff !== undefined) {
+    const rows = db
+      .update(events)
+      .set({ refundCutoff: evidence.refundCutoff, updatedAt })
+      .where(and(eq(events.id, eventId), isNull(events.refundCutoff)))
+      .returning()
+      .all();
+    updatedCutoff = rows.length > 0;
+  }
+
+  return { updatedMoney, updatedCutoff };
 }

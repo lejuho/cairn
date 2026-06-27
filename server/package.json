@@ -14,6 +14,8 @@
     "db:migrate": "drizzle-kit migrate",
     "gcal:auth": "tsx scripts/gcal-auth.ts",
     "gcal:sync": "tsx scripts/gcal-sync.ts",
+    "gmail:auth": "tsx scripts/gmail-auth.ts",
+    "gmail:cost-sync": "tsx scripts/gmail-cost-sync.ts",
     "watcher:push": "tsx scripts/watcher-daily-push.ts"
   },
   "dependencies": {
