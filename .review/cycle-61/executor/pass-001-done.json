@@ -1,0 +1,14 @@
+{
+  "cycle": 61,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-27T05:47:26Z",
+  "summary": "FR-SLOT-06B/FR-TODAY-05 Dismissible Schedule Prompts A: source-owned hide-for-one-Today-date flow. Migration 0006 adds nullable events.schedule_prompt_dismissed_on (ALTER ADD COLUMN, no rebuild); PATCH /api/events/:id/schedule-prompt/dismiss validates strict body, 404 (findById) vs 409 SCHEDULE_PROMPT_NOT_ELIGIBLE via a single guarded UPDATE (cairn/self_imposed=1/start&end null/planned) that writes only schedule_prompt_dismissed_on+updated_at and is idempotent; GET /api/today passes the query date so prompts dismissed for that date are excluded (reappear on later dates). Shared DismissSchedulePromptRequest/Data schemas (strict, real-date refine, reject score/autoApply/snoozedUntil/taskId); EventRowSchema += optional nullable schedulePromptDismissedOn. Today.tsx compact '오늘 숨기기' action (44px semantic, focus-visible) using surface.date, success refresh / failure scoped alert, no slot/schedule calls. Committed e56a4d3.",
+  "checks": [
+    "corepack pnpm db:generate (single ALTER ADD COLUMN, migration 0006)",
+    "corepack pnpm verify (lint + typecheck + unit incl. shared events 14/web Today 143 + integration incl. events +8/today/slots + build PASS)",
+    "git diff --check master...HEAD (PASS)",
+    "negative scope: no task route/repo/shared in diff; boundary grep matches only taskId reject-tests + isCalendarDate './mirror.js' shared-helper import (no GCal mirror/LLM/cron/scheduler impl)"
+  ]
+}
