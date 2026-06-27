@@ -66,14 +66,18 @@ describe("InputHub — loading state", () => {
 // ── quiet state ───────────────────────────────────────────────────────────────
 
 describe("InputHub — quiet state", () => {
-  it("shows capture and form sections when no unscheduled events", async () => {
+  it("shows the Composer and a collapsed 고급 입력 toggle when no unscheduled events", async () => {
     mockFetch();
     render(<InputHub />);
     await waitFor(() => {
       expect(screen.getByTestId("input-quiet")).toBeInTheDocument();
     });
-    expect(screen.getByLabelText("빠른 입력")).toBeInTheDocument();
-    expect(screen.getByLabelText("빠른 입력 저장")).toBeInTheDocument();
+    expect(screen.getByLabelText("만들기 입력")).toBeInTheDocument();
+    expect(screen.getByLabelText("만들기")).toBeInTheDocument();
+    // advanced manual forms collapsed by default
+    const advancedToggle = screen.getByRole("button", { name: /고급 입력/ });
+    expect(advancedToggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByLabelText("일정 추가 폼")).not.toBeInTheDocument();
   });
 });
 
@@ -146,7 +150,7 @@ describe("InputHub — Access session error state", () => {
 
 // ── quick capture ─────────────────────────────────────────────────────────────
 
-describe("InputHub — quick capture", () => {
+describe("InputHub — Composer 일정 mode", () => {
   it("empty submit does not call fetch", async () => {
     const fetchMock = vi.fn((url: string) => {
       if (url.includes("/api/threads")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
@@ -156,7 +160,7 @@ describe("InputHub — quick capture", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
-    const submitBtn = screen.getByLabelText("빠른 입력 저장");
+    const submitBtn = screen.getByLabelText("만들기");
     expect(submitBtn).toBeDisabled();
     const callsBefore = fetchMock.mock.calls.length;
     fireEvent.click(submitBtn);
@@ -172,8 +176,8 @@ describe("InputHub — quick capture", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
-    fireEvent.change(screen.getByLabelText("빠른 입력"), { target: { value: "내일 3시 치과" } });
-    fireEvent.click(screen.getByLabelText("빠른 입력 저장"));
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "내일 3시 치과" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
     await waitFor(() => {
       expect(screen.getByText("저장됐어")).toBeInTheDocument();
     });
@@ -187,8 +191,8 @@ describe("InputHub — quick capture", () => {
     }));
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
-    fireEvent.change(screen.getByLabelText("빠른 입력"), { target: { value: "운동" } });
-    fireEvent.click(screen.getByLabelText("빠른 입력 저장"));
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "운동" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
     await waitFor(() => {
       expect(screen.getByText("날짜 없이 저장됐어")).toBeInTheDocument();
     });
@@ -202,13 +206,13 @@ describe("InputHub — quick capture", () => {
     }));
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
-    fireEvent.change(screen.getByLabelText("빠른 입력"), { target: { value: "운동" } });
-    fireEvent.click(screen.getByLabelText("빠른 입력 저장"));
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "운동" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
     await waitFor(() => {
       expect(screen.getByRole("alert")).toBeInTheDocument();
     });
     expect(screen.getByText("캡처 오류")).toBeInTheDocument();
-    expect(screen.getByLabelText("빠른 입력")).toBeInTheDocument();
+    expect(screen.getByLabelText("만들기 입력")).toBeInTheDocument();
   });
 });
 
@@ -225,6 +229,7 @@ describe("InputHub — event form", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /고급 입력/ }));
     fireEvent.change(screen.getByLabelText("일정 제목"), { target: { value: "팀 회의" } });
     fireEvent.change(screen.getByLabelText("시작 시간"), { target: { value: "2026-06-20T10:00" } });
     fireEvent.change(screen.getByLabelText("종료 시간"), { target: { value: "2026-06-20T11:00" } });
@@ -244,6 +249,7 @@ describe("InputHub — event form", () => {
     mockFetch();
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /고급 입력/ }));
     fireEvent.change(screen.getByLabelText("일정 제목"), { target: { value: "title only" } });
     fireEvent.click(screen.getByLabelText("일정 저장"));
     await waitFor(() => {
@@ -260,6 +266,7 @@ describe("InputHub — event form", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /고급 입력/ }));
     fireEvent.change(screen.getByLabelText("일정 제목"), { target: { value: "발표" } });
     fireEvent.change(screen.getByLabelText("시작 시간"), { target: { value: "2026-06-20T10:00" } });
     fireEvent.change(screen.getByLabelText("종료 시간"), { target: { value: "2026-06-20T11:00" } });
@@ -280,6 +287,7 @@ describe("InputHub — event form", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /고급 입력/ }));
     fireEvent.change(screen.getByLabelText("일정 제목"), { target: { value: "발표" } });
     fireEvent.change(screen.getByLabelText("시작 시간"), { target: { value: "2026-06-20T10:00" } });
     fireEvent.change(screen.getByLabelText("종료 시간"), { target: { value: "2026-06-20T11:00" } });
@@ -303,6 +311,7 @@ describe("InputHub — task form", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /고급 입력/ }));
     fireEvent.click(screen.getByRole("tab", { name: "할 일" }));
     fireEvent.change(screen.getByLabelText("할 일 제목"), { target: { value: "코드 리뷰" } });
     fireEvent.change(screen.getByLabelText("예상 시간"), { target: { value: "30" } });
@@ -327,6 +336,7 @@ describe("InputHub — task form", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /고급 입력/ }));
     fireEvent.click(screen.getByRole("tab", { name: "할 일" }));
     fireEvent.change(screen.getByLabelText("할 일 제목"), { target: { value: "작업" } });
     const selects = screen.getAllByLabelText("스레드");
@@ -427,6 +437,7 @@ describe("InputHub — people checklist", () => {
     mockFetch(QUIET_SURFACE, [], []);
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /고급 입력/ }));
     expect(screen.queryByRole("group", { name: "참석자" })).not.toBeInTheDocument();
   });
 
@@ -434,6 +445,7 @@ describe("InputHub — people checklist", () => {
     mockFetch(QUIET_SURFACE, [], [ALICE, BOB]);
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /고급 입력/ }));
     await waitFor(() => {
       expect(screen.getByRole("group", { name: "참석자" })).toBeInTheDocument();
     });
@@ -452,6 +464,7 @@ describe("InputHub — people checklist", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /고급 입력/ }));
     await waitFor(() => expect(screen.getByLabelText("Alice")).toBeInTheDocument());
     fireEvent.click(screen.getByLabelText("Alice"));
     fireEvent.change(screen.getByLabelText("일정 제목"), { target: { value: "미팅" } });
@@ -478,6 +491,7 @@ describe("InputHub — people checklist", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /고급 입력/ }));
     await waitFor(() => expect(screen.getByLabelText("Alice")).toBeInTheDocument());
     fireEvent.change(screen.getByLabelText("일정 제목"), { target: { value: "미팅" } });
     fireEvent.change(screen.getByLabelText("시작 시간"), { target: { value: "2026-06-20T10:00" } });
@@ -500,6 +514,7 @@ describe("InputHub — inline person creation", () => {
     mockFetch();
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /고급 입력/ }));
     fireEvent.click(screen.getByRole("button", { name: "+ 사람 추가" }));
     expect(screen.getByLabelText("새 사람 이름")).toBeInTheDocument();
     expect(screen.getByLabelText("연락 채널")).toBeInTheDocument();
@@ -519,6 +534,7 @@ describe("InputHub — inline person creation", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /고급 입력/ }));
     fireEvent.click(screen.getByRole("button", { name: "+ 사람 추가" }));
     fireEvent.change(screen.getByLabelText("새 사람 이름"), { target: { value: "Charlie" } });
     fireEvent.change(screen.getByLabelText("관계"), { target: { value: "친구" } });
@@ -551,6 +567,7 @@ describe("InputHub — inline person creation", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /고급 입력/ }));
     fireEvent.click(screen.getByRole("button", { name: "+ 사람 추가" }));
     fireEvent.change(screen.getByLabelText("새 사람 이름"), { target: { value: "Dana" } });
     fireEvent.change(screen.getByLabelText("관계"), { target: { value: "동료" } });
@@ -578,6 +595,7 @@ describe("InputHub — inline person creation", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /고급 입력/ }));
     fireEvent.click(screen.getByRole("button", { name: "+ 사람 추가" }));
     fireEvent.change(screen.getByLabelText("새 사람 이름"), { target: { value: "Eve" } });
     fireEvent.click(screen.getByRole("button", { name: "추가" }));
@@ -604,6 +622,7 @@ describe("InputHub — inline person creation", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /고급 입력/ }));
     fireEvent.click(screen.getByRole("button", { name: "+ 사람 추가" }));
     fireEvent.change(screen.getByLabelText("새 사람 이름"), { target: { value: "Charlie" } });
     fireEvent.click(screen.getByRole("button", { name: "추가" }));
@@ -618,6 +637,7 @@ describe("InputHub — inline person creation", () => {
     mockFetch();
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /고급 입력/ }));
     fireEvent.click(screen.getByRole("button", { name: "+ 사람 추가" }));
     expect(screen.getByLabelText("새 사람 이름")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "취소" }));
@@ -645,7 +665,7 @@ describe("InputHub — thread picker degrades gracefully", () => {
     }));
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
-    expect(screen.getByLabelText("빠른 입력")).toBeInTheDocument();
+    expect(screen.getByLabelText("만들기 입력")).toBeInTheDocument();
     expect(screen.queryByLabelText("스레드")).not.toBeInTheDocument();
   });
 });
@@ -669,6 +689,8 @@ describe("InputHub — constraint sheet", () => {
 
   async function renderAndOpenSheet() {
     render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /고급 입력/ }));
     await waitFor(() => expect(screen.getByLabelText("일정 추가 폼")).toBeInTheDocument());
     fireEvent.click(screen.getByLabelText("Alice 요일 제약 설정"));
     await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
@@ -677,6 +699,8 @@ describe("InputHub — constraint sheet", () => {
   it("shows 제약 button for each person in the checklist", async () => {
     setupConstraintMock();
     render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /고급 입력/ }));
     await waitFor(() => expect(screen.getByLabelText("Alice 요일 제약 설정")).toBeInTheDocument());
   });
 
@@ -738,6 +762,8 @@ describe("InputHub — constraint sheet", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /고급 입력/ }));
     await waitFor(() => expect(screen.getByLabelText("일정 추가 폼")).toBeInTheDocument());
     // Select Alice in the event form
     const checkbox = screen.getByRole("checkbox", { name: /Alice/ });
@@ -793,8 +819,8 @@ describe("InputHub — creation result cards (cycle-68)", () => {
     mockCapture("scheduled");
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
-    fireEvent.change(screen.getByLabelText("빠른 입력"), { target: { value: "내일 3시 치과" } });
-    fireEvent.click(screen.getByLabelText("빠른 입력 저장"));
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "내일 3시 치과" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
     const card = await screen.findByTestId("capture-result");
     expect(card).toHaveTextContent("일정");
     expect(card).toHaveTextContent("저장됐어");
@@ -807,8 +833,8 @@ describe("InputHub — creation result cards (cycle-68)", () => {
     mockCapture("raw_stored");
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
-    fireEvent.change(screen.getByLabelText("빠른 입력"), { target: { value: "운동" } });
-    fireEvent.click(screen.getByLabelText("빠른 입력 저장"));
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "운동" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
     const card = await screen.findByTestId("capture-result");
     expect(card).toHaveTextContent("미정 일정");
     expect(card).toHaveTextContent("날짜 없이 저장됐어");
@@ -822,6 +848,7 @@ describe("InputHub — creation result cards (cycle-68)", () => {
     mockSaveOk();
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /고급 입력/ }));
     fireEvent.change(screen.getByLabelText("일정 제목"), { target: { value: "팀 회의" } });
     fireEvent.change(screen.getByLabelText("시작 시간"), { target: { value: "2026-06-20T10:00" } });
     fireEvent.change(screen.getByLabelText("종료 시간"), { target: { value: "2026-06-20T11:00" } });
@@ -835,6 +862,7 @@ describe("InputHub — creation result cards (cycle-68)", () => {
     mockSaveOk();
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /고급 입력/ }));
     fireEvent.click(screen.getByRole("tab", { name: "할 일" }));
     fireEvent.change(screen.getByLabelText("할 일 제목"), { target: { value: "코드 리뷰" } });
     fireEvent.change(screen.getByLabelText("예상 시간"), { target: { value: "30" } });
@@ -842,5 +870,123 @@ describe("InputHub — creation result cards (cycle-68)", () => {
     const card = await screen.findByTestId("manual-result");
     expect(card).toHaveTextContent("할 일");
     expect(within(card).getByText("Today에서 보기")).toHaveAttribute("href", "/today");
+  });
+});
+
+describe("InputHub — Composer (cycle-69)", () => {
+  const DRAFT = { thread: { id: 9, name: "파리 여행" }, events: [{}], tasks: [{}, {}], nodeLinks: [{}], warnings: [{ message: "날짜가 필요해" }] };
+  function recordingFetch(opts: { captureStatus?: string; ok?: boolean } = {}) {
+    const calls: Array<{ url: string; method: string; body: unknown }> = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: { method?: string; body?: string }) => {
+      calls.push({ url, method: init?.method ?? "GET", body: init?.body ? JSON.parse(init.body) : undefined });
+      if (url.includes("/api/threads/draft")) return Promise.resolve({ json: () => Promise.resolve(opts.ok === false ? { ok: false, error: { message: "초안 실패" } } : { ok: true, data: DRAFT }) });
+      if (url.includes("/api/threads")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url.includes("/api/people")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url.includes("/api/tasks")) return Promise.resolve({ json: () => Promise.resolve(opts.ok === false ? { ok: false, error: { message: "할 일 실패" } } : { ok: true }) });
+      if (url.includes("/api/capture/flat-event")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { captureStatus: opts.captureStatus ?? "scheduled" } }) });
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: QUIET_SURFACE }) });
+    }));
+    return calls;
+  }
+  const posts = (calls: Array<{ url: string; method: string; body: unknown }>) => calls.filter((c) => c.method === "POST");
+
+  it("renders the Composer in the live state", async () => {
+    mockFetch({ ...QUIET_SURFACE, unscheduledEvents: [UNSCHEDULED_EVENT] });
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-live")).toBeInTheDocument());
+    expect(screen.getByLabelText("만들기 입력")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "만들기 종류" })).toBeInTheDocument();
+  });
+
+  it("has exactly three modes; switching mode updates pressed state without submitting", async () => {
+    const calls = recordingFetch();
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    for (const label of ["일정", "스레드", "할 일"]) expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "일정" })).toHaveAttribute("aria-pressed", "true");
+    const before = posts(calls).length;
+    fireEvent.click(screen.getByRole("button", { name: "스레드" }));
+    expect(screen.getByRole("button", { name: "스레드" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "일정" })).toHaveAttribute("aria-pressed", "false");
+    expect(posts(calls).length).toBe(before); // mode switch makes no request
+  });
+
+  it("empty Composer text leaves submit disabled", async () => {
+    recordingFetch();
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    expect(screen.getByLabelText("만들기")).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "   " } }); // whitespace
+    expect(screen.getByLabelText("만들기")).toBeDisabled();
+  });
+
+  it("일정 mode posts only to /api/capture/flat-event", async () => {
+    const calls = recordingFetch({ captureStatus: "scheduled" });
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "내일 3시 치과" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
+    await screen.findByTestId("capture-result");
+    const p = posts(calls);
+    expect(p).toHaveLength(1);
+    expect(p[0]!.url).toContain("/api/capture/flat-event");
+  });
+
+  it("스레드 mode posts only to /api/threads/draft and shows a 스레드 초안 card with counts, warning, and link", async () => {
+    const calls = recordingFetch();
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "스레드" }));
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "파리 여행 준비" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
+    const card = await screen.findByTestId("thread-draft-success");
+    expect(card).toHaveTextContent("스레드 초안");
+    expect(card).toHaveTextContent("이벤트 1");
+    expect(card).toHaveTextContent("작업 2");
+    expect(card).toHaveTextContent("연결 1");
+    expect(screen.getByTestId("draft-warning")).toHaveTextContent("날짜가 필요해");
+    expect(screen.getByTestId("draft-open-link")).toHaveAttribute("href", "/threads/9");
+    const p = posts(calls);
+    expect(p).toHaveLength(1);
+    expect(p[0]!.url).toContain("/api/threads/draft");
+    expect(p[0]!.body).toEqual({ text: "파리 여행 준비" });
+  });
+
+  it("할 일 mode posts only to /api/tasks with { title } and shows a 할 일 card", async () => {
+    const calls = recordingFetch();
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "할 일" }));
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "코드 리뷰" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
+    const card = await screen.findByTestId("task-result");
+    expect(card).toHaveTextContent("할 일");
+    expect(within(card).getByText("Today에서 보기")).toHaveAttribute("href", "/today");
+    const p = posts(calls);
+    expect(p).toHaveLength(1);
+    expect(p[0]!.url).toContain("/api/tasks");
+    expect(p[0]!.body).toEqual({ title: "코드 리뷰" });
+  });
+
+  it("Composer submit failure keeps the selected mode and typed text and shows a local error", async () => {
+    recordingFetch({ ok: false });
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "할 일" }));
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "유지될 텍스트" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("할 일 실패"));
+    expect(screen.getByRole("button", { name: "할 일" })).toHaveAttribute("aria-pressed", "true"); // mode kept
+    expect(screen.getByLabelText("만들기 입력")).toHaveValue("유지될 텍스트"); // text kept
+  });
+
+  it("고급 입력 is collapsed by default and opens the existing manual forms", async () => {
+    mockFetch();
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    expect(screen.queryByLabelText("일정 추가 폼")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /고급 입력/ }));
+    expect(screen.getByLabelText("일정 추가 폼")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "할 일" })).toBeInTheDocument();
   });
 });

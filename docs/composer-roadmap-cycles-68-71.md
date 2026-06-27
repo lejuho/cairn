@@ -92,8 +92,10 @@ unchanged.
 
 ## Cycle 69: Composer Core A
 
-Branch when promoted: `feature/cycle-69-composer-core-a`
-Skills when promoted: `frontend-react-pwa`
+Status: PROMOTED + implemented (`.review/cycle-69/`). `/input` is now a
+mode-selected Composer; manual event/task forms moved behind `고급 입력`.
+Branch: `feature/cycle-69-composer-core-a`
+Skills: `frontend-react-pwa`
 
 ### Goal
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { EventMode, EventRow, PersonRow, SlotCandidate, ThreadSummary, TodaySurface, Weekday } from "@cairn/shared";
+import type { CreateThreadDraftResponseData, EventMode, EventRow, PersonRow, SlotCandidate, ThreadSummary, TodaySurface, Weekday } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString, localNowRfc3339 } from "./dateUtils.js";
 import { apiJson, type AccessSessionError } from "./api.js";
 import { ResultCard } from "./ResultCard.js";
@@ -13,9 +13,15 @@ type HubViewState =
   | { tag: "error"; message: string }
   | { tag: "access_error" };
 
-// Quick-capture result (cycle-68): scheduled → 일정, raw_stored/unscheduled → 미정 일정.
-type CaptureResult = { kind: string; status: string; scheduled: boolean };
-type CaptureState = { text: string; submitting: boolean; result: CaptureResult | null; error: string | null };
+// Composer (cycle-69). One central input + an explicit mode that alone selects
+// the endpoint (no classifier): event→capture, thread→thread-draft, task→tasks.
+// `result` is a discriminated union driving the cycle-68 ResultCard per mode.
+type ComposerMode = "event" | "thread" | "task";
+type ComposerResult =
+  | { kind: "capture"; scheduled: boolean }
+  | { kind: "thread"; draft: CreateThreadDraftResponseData }
+  | { kind: "task" };
+type ComposerState = { mode: ComposerMode; text: string; submitting: boolean; error: string | null; result: ComposerResult | null };
 
 type EventForm = { title: string; start: string; end: string; threadId: string; personIds: number[]; eventMode: EventMode | null };
 type NewPersonState = { show: boolean; name: string; channel: string; relation: string; submitting: boolean; error: string | null };
@@ -53,7 +59,8 @@ const EMPTY_TASK: TaskForm = { title: "", estMinutes: "", threadId: "" };
 
 export function InputHub() {
   const [view, setView] = useState<HubViewState>({ tag: "loading" });
-  const [capture, setCapture] = useState<CaptureState>({ text: "", submitting: false, result: null, error: null });
+  const [composer, setComposer] = useState<ComposerState>({ mode: "event", text: "", submitting: false, error: null, result: null });
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [form, setForm] = useState<FormSectionState>({
     mode: "event", eventForm: EMPTY_EVENT, taskForm: EMPTY_TASK,
     submitting: false, error: null, saved: false
@@ -98,27 +105,46 @@ export function InputHub() {
 
   useEffect(() => { void loadData(); }, [loadData]);
 
-  // ── quick capture ───────────────────────────────────────────────────────────
+  // ── composer (cycle-69) ──────────────────────────────────────────────────────
 
-  const handleCapture = useCallback(async () => {
-    if (!capture.text.trim() || capture.submitting) return;
-    setCapture((c) => ({ ...c, submitting: true, result: null, error: null }));
+  const handleComposerSubmit = useCallback(async () => {
+    const text = composer.text.trim();
+    if (!text || composer.submitting) return;
+    setComposer((c) => ({ ...c, submitting: true, error: null, result: null }));
     try {
-      const body = await apiJson<{ ok: boolean; data?: { captureStatus: string }; error?: { message: string } }>("/api/capture/flat-event", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: capture.text.trim(), now: localNowRfc3339() })
-      });
-      if (!body.ok) throw new Error(body.error?.message ?? "캡처 실패");
-      const scheduled = body.data?.captureStatus === "scheduled";
-      const status = scheduled ? "저장됐어" : "날짜 없이 저장됐어";
-      setCapture((c) => ({ ...c, text: "", submitting: false, result: { kind: scheduled ? "일정" : "미정 일정", status, scheduled }, error: null }));
-      await loadData();
+      if (composer.mode === "event") {
+        const body = await apiJson<{ ok: boolean; data?: { captureStatus: string }; error?: { message: string } }>("/api/capture/flat-event", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text, now: localNowRfc3339() })
+        });
+        if (!body.ok) throw new Error(body.error?.message ?? "저장 실패");
+        const scheduled = body.data?.captureStatus === "scheduled";
+        setComposer((c) => ({ ...c, text: "", submitting: false, result: { kind: "capture", scheduled }, error: null }));
+        await loadData(); // a new unscheduled event must appear in the /input list
+      } else if (composer.mode === "thread") {
+        const body = await apiJson<{ ok: boolean; data?: CreateThreadDraftResponseData; error?: { message: string } }>("/api/threads/draft", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text })
+        });
+        if (!body.ok || !body.data) throw new Error(body.error?.message ?? "초안 생성 실패");
+        setComposer((c) => ({ ...c, text: "", submitting: false, result: { kind: "thread", draft: body.data! }, error: null }));
+      } else {
+        // task — title-only in this A-slice (estimate/due/thread stay in 고급 입력)
+        const body = await apiJson<{ ok: boolean; error?: { message: string } }>("/api/tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: text })
+        });
+        if (!body.ok) throw new Error(body.error?.message ?? "저장 실패");
+        setComposer((c) => ({ ...c, text: "", submitting: false, result: { kind: "task" }, error: null }));
+      }
     } catch (e) {
-      const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "캡처 실패";
-      setCapture((c) => ({ ...c, submitting: false, result: null, error: msg }));
+      const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "저장 실패";
+      setComposer((c) => ({ ...c, submitting: false, error: msg }));
     }
-  }, [capture, loadData]);
+  }, [composer, loadData]);
 
   // ── manual add ─────────────────────────────────────────────────────────────
 
@@ -282,45 +308,108 @@ export function InputHub() {
 
   const threads = view.tag === "quiet" ? view.threads : view.tag === "live" ? view.threads : [];
 
-  const captureSection = (
-    <section className="input-section">
-      <h2 className="input-section-title">빠른 입력</h2>
-      <form
-        className="today-capture-form"
-        onSubmit={(e) => { e.preventDefault(); void handleCapture(); }}
-      >
-        <input
-          className="today-capture-input"
-          value={capture.text}
-          onChange={(e) => setCapture((c) => ({ ...c, text: e.target.value }))}
-          placeholder="한 줄로 입력해봐 — 내일 3시 치과"
-          disabled={capture.submitting}
-          aria-label="빠른 입력"
-        />
-        <button
-          type="submit"
-          className="today-capture-btn"
-          disabled={!capture.text.trim() || capture.submitting}
-          aria-label="빠른 입력 저장"
-        >
-          {capture.submitting ? "…" : "→"}
-        </button>
-      </form>
-      {capture.result && (
+  const COMPOSER_MODES: { mode: ComposerMode; label: string; placeholder: string }[] = [
+    { mode: "event", label: "일정", placeholder: "내일 3시 치과 — 한 줄로 적으면 일정으로 잡아줄게" },
+    { mode: "thread", label: "스레드", placeholder: "예: 6월 파리 여행 준비. 항공권 예약하고 여권 유효기간 확인." },
+    { mode: "task", label: "할 일", placeholder: "할 일 제목 — 예: 코드 리뷰" }
+  ];
+  const composerMeta = COMPOSER_MODES.find((m) => m.mode === composer.mode)!;
+
+  const composerResultCard = (() => {
+    const r = composer.result;
+    if (!r) return null;
+    if (r.kind === "capture") {
+      return (
         <ResultCard
-          kind={capture.result.kind}
-          status={capture.result.status}
-          primary={capture.result.scheduled
+          kind={r.scheduled ? "일정" : "미정 일정"}
+          status={r.scheduled ? "저장됐어" : "날짜 없이 저장됐어"}
+          primary={r.scheduled
             ? { label: "Today에서 보기", href: "/today" }
-            : { label: "날짜 잡기", onClick: () => { setCapture((c) => ({ ...c, result: null })); void loadData(); } }}
-          secondary={capture.result.scheduled
+            : { label: "날짜 잡기", onClick: () => { setComposer((c) => ({ ...c, result: null })); void loadData(); } }}
+          secondary={r.scheduled
             ? "방금 만든 일정은 오늘 화면에서 볼 수 있어."
             : "날짜를 잡으면 일정으로 확정돼 — 아래 미정 일정 목록에서 잡을 수 있어."}
           testId="capture-result"
         />
-      )}
-      {capture.error && (
-        <p className="input-error" role="alert">{capture.error}</p>
+      );
+    }
+    if (r.kind === "thread") {
+      return (
+        <ResultCard
+          testId="thread-draft-success"
+          kind="스레드 초안"
+          title={`“${r.draft.thread.name}”`}
+          status="초안이 만들어졌어"
+          primary={{ label: "스레드 열기", href: `/threads/${r.draft.thread.id}`, testId: "draft-open-link" }}
+          secondary={
+            <>
+              <p className="card-meta" style={{ display: "flex", flexWrap: "wrap", gap: "6px", margin: "0 0 6px" }}>
+                <span className="card-chip">이벤트 {r.draft.events.length}</span>
+                <span className="card-chip">작업 {r.draft.tasks.length}</span>
+                <span className="card-chip">연결 {r.draft.nodeLinks.length}</span>
+              </p>
+              {r.draft.warnings.length > 0 && (
+                <ul className="thread-draft-warnings" role="list" style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                  {r.draft.warnings.map((w, i) => (
+                    <li key={i} className="card-meta" data-testid="draft-warning" style={{ color: "var(--moved)" }}>확인 필요: {w.message}</li>
+                  ))}
+                </ul>
+              )}
+            </>
+          }
+        />
+      );
+    }
+    return (
+      <ResultCard
+        kind="할 일"
+        status="저장됐어"
+        primary={{ label: "Today에서 보기", href: "/today" }}
+        secondary="오늘 화면에서 할 일을 확인할 수 있어."
+        testId="task-result"
+      />
+    );
+  })();
+
+  const composerSection = (
+    <section className="input-section">
+      <h2 className="input-section-title">새로 만들기</h2>
+      <div className="composer-modes" role="group" aria-label="만들기 종류">
+        {COMPOSER_MODES.map((m) => (
+          <button
+            key={m.mode}
+            type="button"
+            className={`composer-mode${composer.mode === m.mode ? " composer-mode--active" : ""}`}
+            aria-pressed={composer.mode === m.mode}
+            data-mode={m.mode}
+            onClick={() => setComposer((c) => (c.mode === m.mode ? c : { ...c, mode: m.mode, error: null, result: null }))}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+      <form className="composer-form" onSubmit={(e) => { e.preventDefault(); void handleComposerSubmit(); }}>
+        <textarea
+          className="composer-input"
+          value={composer.text}
+          onChange={(e) => setComposer((c) => ({ ...c, text: e.target.value }))}
+          placeholder={composerMeta.placeholder}
+          rows={composer.mode === "thread" ? 3 : 1}
+          disabled={composer.submitting}
+          aria-label="만들기 입력"
+        />
+        <button
+          type="submit"
+          className="composer-submit"
+          disabled={!composer.text.trim() || composer.submitting}
+          aria-label="만들기"
+        >
+          {composer.submitting ? "…" : "만들기 →"}
+        </button>
+      </form>
+      {composerResultCard}
+      {composer.error && (
+        <p className="input-error" role="alert">{composer.error}</p>
       )}
     </section>
   );
@@ -694,12 +783,29 @@ export function InputHub() {
     </div>
   ) : null;
 
+  // Advanced manual event/task forms (cycle-69): collapsed by default behind a
+  // visible, reversible 고급 입력 toggle; the detailed start/end/person/mode and
+  // estimate/thread fields stay reachable here in quiet and live states.
+  const advancedSection = (
+    <section className="input-section input-advanced">
+      <button
+        type="button"
+        className="input-advanced-toggle"
+        aria-expanded={advancedOpen}
+        onClick={() => setAdvancedOpen((o) => !o)}
+      >
+        고급 입력 {advancedOpen ? "▲" : "▼"}
+      </button>
+      {advancedOpen && formSection}
+    </section>
+  );
+
   if (view.tag === "quiet") {
     return (
       <>
         <main className="app-shell input-hub" aria-label="입력 허브" data-testid="input-quiet">
-          {captureSection}
-          {formSection}
+          {composerSection}
+          {advancedSection}
         </main>
         {constraintSheetOverlay}
       </>
@@ -709,8 +815,8 @@ export function InputHub() {
   return (
     <>
       <main className="app-shell input-hub" aria-label="입력 허브" data-testid="input-live">
-        {captureSection}
-        {formSection}
+        {composerSection}
+        {advancedSection}
         {renderUnscheduledSection(view.unscheduled)}
       </main>
       {constraintSheetOverlay}

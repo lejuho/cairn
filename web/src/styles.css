@@ -3002,3 +3002,84 @@ p {
 @media (prefers-reduced-motion: reduce) {
   .result-card-action { transition: none; }
 }
+
+/* Composer (cycle-69). Central mode-selected creation input on /input.
+   Semantic tokens only; mode segments + submit + advanced toggle are 44px. */
+.composer-modes {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  overflow: hidden;
+  background: var(--surface);
+  margin-bottom: 10px;
+  max-width: 100%;
+}
+.composer-mode {
+  min-height: 44px;
+  padding: 8px 18px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.composer-mode + .composer-mode {
+  border-left: 1px solid var(--border);
+}
+.composer-mode--active {
+  background: color-mix(in srgb, var(--accent) 15%, var(--surface));
+  color: var(--accent);
+  font-weight: 600;
+}
+.composer-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.composer-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 1rem;
+  font-family: inherit;
+  resize: vertical;
+}
+.composer-input::placeholder {
+  color: var(--muted);
+}
+.composer-submit {
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 8px 20px;
+  border-radius: 22px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.composer-submit:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.input-advanced-toggle {
+  min-height: 44px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-mode,
+  .composer-submit { transition: none; }
+}
