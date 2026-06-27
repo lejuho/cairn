@@ -1,0 +1,15 @@
+{
+  "cycle": 59,
+  "pass": 2,
+  "kind": "fix",
+  "review": ".review/cycle-59/review-v1.md",
+  "createdAt": "2026-06-27T03:47:43Z",
+  "summary": "Resolve review-v1 ISSUE-1 (LOW): bring the AGENTS.md Gmail command block into the committed master...HEAD diff. Isolated the single Gmail command hunk (gmail:auth/gmail:cost-sync, readonly scope, idempotent fill) via awk and git apply --cached, committed docs-only as 081977d; the 2 pre-existing unrelated workflow hunks stayed unstaged (no scope creep). No source-code change. RESOLVED appended below sentinel.",
+  "checks": [
+    "git diff AGENTS.md | awk '/^@@/{c++} c<2{print}' (isolate gmail hunk)",
+    "git apply --cached (stage only gmail hunk)",
+    "git commit docs(cycle-59) 081977d",
+    "git diff master...HEAD -- AGENTS.md => exactly 1 hunk, no unrelated hunk leaked",
+    "git diff --name-only master...HEAD -- AGENTS.md => AGENTS.md present"
+  ]
+}

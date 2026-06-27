@@ -1,0 +1,15 @@
+{
+  "cycle": 59,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-27T03:38:03Z",
+  "summary": "FR-SYNC-05 A: backend-only one-shot read-only Gmail cancellation-cost sync. Deterministic extractor (extractGmailCostEvidence) for KRW cancel fee + refund cutoff with keyword-adjacency, purchase-total negative guard, year inference (Dec/Jan boundary) and leap-year validation; events repo findGmailCostCandidateEvents (imminent external GCal, still-empty) + applyGmailCostEvidence (per-field guarded UPDATE preserving nonzero money/non-null cutoff, idempotent); gmail.readonly auth + GmailClient adapter; runGmailCostSync orchestration (generic-title skip, deterministic id ordering, abort-without-partial-write on API error); env resolvers + gmail:auth/gmail:cost-sync scripts; docs/codebase-map.md updated. No migration, route, UI, cron, send, webhook, or LLM. Committed e0a4c17.",
+  "checks": [
+    "corepack pnpm db:generate (no schema changes, no migration)",
+    "corepack pnpm verify (lint + typecheck + unit + 642 integration + build PASS)",
+    "vitest gmail-cost-parser/sync/config unit (33) + events.gmail-cost integration (7) PASS",
+    "git diff --check master...HEAD PASS",
+    "scope greps: no web/ or server/src/routes/ or shared/src; no completeChat|LLM_PROXY_BASE_URL|sendMail|webhook|cron|parse.*Gmail matches"
+  ]
+}
