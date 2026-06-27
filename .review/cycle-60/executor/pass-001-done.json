@@ -1,0 +1,17 @@
+{
+  "cycle": 60,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-27T05:14:01Z",
+  "summary": "FR-THR-10 Thread Rollup Paid Cost A: extend the read-only thread rollup so a parent surfaces observed paid-cost evidence (moved/cancelled event cancel fields) from direct nodes + hard-contained descendants, reusing the decomposed settlement cost shape. New neutral paid-cost.ts helper (aggregate/empty/sumPaidCost) shared by settlement + rollup; direct/contains/total/child paidCost in computeRollup with total=direct+contains and cycle dedup via the existing BFS visited set; EventSlim projection extended with cancel columns; shared schemas add required paidCost (reusing ThreadSettlementPaidCostSchema, relocated above rollup); compact card-chip paid-cost UI in ThreadRollupSection (no wide table). No migration, route, DB write, Gmail, or LLM. Committed 8fea5b4.",
+  "checks": [
+    "corepack pnpm lint (PASS)",
+    "corepack pnpm typecheck (PASS)",
+    "corepack pnpm test (shared 60, server unit incl. thread-rollup 23/settlement 9, web 414 — PASS)",
+    "corepack pnpm test:integration (646 incl. +4 paid-cost rollup PASS)",
+    "corepack pnpm build (PASS)",
+    "git diff --check master...HEAD (PASS)",
+    "negative scope greps: no LLM/Gmail/external/write in rollup path; no web/Today, shared/today, drizzle, gmail, scripts, routes/threads.ts handler changes"
+  ]
+}
