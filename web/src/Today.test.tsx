@@ -812,7 +812,7 @@ describe("Today — daily timeline", () => {
 describe("Today — thread picker in intake sheet", () => {
   const THREAD_SUMMARIES = [
     {
-      thread: { id: 3, name: "Work Thread", kind: "project", goal: null, definitionOfDone: null, deadline: null, status: "active" as const, createdAt: null },
+      thread: { id: 3, name: "Work Thread", kind: "project", goal: null, definitionOfDone: null, deadline: null, status: "active" as const, domain: "personal" as const, createdAt: null },
       eventCount: 0, taskCount: 0, doneCount: 0, totalCount: 0
     }
   ];
@@ -3352,5 +3352,41 @@ describe("Today — due task schedule prompt (cycle-62)", () => {
     fireEvent.click(screen.getByLabelText("보고서 후보 보기"));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("후보 로딩 실패"));
     expect(screen.getByTestId("task-schedule-prompt-77")).toBeInTheDocument();
+  });
+});
+
+describe("Today — domain filter (cycle-67)", () => {
+  function recordingFetch(surfaceState: "quiet" | "live" = "quiet") {
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+      calls.push(url);
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { ...BASE_SURFACE, state: surfaceState } }) });
+    }));
+    return calls;
+  }
+
+  it("renders the 3-option domain control (all default) and refetches Today with the selected domain", async () => {
+    const calls = recordingFetch();
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
+    expect(screen.getByRole("group", { name: "오늘 도메인 필터" })).toBeInTheDocument();
+    for (const label of ["전체", "개인", "업무"]) {
+      expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+    }
+    expect(screen.getByRole("button", { name: "전체" })).toHaveAttribute("aria-pressed", "true");
+    // initial load already filters by the default domain
+    expect(calls.some((u) => u.includes("/api/today") && u.includes("domain=all"))).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "업무" }));
+    await waitFor(() => expect(calls.some((u) => u.includes("/api/today") && u.includes("domain=work"))).toBe(true));
+  });
+
+  it("keeps the quiet state and control intact when the selected domain is empty", async () => {
+    recordingFetch("quiet");
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "개인" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "개인" })).toHaveAttribute("aria-pressed", "true"));
+    expect(screen.getByTestId("today-quiet")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "오늘 도메인 필터" })).toBeInTheDocument();
   });
 });

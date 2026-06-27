@@ -1,8 +1,8 @@
 import { useState } from "react";
-import type { CreateThreadDraftResponseData } from "@cairn/shared";
+import type { CreateThreadDraftResponseData, ThreadDomain } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
 
-type FormState = { name: string; kind: string; goal: string; deadline: string };
+type FormState = { name: string; kind: string; goal: string; deadline: string; domain: ThreadDomain };
 type SubmitState = { submitting: boolean; error: string | null };
 
 type DraftState =
@@ -12,7 +12,7 @@ type DraftState =
   | { tag: "success"; data: CreateThreadDraftResponseData };
 
 export function ThreadNew() {
-  const [form, setForm] = useState<FormState>({ name: "", kind: "", goal: "", deadline: "" });
+  const [form, setForm] = useState<FormState>({ name: "", kind: "", goal: "", deadline: "", domain: "personal" });
   const [submitState, setSubmitState] = useState<SubmitState>({ submitting: false, error: null });
   const [draftText, setDraftText] = useState("");
   const [draft, setDraft] = useState<DraftState>({ tag: "idle" });
@@ -44,7 +44,7 @@ export function ThreadNew() {
 
     setSubmitState({ submitting: true, error: null });
     try {
-      const payload: Record<string, string> = { name: form.name.trim() };
+      const payload: Record<string, string> = { name: form.name.trim(), domain: form.domain };
       if (form.kind.trim()) payload.kind = form.kind.trim();
       if (form.goal.trim()) payload.goal = form.goal.trim();
       if (form.deadline) payload.deadline = form.deadline;
@@ -114,6 +114,23 @@ export function ThreadNew() {
             onChange={(e) => setForm((f) => ({ ...f, deadline: e.target.value }))}
             disabled={submitState.submitting}
           />
+
+          <span className="thread-new-label" id="tn-domain-label">도메인</span>
+          <div className="domain-filter" role="group" aria-labelledby="tn-domain-label">
+            {(["personal", "work"] as const).map((d) => (
+              <button
+                key={d}
+                type="button"
+                className={`domain-seg${form.domain === d ? " domain-seg--active" : ""}`}
+                aria-pressed={form.domain === d}
+                data-domain={d}
+                disabled={submitState.submitting}
+                onClick={() => setForm((f) => ({ ...f, domain: d }))}
+              >
+                {d === "personal" ? "개인" : "업무"}
+              </button>
+            ))}
+          </div>
 
           {submitState.error && (
             <p className="today-reply-error" role="alert">{submitState.error}</p>

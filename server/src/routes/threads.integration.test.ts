@@ -853,3 +853,68 @@ describe("GET /api/threads/:id — person focus", () => {
     expect(counts()).toEqual(before);
   });
 });
+
+// ── thread domain (cycle-67 FR-DOM-01) ───────────────────────────────────────
+
+describe("thread domain — create / list / detail / db", () => {
+  let app: FastifyInstance;
+  let conn: ReturnType<typeof makeTestDb>;
+  beforeEach(() => { conn = makeTestDb(); app = buildServer(conn.db); });
+
+  const create = (payload: object) => app.inject({ method: "POST", url: "/api/threads", payload });
+
+  it("POST with omitted domain stores/returns personal", async () => {
+    const res = await create({ name: "기본" });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().data.domain).toBe("personal");
+    const id = res.json().data.id;
+    expect((conn.sqlite.prepare("SELECT domain FROM threads WHERE id = ?").get(id) as { domain: string }).domain).toBe("personal");
+  });
+
+  it("POST with domain=work stores/returns work", async () => {
+    const res = await create({ name: "업무", domain: "work" });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().data.domain).toBe("work");
+  });
+
+  it("POST with invalid domain returns 400 and inserts no thread", async () => {
+    const before = (conn.sqlite.prepare("SELECT count(*) AS n FROM threads").get() as { n: number }).n;
+    const res = await create({ name: "나쁨", domain: "office" });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
+    expect((conn.sqlite.prepare("SELECT count(*) AS n FROM threads").get() as { n: number }).n).toBe(before);
+  });
+
+  it("GET /api/threads filters by domain and preserves all-order otherwise", async () => {
+    await create({ name: "P1" });
+    await create({ name: "W1", domain: "work" });
+    await create({ name: "P2" });
+    const names = async (q: string) => (await app.inject({ method: "GET", url: `/api/threads${q}` })).json().data.map((s: { thread: { name: string } }) => s.thread.name);
+    expect(await names("")).toEqual(["P2", "W1", "P1"]); // all, createdAt/id desc
+    expect(await names("?domain=all")).toEqual(["P2", "W1", "P1"]);
+    expect(await names("?domain=personal")).toEqual(["P2", "P1"]);
+    expect(await names("?domain=work")).toEqual(["W1"]);
+  });
+
+  it("GET /api/threads rejects an invalid domain query with 400", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/threads?domain=office" });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("GET /api/threads/:id includes the domain on the thread object", async () => {
+    const id = (await create({ name: "상세", domain: "work" })).json().data.id;
+    const res = await app.inject({ method: "GET", url: `/api/threads/${id}` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.thread.domain).toBe("work");
+    // existing detail fields still present
+    expect(res.json().data.personFocus).toBeDefined();
+    expect(res.json().data.resume).toBeDefined();
+  });
+
+  it("DB column defaults to personal and CHECK rejects an invalid domain", () => {
+    const id = Number(conn.sqlite.prepare("INSERT INTO threads (name) VALUES ('레거시')").run().lastInsertRowid);
+    expect((conn.sqlite.prepare("SELECT domain FROM threads WHERE id = ?").get(id) as { domain: string }).domain).toBe("personal");
+    expect(() => conn.sqlite.prepare("INSERT INTO threads (name, domain) VALUES ('나쁨', 'school')").run()).toThrow();
+  });
+});

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ConflictDecision, DayFeasibility, EventDetailData, EventMode, EventRow, FeasibilityParamLimits, FeasibilityParamSettingsData, FeasibilityParams, NeedsReviewPlacement, NotificationDraft, PreferredPeriod, ScheduleBrief, SlotCandidate, SlotSuggestionContribution, ThreadSummary, TodaySurface, UpdateFeasibilityParamsRequest, Weekday } from "@cairn/shared";
+import type { ConflictDecision, DayFeasibility, DomainFilter, EventDetailData, EventMode, EventRow, FeasibilityParamLimits, FeasibilityParamSettingsData, FeasibilityParams, NeedsReviewPlacement, NotificationDraft, PreferredPeriod, ScheduleBrief, SlotCandidate, SlotSuggestionContribution, ThreadSummary, TodaySurface, UpdateFeasibilityParamsRequest, Weekday } from "@cairn/shared";
 import { ResolveConflictResponseDataSchema } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString } from "./dateUtils.js";
 import { apiJson, type AccessSessionError } from "./api.js";
+import { DomainFilterControl } from "./DomainFilter.js";
 
 type ReplyState = { text: string; error: string | null; submitting: boolean };
 type EventDetailState =
@@ -66,11 +67,11 @@ const EMPTY_TASK_FORM: TaskForm = { title: "", estMinutes: "2", threadId: "" };
 const EMPTY_EVENT_FORM: EventForm = { title: "", start: "", end: "", threadId: "" };
 
 
-async function loadSurface(): Promise<TodaySurface> {
+async function loadSurface(domain: DomainFilter): Promise<TodaySurface> {
   const date = localDateString();
   const now = new Date().toISOString();
   const body = await apiJson<{ ok: boolean; data?: TodaySurface; error?: { message: string } }>(
-    `/api/today?date=${date}&now=${encodeURIComponent(now)}`
+    `/api/today?date=${date}&now=${encodeURIComponent(now)}&domain=${domain}`
   );
   if (!body.ok) throw new Error(body.error?.message ?? "알 수 없는 오류");
   return body.data!;
@@ -777,6 +778,7 @@ function SlotReasonList({
 
 export function Today() {
   const [view, setView] = useState<ViewState>({ tag: "loading" });
+  const [domain, setDomain] = useState<DomainFilter>("all");
   const [replyState, setReplyState] = useState<Record<number, ReplyState>>({});
   const [slotState, setSlotState] = useState<SlotStateMap>({});
   const [dismissError, setDismissError] = useState<Record<number, string>>({});
@@ -808,7 +810,7 @@ export function Today() {
   const refresh = useCallback(async () => {
     setView({ tag: "loading" });
     try {
-      const surface = await loadSurface();
+      const surface = await loadSurface(domain);
       setView(
         surface.state === "quiet"
           ? { tag: "quiet", surface }
@@ -821,7 +823,7 @@ export function Today() {
         setView({ tag: "error", message: e instanceof Error ? e.message : "오류" });
       }
     }
-  }, []);
+  }, [domain]);
 
   useEffect(() => {
     void refresh();
@@ -1683,6 +1685,9 @@ export function Today() {
     return (
       <>
         <main className="app-shell" aria-labelledby="today-title">
+          <div style={{ width: "min(100%, 480px)", margin: "0 auto 12px" }}>
+            <DomainFilterControl value={domain} onChange={setDomain} label="오늘 도메인 필터" />
+          </div>
           <section className="quiet-card warm" data-testid="today-quiet">
             <span className="quiet-dot" aria-hidden="true" />
             <p className="eyebrow">Today</p>
@@ -1742,6 +1747,9 @@ export function Today() {
         <h2 id="today-sr-title" className="sr-only">
           오늘 ({surface.cards.length}건)
         </h2>
+        <div style={{ width: "min(100%, 480px)", marginBottom: "8px" }}>
+          <DomainFilterControl value={domain} onChange={setDomain} label="오늘 도메인 필터" />
+        </div>
         <div style={{ display: "flex", justifyContent: "flex-end", width: "min(100%, 480px)", marginBottom: "8px" }}>
           <button className="today-add-btn" onClick={() => openSheet("task")} aria-label="추가">
             + 추가

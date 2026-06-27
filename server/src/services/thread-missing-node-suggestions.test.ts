@@ -3,7 +3,7 @@ import type { ThreadRow } from "@cairn/shared";
 import { computeThreadMissingNodeSuggestions, type NodeTitleInput } from "./thread-missing-node-suggestions.js";
 
 function thread(id: number, opts: Partial<ThreadRow> = {}): ThreadRow {
-  return { id, name: `T${id}`, kind: "trip", goal: null, definitionOfDone: null, deadline: null, status: "active", createdAt: null, ...opts };
+  return { id, name: `T${id}`, kind: "trip", goal: null, definitionOfDone: null, deadline: null, status: "active", domain: "personal", createdAt: null, ...opts };
 }
 function node(threadId: number, title: string | null, status = "done"): NodeTitleInput {
   return { threadId, title, status };

@@ -3,7 +3,7 @@ import type { TaskRow, ThreadRow } from "@cairn/shared";
 import { computeThreadSettlement, type SettlementEventInput } from "./thread-settlement.js";
 
 function thread(status: ThreadRow["status"]): ThreadRow {
-  return { id: 1, name: "T", kind: null, goal: null, definitionOfDone: null, deadline: null, status, createdAt: null };
+  return { id: 1, name: "T", kind: null, goal: null, definitionOfDone: null, deadline: null, status, domain: "personal", createdAt: null };
 }
 function ev(status: string | null, cost: Partial<SettlementEventInput> = {}): SettlementEventInput {
   return { status, cancelMoney: null, cancelSocial: null, cancelEffort: null, cancelWindow: null, ...cost };

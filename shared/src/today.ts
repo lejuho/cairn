@@ -3,10 +3,13 @@ import { EventRowSchema } from "./events.js";
 import { TaskRowSchema } from "./tasks.js";
 import { WatcherABubbleSchema } from "./watchers.js";
 import { DayFeasibilitySchema } from "./feasibility.js";
+import { DomainFilterSchema } from "./threads.js";
 
 export const TodayQuerySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD"),
-  now: z.string().datetime({ offset: true })
+  now: z.string().datetime({ offset: true }),
+  // Domain filter (cycle-67 FR-DOM-01): all|personal|work, default all.
+  domain: DomainFilterSchema.default("all")
 });
 
 export const ConflictPairSchema = z.object({

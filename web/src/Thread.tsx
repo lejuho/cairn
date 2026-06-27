@@ -373,6 +373,7 @@ export function Thread({ id }: { id: number }) {
             <p className="thread-goal">{detail.thread.goal}</p>
           )}
           <div className="thread-meta-row">
+            <span className="card-chip" data-testid="thread-domain-chip">{detail.thread.domain === "work" ? "업무" : "개인"}</span>
             {detail.thread.deadline && (
               <span className="card-chip">마감 {detail.thread.deadline}</span>
             )}

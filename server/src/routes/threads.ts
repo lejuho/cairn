@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { CreateThreadLinkRequestSchema, CreateThreadRequestSchema, PatchThreadResumeRequestSchema, ThreadResumeExportQuerySchema } from "@cairn/shared";
+import { CreateThreadLinkRequestSchema, CreateThreadRequestSchema, PatchThreadResumeRequestSchema, ThreadListQuerySchema, ThreadResumeExportQuerySchema } from "@cairn/shared";
 import {
   createThread,
   createThreadLink,
@@ -33,8 +33,17 @@ export function registerThreadRoutes(app: FastifyInstance, db: CairnDatabase): v
     return reply.code(201).send({ ok: true, data: thread });
   });
 
-  app.get("/api/threads", async (_req, reply) => {
-    const summaries = listThreads(db);
+  app.get("/api/threads", async (req, reply) => {
+    const parsed = ThreadListQuerySchema.safeParse(req.query ?? {});
+    if (!parsed.success) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "VALIDATION_ERROR", message: parsed.error.message }
+      });
+    }
+    // `all` → undefined keeps the existing full-list ordering.
+    const domain = parsed.data.domain === "all" ? undefined : parsed.data.domain;
+    const summaries = listThreads(db, domain);
     return reply.send({ ok: true, data: summaries });
   });
 

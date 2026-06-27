@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import type { ThreadSummary } from "@cairn/shared";
+import type { DomainFilter, ThreadSummary } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
+import { DomainFilterControl, domainLabel } from "./DomainFilter.js";
 
 type ViewState =
   | { tag: "loading" }
@@ -9,21 +10,24 @@ type ViewState =
   | { tag: "error"; message: string }
   | { tag: "access_session_required" };
 
-async function loadThreads(): Promise<ThreadSummary[]> {
-  const body = await apiJson<{ ok: boolean; data?: ThreadSummary[]; error?: { message: string } }>("/api/threads");
+async function loadThreads(domain: DomainFilter): Promise<ThreadSummary[]> {
+  const body = await apiJson<{ ok: boolean; data?: ThreadSummary[]; error?: { message: string } }>(`/api/threads?domain=${domain}`);
   if (!body.ok) throw new Error(body.error?.message ?? "알 수 없는 오류");
   return body.data!;
 }
 
 export function ThreadIndex() {
   const [view, setView] = useState<ViewState>({ tag: "loading" });
+  const [domain, setDomain] = useState<DomainFilter>("all");
 
   useEffect(() => {
     let cancelled = false;
-    loadThreads()
+    loadThreads(domain)
       .then((summaries) => {
         if (!cancelled) {
-          setView(summaries.length === 0 ? { tag: "empty" } : { tag: "live", summaries });
+          // Only an unfiltered empty result is the true "no threads yet" state;
+          // an empty domain filter keeps the control visible (live, 0 cards).
+          setView(summaries.length === 0 && domain === "all" ? { tag: "empty" } : { tag: "live", summaries });
         }
       })
       .catch((e: unknown) => {
@@ -37,7 +41,7 @@ export function ThreadIndex() {
         }
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [domain]);
 
   if (view.tag === "loading") {
     return (
@@ -97,11 +101,18 @@ export function ThreadIndex() {
         <h2 id="threads-title" className="eyebrow" style={{ margin: 0 }}>Threads</h2>
         <a className="thread-index-new-btn" href="/threads/new">+ 새 스레드</a>
       </div>
+      <div style={{ width: "min(100%, 480px)", marginBottom: "12px" }}>
+        <DomainFilterControl value={domain} onChange={setDomain} label="스레드 도메인 필터" />
+      </div>
+      {summaries.length === 0 ? (
+        <p className="card-meta" data-testid="threads-domain-empty">이 도메인에 스레드가 없어.</p>
+      ) : (
       <ul className="today-stack" role="list">
         {summaries.map((s) => (
           <li key={s.thread.id} className="today-card thread-index-card">
             <a className="thread-index-link" href={`/threads/${s.thread.id}`} aria-label={s.thread.name}>
               <span className="card-chip">{s.thread.kind ?? "thread"}</span>
+              <span className="card-chip" data-testid={`thread-domain-${s.thread.id}`}>{domainLabel(s.thread.domain)}</span>
               <p className="card-title">{s.thread.name}</p>
               <p className="card-meta">
                 {s.thread.goal ?? ""}
@@ -122,6 +133,7 @@ export function ThreadIndex() {
           </li>
         ))}
       </ul>
+      )}
     </main>
   );
 }

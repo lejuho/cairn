@@ -721,3 +721,75 @@ describe("GET /api/today — dayEvents", () => {
     expect(data.nextEvent).toBeNull(); // ended already
   });
 });
+
+// ── domain filter (cycle-67 FR-DOM-01) ───────────────────────────────────────
+
+describe("GET /api/today — domain filter", () => {
+  const D = "2026-06-16";
+  const N = "2026-06-16T09:00:00+00:00";
+  function setup() {
+    const conn = makeTestDb();
+    const sq = conn.sqlite;
+    const thread = (name: string, domain: string) =>
+      Number(sq.prepare("INSERT INTO threads (name, domain) VALUES (?, ?)").run(name, domain).lastInsertRowid);
+    const event = (title: string, start: string, end: string, threadId: number | null) =>
+      Number(sq.prepare("INSERT INTO events (title, start, end, source, self_imposed, status, thread_id) VALUES (?, ?, ?, 'cairn', 1, 'planned', ?)").run(title, start, end, threadId).lastInsertRowid);
+    const task = (title: string, threadId: number | null) =>
+      Number(sq.prepare("INSERT INTO tasks (title, est_minutes, status, thread_id) VALUES (?, 2, 'todo', ?)").run(title, threadId).lastInsertRowid);
+    const tP = thread("개인", "personal");
+    const tW = thread("업무", "work");
+    // P and W overlap (10-12 vs 11-13) → a conflict only when BOTH are present.
+    event("P회의", "2026-06-16T10:00:00+00:00", "2026-06-16T12:00:00+00:00", tP);
+    event("W회의", "2026-06-16T11:00:00+00:00", "2026-06-16T13:00:00+00:00", tW);
+    event("미분류", "2026-06-16T14:00:00+00:00", "2026-06-16T15:00:00+00:00", null); // threadless
+    task("P2분", tP);
+    task("W2분", tW);
+    task("미분류2분", null); // threadless
+    return { conn, app: buildServer(conn.db) };
+  }
+  const get = (app: FastifyInstance, domain?: string) =>
+    app.inject({ method: "GET", url: `/api/today?date=${D}&now=${encodeURIComponent(N)}${domain ? `&domain=${domain}` : ""}` }).then((r) => r.json().data);
+
+  it("all (default) includes every thread-linked and threadless item and the cross-domain conflict", async () => {
+    const { conn, app } = setup();
+    const data = await get(app);
+    const titles = data.cards.filter((c: { kind: string }) => c.kind === "two_minute_task").map((c: { task: { title: string } }) => c.task.title);
+    expect(titles.sort()).toEqual(["P2분", "W2분", "미분류2분"]);
+    expect(data.conflicts).toHaveLength(1); // P vs W overlap
+    conn.sqlite.close();
+  });
+
+  it("personal includes only personal-thread items and drops the cross-domain conflict", async () => {
+    const { conn, app } = setup();
+    const data = await get(app, "personal");
+    const tasks = data.cards.filter((c: { kind: string }) => c.kind === "two_minute_task").map((c: { task: { title: string } }) => c.task.title);
+    expect(tasks).toEqual(["P2분"]); // W2분 + threadless excluded
+    expect(data.nextEvent.title).toBe("P회의");
+    expect(data.conflicts).toHaveLength(0); // only one event remains → conflict filtered pre-surface
+    conn.sqlite.close();
+  });
+
+  it("work includes only work-thread items", async () => {
+    const { conn, app } = setup();
+    const data = await get(app, "work");
+    const tasks = data.cards.filter((c: { kind: string }) => c.kind === "two_minute_task").map((c: { task: { title: string } }) => c.task.title);
+    expect(tasks).toEqual(["W2분"]);
+    expect(data.nextEvent.title).toBe("W회의");
+    expect(data.conflicts).toHaveLength(0);
+    conn.sqlite.close();
+  });
+
+  it("rejects an invalid domain with 400 and writes nothing", async () => {
+    const { conn, app } = setup();
+    const sq = conn.sqlite;
+    const counts = () => ["threads", "events", "tasks", "watchers", "annotations", "params", "resources", "links", "thread_links"].map((t) => (sq.prepare(`SELECT count(*) AS n FROM ${t}`).get() as { n: number }).n);
+    const before = counts();
+    const res = await app.inject({ method: "GET", url: `/api/today?date=${D}&now=${encodeURIComponent(N)}&domain=office` });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
+    // a valid domain GET also mutates nothing
+    await get(app, "work");
+    expect(counts()).toEqual(before);
+    conn.sqlite.close();
+  });
+});

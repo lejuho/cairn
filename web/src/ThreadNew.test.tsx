@@ -88,7 +88,7 @@ describe("ThreadNew — submission", () => {
 
 describe("ThreadNew — natural-language draft (cycle-51)", () => {
   const DRAFT_DATA = {
-    thread: { id: 9, name: "파리 여행", kind: "travel", goal: null, definitionOfDone: null, deadline: "2026-06-01", status: "active", createdAt: null },
+    thread: { id: 9, name: "파리 여행", kind: "travel", goal: null, definitionOfDone: null, deadline: "2026-06-01", status: "active", domain: "personal", createdAt: null },
     events: [{ id: 1, threadId: 9, title: "항공권 예약", type: "travel", start: null, end: null, location: null, mode: null, source: "cairn", selfImposed: 1, status: "planned", createdAt: null, updatedAt: null }],
     tasks: [{ id: 2, threadId: 9, title: "여권 확인", estMinutes: null, due: null, context: null, status: "todo", optional: 0, createdAt: null }],
     nodeLinks: [{ id: 3, kind: "requires", firmness: "soft", source: "inferred", from: { kind: "task", id: 2, title: "여권 확인" }, to: { kind: "event", id: 1, title: "항공권 예약" } }],
@@ -151,5 +151,39 @@ describe("ThreadNew — natural-language draft (cycle-51)", () => {
     fireEvent.click(screen.getByLabelText("스레드 만들기 제출"));
     await waitFor(() => expect(window.location.href).toBe("/threads/7"));
     expect(fetchSpy).toHaveBeenCalledWith("/api/threads", expect.objectContaining({ method: "POST" }));
+  });
+});
+
+describe("ThreadNew — domain (cycle-67)", () => {
+  function bodyOf(call: unknown[]): Record<string, unknown> {
+    return JSON.parse((call[1] as { body: string }).body);
+  }
+
+  it("defaults the domain control to 개인 and sends domain=personal", async () => {
+    Object.defineProperty(window, "location", { value: { href: "/threads/new" }, writable: true });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ json: () => Promise.resolve({ ok: true, data: { id: 1 } }) }));
+    render(<ThreadNew />);
+    const group = screen.getByRole("group", { name: "도메인" });
+    expect(group).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "개인" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "업무" })).toHaveAttribute("aria-pressed", "false");
+    fireEvent.change(screen.getByLabelText(/이름/), { target: { value: "기본" } });
+    fireEvent.click(screen.getByLabelText("스레드 만들기 제출"));
+    await waitFor(() => expect(window.location.href).toBe("/threads/1"));
+    const post = (vi.mocked(fetch) as ReturnType<typeof vi.fn>).mock.calls.find((c) => c[0] === "/api/threads")!;
+    expect(bodyOf(post).domain).toBe("personal");
+  });
+
+  it("sends domain=work when 업무 is selected", async () => {
+    Object.defineProperty(window, "location", { value: { href: "/threads/new" }, writable: true });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ json: () => Promise.resolve({ ok: true, data: { id: 2 } }) }));
+    render(<ThreadNew />);
+    fireEvent.change(screen.getByLabelText(/이름/), { target: { value: "업무건" } });
+    fireEvent.click(screen.getByRole("button", { name: "업무" }));
+    expect(screen.getByRole("button", { name: "업무" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByLabelText("스레드 만들기 제출"));
+    await waitFor(() => expect(window.location.href).toBe("/threads/2"));
+    const post = (vi.mocked(fetch) as ReturnType<typeof vi.fn>).mock.calls.find((c) => c[0] === "/api/threads")!;
+    expect(bodyOf(post).domain).toBe("work");
   });
 });

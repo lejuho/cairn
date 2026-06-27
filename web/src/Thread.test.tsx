@@ -16,6 +16,7 @@ const BASE_THREAD = {
   definitionOfDone: null,
   deadline: "2026-09-01",
   status: "active" as const,
+  domain: "personal" as const,
   createdAt: "2026-06-17T00:00:00"
 };
 
@@ -79,7 +80,7 @@ const INCOMING_LINK: ThreadLinkView = {
 };
 
 const SUMMARY_OTHER: ThreadSummary = {
-  thread: { id: 2, name: "하위 스레드", kind: null, goal: null, definitionOfDone: null, deadline: null, status: "active", createdAt: null },
+  thread: { id: 2, name: "하위 스레드", kind: null, goal: null, definitionOfDone: null, deadline: null, status: "active", domain: "personal", createdAt: null },
   eventCount: 0, taskCount: 0, doneCount: 0, totalCount: 0,
   relationCounts: { incoming: 0, outgoing: 0 }
 };
@@ -783,7 +784,7 @@ describe("ThreadIndex — relation count chips", () => {
   it("shows count chips when relations > 0", async () => {
     const { ThreadIndex } = await import("./ThreadIndex.js");
     const summaryWithRelations = {
-      thread: { id: 5, name: "연결된 스레드", kind: null, goal: null, definitionOfDone: null, deadline: null, status: "active" as const, createdAt: null },
+      thread: { id: 5, name: "연결된 스레드", kind: null, goal: null, definitionOfDone: null, deadline: null, status: "active" as const, domain: "personal" as const, createdAt: null },
       eventCount: 0, taskCount: 0, doneCount: 0, totalCount: 0,
       relationCounts: { incoming: 2, outgoing: 1 }
     };
@@ -1616,5 +1617,21 @@ describe("Thread — person focus (cycle-66)", () => {
     await Promise.resolve();
     expect(fetchCalls().length).toBe(before); // no new fetch from focus clicks
     expect(fetchCalls().every(([, opts]) => !opts || !["POST", "PATCH", "DELETE"].includes(opts.method ?? ""))).toBe(true);
+  });
+});
+
+describe("Thread — domain chip (cycle-67)", () => {
+  it("renders 개인 chip for a personal thread", async () => {
+    mockFetch({ thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 } });
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByTestId("thread-header")).toBeInTheDocument());
+    expect(screen.getByTestId("thread-domain-chip").textContent).toBe("개인");
+  });
+
+  it("renders 업무 chip for a work thread", async () => {
+    mockFetch({ thread: { ...BASE_THREAD, domain: "work" }, events: [], tasks: [], progress: { done: 0, total: 0 } });
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByTestId("thread-header")).toBeInTheDocument());
+    expect(screen.getByTestId("thread-domain-chip").textContent).toBe("업무");
   });
 });

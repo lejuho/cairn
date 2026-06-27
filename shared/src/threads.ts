@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { LinkFirmnessSchema, LinkKindSchema, LinkSourceSchema, ThreadLinkKindSchema, ThreadStatusSchema } from "./enums.js";
+import { LinkFirmnessSchema, LinkKindSchema, LinkSourceSchema, ThreadDomainSchema, ThreadLinkKindSchema, ThreadStatusSchema } from "./enums.js";
 import { EventRowSchema } from "./events.js";
 import { TaskRowSchema } from "./tasks.js";
 
@@ -11,6 +11,8 @@ export const ThreadRowSchema = z.object({
   definitionOfDone: z.string().nullable(),
   deadline: z.string().nullable(),
   status: ThreadStatusSchema.nullable(),
+  // Thread domain (cycle-67 FR-DOM-01). Required; always lowercase personal|work.
+  domain: ThreadDomainSchema,
   createdAt: z.string().nullable()
 });
 
@@ -18,8 +20,17 @@ export const CreateThreadRequestSchema = z.object({
   name: z.string().trim().min(1),
   kind: z.string().optional(),
   goal: z.string().optional(),
-  deadline: z.string().optional()
+  deadline: z.string().optional(),
+  // Optional on create; defaults to `personal` server-side when omitted.
+  domain: ThreadDomainSchema.optional()
 });
+
+// Thread-list / Today domain filter (cycle-67 FR-DOM-01). `all` preserves
+// existing behavior; default `all`. Strict — invalid values → 400.
+export const DomainFilterSchema = z.enum(["all", "personal", "work"]);
+export const ThreadListQuerySchema = z
+  .object({ domain: DomainFilterSchema.default("all") })
+  .strict();
 
 export const ThreadProgressSchema = z.object({
   done: z.number(),
@@ -409,6 +420,8 @@ export const ThreadDetailSchema = z.object({
 
 export type ThreadRow = z.infer<typeof ThreadRowSchema>;
 export type CreateThreadRequest = z.infer<typeof CreateThreadRequestSchema>;
+export type DomainFilter = z.infer<typeof DomainFilterSchema>;
+export type ThreadListQuery = z.infer<typeof ThreadListQuerySchema>;
 export type ThreadProgress = z.infer<typeof ThreadProgressSchema>;
 export type ThreadLinkFirmness = z.infer<typeof ThreadLinkFirmnessSchema>;
 export type ThreadLinkRow = z.infer<typeof ThreadLinkRowSchema>;

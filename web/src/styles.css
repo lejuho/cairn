@@ -2902,3 +2902,38 @@ p {
   .resource-chip,
   .person-chip { transition: none; }
 }
+
+/* Domain segmented control (cycle-67 FR-DOM-01). Semantic tokens, 44px segments. */
+.domain-filter {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  overflow: hidden;
+  background: var(--surface);
+  max-width: 100%;
+}
+.domain-seg {
+  min-height: 44px;
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.domain-seg + .domain-seg {
+  border-left: 1px solid var(--border);
+}
+.domain-seg--active {
+  background: color-mix(in srgb, var(--accent) 15%, var(--surface));
+  color: var(--accent);
+  font-weight: 600;
+}
+.domain-seg:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+@media (prefers-reduced-motion: reduce) {
+  .domain-seg { transition: none; }
+}

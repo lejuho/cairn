@@ -2,9 +2,11 @@ import { alias } from "drizzle-orm/sqlite-core";
 import { and, asc, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import type {
   CreateThreadRequest,
+  DomainFilter,
   EventRow,
   PatchThreadResumeRequest,
   TaskRow,
+  ThreadDomain,
   ThreadLinkFirmness,
   ThreadLinkRow,
   ThreadLinkView,
@@ -28,6 +30,7 @@ export const THREAD_ROW_COLUMNS = {
   definitionOfDone: threads.definitionOfDone,
   deadline: threads.deadline,
   status: threads.status,
+  domain: threads.domain,
   createdAt: threads.createdAt
 } as const;
 
@@ -39,19 +42,29 @@ export function createThread(db: CairnDatabase, input: CreateThreadRequest): Thr
       kind: input.kind ?? null,
       goal: input.goal ?? null,
       deadline: input.deadline ?? null,
-      status: "active"
+      status: "active",
+      // Domain default (cycle-67 FR-DOM-01): omitted create → `personal`.
+      domain: input.domain ?? "personal"
     })
     .returning(THREAD_ROW_COLUMNS)
     .all();
   return row as ThreadRow;
 }
 
-export function listThreads(db: CairnDatabase): ThreadRow[] {
-  return db
-    .select(THREAD_ROW_COLUMNS)
-    .from(threads)
-    .orderBy(desc(threads.createdAt), desc(threads.id))
-    .all() as ThreadRow[];
+// Domain-filtered thread list (cycle-67). `all`/undefined preserves the existing
+// createdAt-desc/id-desc ordering across every thread; personal|work narrows it.
+export function listThreads(db: CairnDatabase, domain?: DomainFilter): ThreadRow[] {
+  const query = db.select(THREAD_ROW_COLUMNS).from(threads);
+  const filtered =
+    domain === "personal" || domain === "work" ? query.where(eq(threads.domain, domain)) : query;
+  return filtered.orderBy(desc(threads.createdAt), desc(threads.id)).all() as ThreadRow[];
+}
+
+// Read-only set of thread ids in a given domain (cycle-67). Used by the Today
+// route to filter thread-linked items before surface/feasibility construction.
+export function findThreadIdsByDomain(db: CairnDatabase, domain: ThreadDomain): Set<number> {
+  const rows = db.select({ id: threads.id }).from(threads).where(eq(threads.domain, domain)).all();
+  return new Set(rows.map((r) => r.id));
 }
 
 export function findThreadById(db: CairnDatabase, id: number): ThreadRow | null {

@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 export const THREAD_STATUSES = ["active", "done", "paused", "dropped"] as const;
+// Thread domain (cycle-67 FR-DOM-01). Lowercase persisted; default `personal`.
+export const THREAD_DOMAINS = ["personal", "work"] as const;
 export const EVENT_STATUSES = [
   "planned",
   "confirmed",
@@ -30,6 +32,7 @@ export const THREAD_LINK_KINDS = [
 export const WATCHER_KINDS = ["A", "B"] as const;
 
 export const ThreadStatusSchema = z.enum(THREAD_STATUSES);
+export const ThreadDomainSchema = z.enum(THREAD_DOMAINS);
 export const EventStatusSchema = z.enum(EVENT_STATUSES);
 export const EventSourceSchema = z.enum(EVENT_SOURCES);
 export const TaskStatusSchema = z.enum(TASK_STATUSES);
@@ -40,6 +43,7 @@ export const ThreadLinkKindSchema = z.enum(THREAD_LINK_KINDS);
 export const WatcherKindSchema = z.enum(WATCHER_KINDS);
 
 export type ThreadStatus = z.infer<typeof ThreadStatusSchema>;
+export type ThreadDomain = z.infer<typeof ThreadDomainSchema>;
 export type EventStatus = z.infer<typeof EventStatusSchema>;
 export type EventSource = z.infer<typeof EventSourceSchema>;
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;

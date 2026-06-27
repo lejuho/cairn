@@ -6,7 +6,7 @@ import { findDueTaskSchedulePrompts, findTwoMinuteTodoTasks } from "../repositor
 import { findAllWatchersForEvaluation, findTaskStatusesByIds } from "../repositories/watchers.js";
 import { parseReversePlanRule } from "../services/watcher-reverse-plan.js";
 import { buildFeasibilityParams, computeDayFeasibility, dayEventIds, dayThreadIds } from "../services/feasibility.js";
-import { findThreadLinksAmong } from "../repositories/threads.js";
+import { findThreadIdsByDomain, findThreadLinksAmong } from "../repositories/threads.js";
 import { findEventDependencyLinks } from "../repositories/links.js";
 import { listNeedsReviewEvents } from "../services/needsReview.js";
 import { buildTodaySurface } from "../services/today.js";
@@ -23,10 +23,10 @@ export function registerTodayRoute(app: FastifyInstance, db: CairnDatabase): voi
       });
     }
 
-    const { date, now } = parsed.data;
+    const { date, now, domain } = parsed.data;
 
-    const dayEvents = findPlannedAndConfirmedByDate(db, date);
-    const twoMinuteTasks = findTwoMinuteTodoTasks(db);
+    const rawDayEvents = findPlannedAndConfirmedByDate(db, date);
+    const rawTwoMinuteTasks = findTwoMinuteTodoTasks(db);
     const watcherRows = findAllWatchersForEvaluation(db);
     const rpTaskIds: number[] = [];
     for (const row of watcherRows) {
@@ -34,10 +34,26 @@ export function registerTodayRoute(app: FastifyInstance, db: CairnDatabase): voi
       if (rule) rpTaskIds.push(...rule.steps.map((s) => s.taskId));
     }
     const taskStatuses = findTaskStatusesByIds(db, rpTaskIds);
-    const watcherBubbles = evaluateWatcherA(watcherRows, date, now, taskStatuses);
-    const needsReviewEvents = listNeedsReviewEvents(db, now);
-    const unscheduledEvents = findUnscheduledCairnEvents(db, date);
-    const dueTaskSchedulePrompts = findDueTaskSchedulePrompts(db, date);
+    const rawWatcherBubbles = evaluateWatcherA(watcherRows, date, now, taskStatuses);
+    const rawNeedsReviewEvents = listNeedsReviewEvents(db, now);
+    const rawUnscheduledEvents = findUnscheduledCairnEvents(db, date);
+    const rawDueTaskSchedulePrompts = findDueTaskSchedulePrompts(db, date);
+
+    // Domain filter (cycle-67 FR-DOM-01). When a domain is selected, keep only
+    // thread-linked items whose thread is in that domain; threadless items
+    // (including watchers) appear only in `all`. Applied to the INPUT sets BEFORE
+    // feasibility/relations/surface construction, so cards, conflicts, and the
+    // feasibility panel all reflect the same filtered set (not a UI-only hide).
+    const domainThreadIds = domain === "all" ? null : findThreadIdsByDomain(db, domain);
+    const inDomain = <T extends { threadId: number | null }>(rows: T[]): T[] =>
+      domainThreadIds === null ? rows : rows.filter((r) => r.threadId != null && domainThreadIds.has(r.threadId));
+
+    const dayEvents = inDomain(rawDayEvents);
+    const twoMinuteTasks = inDomain(rawTwoMinuteTasks);
+    const watcherBubbles = domainThreadIds === null ? rawWatcherBubbles : [];
+    const needsReviewEvents = inDomain(rawNeedsReviewEvents);
+    const unscheduledEvents = inDomain(rawUnscheduledEvents);
+    const dueTaskSchedulePrompts = inDomain(rawDueTaskSchedulePrompts);
 
     const feasibilityParams = buildFeasibilityParams({
       energyBudget: readNumericParam(db, "energy_budget", 8),

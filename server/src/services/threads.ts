@@ -42,7 +42,7 @@ import { computeThreadSettlement } from "./thread-settlement.js";
 import { computeThreadMissingNodeSuggestions } from "./thread-missing-node-suggestions.js";
 import { wouldCreateContainsCycle } from "./thread-links.js";
 import { computeRollup } from "./thread-rollup.js";
-import type { CreateThreadRequest } from "@cairn/shared";
+import type { CreateThreadRequest, DomainFilter } from "@cairn/shared";
 
 export function createThread(db: CairnDatabase, input: CreateThreadRequest): ThreadRow {
   return repoCreate(db, input);
@@ -58,8 +58,8 @@ function computeProgress(events: EventRow[], tasks: TaskRow[]): ThreadProgress {
   return { done, total: allItems.length };
 }
 
-export function listThreads(db: CairnDatabase): ThreadSummary[] {
-  const rows = repoList(db);
+export function listThreads(db: CairnDatabase, domain?: DomainFilter): ThreadSummary[] {
+  const rows = repoList(db, domain);
   const counts = countLinksForAllThreads(db);
   return rows.map((thread) => {
     const threadEvents = findEventsByThreadId(db, thread.id);

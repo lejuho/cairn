@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   CreateThreadLinkRequestSchema,
+  CreateThreadRequestSchema,
+  ThreadRowSchema,
+  ThreadListQuerySchema,
   ThreadDetailSchema,
   ThreadPersonFocusSchema,
   ThreadPersonFocusRowSchema,
@@ -58,6 +61,7 @@ const THREAD_ROW = {
   definitionOfDone: null,
   deadline: null,
   status: "active" as const,
+  domain: "personal" as const,
   createdAt: null
 };
 
@@ -593,5 +597,36 @@ describe("ThreadResumeExport schemas (cycle-57)", () => {
     // markdown format MUST NOT carry json
     expect(ThreadResumeExportDataSchema.safeParse({ format: "markdown", content: "# t", warnings: [], json: struct }).success).toBe(false);
     expect(ThreadResumeExportDataSchema.safeParse({ format: "markdown", content: "# t", warnings: [] }).success).toBe(true);
+  });
+});
+
+describe("Thread domain contract (cycle-67 FR-DOM-01)", () => {
+  it("ThreadRowSchema requires a valid domain", () => {
+    const base = { id: 1, name: "t", kind: null, goal: null, definitionOfDone: null, deadline: null, status: "active" as const, createdAt: null };
+    expect(ThreadRowSchema.safeParse({ ...base, domain: "personal" }).success).toBe(true);
+    expect(ThreadRowSchema.safeParse({ ...base, domain: "work" }).success).toBe(true);
+    expect(ThreadRowSchema.safeParse(base).success).toBe(false); // missing
+    expect(ThreadRowSchema.safeParse({ ...base, domain: "Personal" }).success).toBe(false); // not lowercase
+    expect(ThreadRowSchema.safeParse({ ...base, domain: "school" }).success).toBe(false); // unknown
+  });
+
+  it("CreateThreadRequestSchema accepts omitted/personal/work and rejects invalid domain", () => {
+    expect(CreateThreadRequestSchema.safeParse({ name: "t" }).success).toBe(true); // omitted ok (defaulted server-side)
+    const r = CreateThreadRequestSchema.safeParse({ name: "t", domain: "work" });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.domain).toBe("work");
+    expect(CreateThreadRequestSchema.safeParse({ name: "t", domain: "WORK" }).success).toBe(false);
+    expect(CreateThreadRequestSchema.safeParse({ name: "t", domain: "side" }).success).toBe(false);
+  });
+
+  it("ThreadListQuerySchema defaults domain to all and rejects invalid", () => {
+    const r = ThreadListQuerySchema.safeParse({});
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.domain).toBe("all");
+    for (const d of ["all", "personal", "work"]) {
+      expect(ThreadListQuerySchema.safeParse({ domain: d }).success).toBe(true);
+    }
+    expect(ThreadListQuerySchema.safeParse({ domain: "everything" }).success).toBe(false);
+    expect(ThreadListQuerySchema.safeParse({ domain: "all", extra: 1 }).success).toBe(false); // strict
   });
 });

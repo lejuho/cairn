@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { NeedsReviewPlacementSchema, TodaySurfaceSchema } from "./today.js";
+import { NeedsReviewPlacementSchema, TodayQuerySchema, TodaySurfaceSchema } from "./today.js";
+
+describe("TodayQuerySchema domain (cycle-67 FR-DOM-01)", () => {
+  const base = { date: "2026-06-27", now: "2026-06-27T09:00:00+09:00" };
+  it("defaults domain to all when omitted", () => {
+    const r = TodayQuerySchema.safeParse(base);
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.domain).toBe("all");
+  });
+  it("accepts all|personal|work and rejects invalid", () => {
+    for (const d of ["all", "personal", "work"]) {
+      expect(TodayQuerySchema.safeParse({ ...base, domain: d }).success).toBe(true);
+    }
+    expect(TodayQuerySchema.safeParse({ ...base, domain: "office" }).success).toBe(false);
+    expect(TodayQuerySchema.safeParse({ ...base, domain: "Personal" }).success).toBe(false);
+  });
+});
 
 const EVENT = {
   id: 1, threadId: null, title: "회의", type: null,

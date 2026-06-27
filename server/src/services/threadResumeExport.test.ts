@@ -5,7 +5,7 @@ import { buildThreadResumeExport } from "./threadResumeExport.js";
 
 const THREAD: ThreadRow = {
   id: 7, name: "파리 여행", kind: "trip", goal: "6월 파리 완수",
-  definitionOfDone: null, deadline: "2026-06-30", status: "done", createdAt: null
+  definitionOfDone: null, deadline: "2026-06-30", status: "done", domain: "personal", createdAt: null
 };
 const RESUME: ThreadResumeData = {
   resumeRelevant: true, starSituation: "상황 텍스트", starAction: "행동 텍스트", starResult: "결과 텍스트",
