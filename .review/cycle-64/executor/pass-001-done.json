@@ -1,0 +1,13 @@
+{
+  "cycle": 64,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-27T07:34:11Z",
+  "summary": "FR-SLOT-09B Task Slot Evidence Actions A (frontend-only): due-task slot candidate reason rows now carry the same lightweight evidence actions as event candidates, via a new shared module-level SlotReasonList({contributions, onAdjust}) used by BOTH the event and task candidate blocks. Non-neutral feasibility → 조정 button (opens existing feasibility settings sheet via handleOpenFeasSettings(surface.feasibility.params)); friction → /mirror link; people with exactly one personIds → /people/:id link; neutral and multi-person stay text-only. Event candidate DOM/behavior byte-identical (inline copy replaced by the shared component). Evidence actions never schedule/apply — the reason <ul> is a sibling of (not nested in) the candidate apply button; candidate-button apply tap unchanged. No backend/shared/DB/route/CSS-hit-area change (reused the existing .today-slot-reason-link per plan). Committed d16f1f0.",
+  "checks": [
+    "corepack pnpm verify (lint + typecheck + unit incl. web Today 155 (+5 task evidence) + build PASS)",
+    "git diff --check master...HEAD (PASS)",
+    "negative greps: no ^(server|shared)/ changes; no LLM/Gmail/GCal/movement/cron beyond the /mirror link; no schedule-block line added/changed in Today.tsx (evidence actions never apply)"
+  ]
+}
