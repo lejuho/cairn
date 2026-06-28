@@ -1,0 +1,16 @@
+{
+  "cycle": 72,
+  "pass": 2,
+  "kind": "fix",
+  "review": ".review/cycle-72/review-v1.md",
+  "createdAt": "2026-06-28T05:50:34Z",
+  "summary": "Resolved review-v1 (2 HIGH, both APPLY, test/tracking only). ISSUE-1: the committed gateway test failed `corepack pnpm typecheck` — pass-001's lint fix removed the mock's url param, making the param-less mock's call-args tuple [], so `fetchImpl.mock.calls[0]![0] as URL` tripped TS2493/TS2352 (typecheck was run before that lint fix and not re-run). Fix: the URL-construction test now captures the request URL via a USED typed closure param (`vi.fn(async (input: URL) => { url = input; return geocode('OK',[{}]); })` + `toBeInstanceOf(URL)` + narrowing throw) instead of reading mock.calls — no tuple index, lint-clean, all original assertions preserved (https/host/path/encoded address/key). ISSUE-2: server/src/routes/maps.test.ts was untracked (pass-001 git-added routes/maps.ts but not its .test.ts); now committed so HEAD carries the required no-DB route coverage (disabled success, mock success, typed 502 failure, config_error 500, back-compat 404). No production map code (config.ts/gateway.ts/routes/maps.ts/app.ts/index.ts/shared/maps.ts) changed. RESOLVED appended below the sentinel. Committed 204c64c.",
+  "checks": [
+    "corepack pnpm lint (PASS)",
+    "corepack pnpm typecheck (PASS — was the blocking failure; now green)",
+    "corepack pnpm test (shared 424 / server 496 / web 485)",
+    "corepack pnpm test:integration (686)",
+    "corepack pnpm build (web + server Done)",
+    "git diff --check master...HEAD (OK); git ls-files --error-unmatch server/src/routes/maps.test.ts (tracked); ## RESOLVED count above sentinel = 0; fix commit is test/review-only (no production map code)"
+  ]
+}
