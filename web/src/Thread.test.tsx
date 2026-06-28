@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Thread, resumeExportFile } from "./Thread.js";
-import type { PromotionSuggestion, ThreadDetail, ThreadLinkView, ThreadMissingNodeSuggestion, ThreadResourceFocusData, ThreadRollup, ThreadResumeData, ThreadSettlement, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
+import type { PromotionSuggestion, TaskRow, ThreadDetail, ThreadLinkView, ThreadMissingNodeSuggestion, ThreadResourceFocusData, ThreadRollup, ThreadResumeData, ThreadSettlement, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
 
 afterEach(() => {
   cleanup();
@@ -1633,5 +1633,47 @@ describe("Thread — domain chip (cycle-67)", () => {
     render(<Thread id={1} />);
     await waitFor(() => expect(screen.getByTestId("thread-header")).toBeInTheDocument());
     expect(screen.getByTestId("thread-domain-chip").textContent).toBe("업무");
+  });
+});
+
+describe("Thread — task drop soft-remove (cycle-81)", () => {
+  const fullDetail = (tasks: TaskRow[]) => ({
+    thread: BASE_THREAD, events: [], tasks, progress: { done: 0, total: tasks.length },
+    relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [],
+    settlement: EMPTY_SETTLEMENT_T, missingNodeSuggestions: [], resume: EMPTY_RESUME_T, personFocus: EMPTY_PERSON_FOCUS_T
+  });
+  function mockThreadDrop(opts: { patchResult?: { ok: boolean; error?: { message: string } } } = {}) {
+    const calls: { url: string; body?: unknown }[] = [];
+    let getCall = 0;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, init?: { method?: string; body?: unknown }) => {
+      if (init?.method === "PATCH") { calls.push({ url, body: init.body }); return Promise.resolve(makeResponse(opts.patchResult ?? { ok: true, data: {} }, url)); }
+      if (url.includes("promotion-suggestions")) return Promise.resolve(makeResponse({ ok: true, data: { suggestions: [] } }, url));
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
+      getCall += 1;
+      // first load shows the active task; after the drop+refresh it is dropped.
+      const tasks: TaskRow[] = getCall === 1 ? [BASE_TASK] : [{ ...BASE_TASK, status: "dropped" }];
+      return Promise.resolve(makeResponse({ ok: true, data: fullDetail(tasks) }, url));
+    }));
+    return calls;
+  }
+
+  it("dropping an active task sends {status:'dropped'} and refreshes into the dropped group", async () => {
+    const calls = mockThreadDrop();
+    render(<Thread id={1} />);
+    fireEvent.click(await screen.findByTestId("task-drop-20"));
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(calls[0]!.url).toContain("/api/tasks/20/status");
+    expect(JSON.parse(calls[0]!.body as string)).toEqual({ status: "dropped" });
+    // after refresh the active drop button is gone; the task shows as dropped history
+    await waitFor(() => expect(screen.queryByTestId("task-drop-20")).not.toBeInTheDocument());
+    expect(screen.getByText("드롭")).toBeInTheDocument(); // dropped chip in history group
+  });
+
+  it("a failed drop keeps the row with a scoped error", async () => {
+    mockThreadDrop({ patchResult: { ok: false, error: { message: "드롭에 실패했어" } } });
+    render(<Thread id={1} />);
+    fireEvent.click(await screen.findByTestId("task-drop-20"));
+    expect(await screen.findByTestId("task-drop-error-20")).toHaveTextContent("드롭에 실패했어");
+    expect(screen.getByTestId("task-drop-20")).toBeInTheDocument(); // row still active
   });
 });

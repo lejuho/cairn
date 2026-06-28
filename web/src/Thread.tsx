@@ -396,6 +396,7 @@ export function Thread({ id }: { id: number }) {
               liClassName={nodeClass("today-card today-card--task", highlightedTaskIds.has(task.id), false)}
               chip="작업"
               onSaved={refresh}
+              droppable
             />
           ))}
 
@@ -743,8 +744,27 @@ function EventNodeForm({ event, onCancel, onSaved }: { event: EventRow; onCancel
 
 // Task node card (cycle-50 FR-THR-06). Inline 수정 for title/estMinutes/due/
 // context/optional.
-function TaskNodeCard({ task, liClassName, chip, onSaved }: { task: TaskRow; liClassName: string; chip: string; onSaved: () => void }) {
+function TaskNodeCard({ task, liClassName, chip, onSaved, droppable = false }: { task: TaskRow; liClassName: string; chip: string; onSaved: () => void; droppable?: boolean }) {
   const [editing, setEditing] = useState(false);
+  const [dropping, setDropping] = useState(false);
+  const [dropError, setDropError] = useState<string | null>(null);
+  // Soft-remove (cycle-81): reuse the existing task status route, sending ONLY
+  // {status:"dropped"}. On success refresh moves the task into the dropped/done
+  // history group; a failure keeps the row with a scoped error.
+  async function drop() {
+    setDropping(true); setDropError(null);
+    try {
+      const res = await apiJson<{ ok: boolean; error?: { message: string } }>(`/api/tasks/${task.id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "dropped" })
+      });
+      if (!res.ok) { setDropError(res.error?.message ?? "드롭 실패"); setDropping(false); return; }
+      onSaved();
+    } catch {
+      setDropError("드롭 실패"); setDropping(false);
+    }
+  }
   return (
     <li className={liClassName} data-task-id={task.id}>
       {!editing && (
@@ -752,7 +772,13 @@ function TaskNodeCard({ task, liClassName, chip, onSaved }: { task: TaskRow; liC
           <span className="card-chip">{chip}</span>
           <p className="card-title">{task.title}</p>
           {task.context && <p className="card-meta">{task.context}</p>}
-          <button className="thread-node-edit-btn" data-testid={`task-edit-${task.id}`} onClick={() => setEditing(true)}>수정</button>
+          <div className="thread-node-actions">
+            <button className="thread-node-edit-btn" data-testid={`task-edit-${task.id}`} onClick={() => setEditing(true)}>수정</button>
+            {droppable && (
+              <button className="thread-node-drop-btn" data-testid={`task-drop-${task.id}`} disabled={dropping} onClick={() => void drop()} aria-label={`${task.title} 드롭 (활성에서 제거)`}>드롭</button>
+            )}
+          </div>
+          {droppable && dropError && <p className="card-meta" role="alert" data-testid={`task-drop-error-${task.id}`} style={{ color: "var(--cancelled)" }}>{dropError}</p>}
         </>
       )}
       {editing && (
