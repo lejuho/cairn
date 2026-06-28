@@ -30,9 +30,11 @@ describe("createMapGateway (cycle-72)", () => {
   });
 
   it("google constructs an HTTPS Geocoding request with encoded fixed address + server key", async () => {
-    const fetchImpl = vi.fn(async () => geocode("OK", [{}]));
+    let url: URL | undefined;
+    const fetchImpl = vi.fn(async (input: URL) => { url = input; return geocode("OK", [{}]); });
     await createMapGateway(GOOGLE, { fetchImpl: fetchImpl as unknown as typeof fetch }).smoke();
-    const url = fetchImpl.mock.calls[0]![0] as URL;
+    expect(url).toBeInstanceOf(URL);
+    if (!url) throw new Error("fetch was not called with a URL");
     expect(url.protocol).toBe("https:");
     expect(url.host).toBe("maps.googleapis.com");
     expect(url.pathname).toBe("/maps/api/geocode/json");
