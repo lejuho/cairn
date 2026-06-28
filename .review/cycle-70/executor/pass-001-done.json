@@ -1,0 +1,16 @@
+{
+  "cycle": 70,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-28T02:31:02Z",
+  "summary": "Today Composer Adoption A (frontend-only): replaced Today's event-only quick capture with the shared compact Composer (일정|스레드|할 일). Extracted presentational web/src/CreationComposer.tsx (data-in/callbacks-out, NO API/nav/result; aria-labels 만들기 입력/만들기/만들기 종류, data-mode, 44px, compact variant) and reused it in /input (cycle-69 behavior unchanged, InputHub tests 54 pass) and /today. Today owns a composer state {mode,text,submitting,error,result(discriminated capture|thread|task)} + handleComposerSubmit routing by selected mode ONLY (no classifier): event→POST /api/capture/flat-event {text,now}+refresh; thread→POST /api/threads/draft {text}; task→POST /api/tasks {title}+refresh. Renders CreationComposer(compact) + per-mode cycle-68 ResultCard + role=alert error in BOTH quiet+live: capture→일정/미정 일정 (scheduled 「오늘 새로고침」 dismiss+refresh; raw 「날짜 잡기」 href /input); thread→스레드 초안 (draft-open-link→/threads/:id, counts+warnings); task→할 일. composer is component-level state so it survives the quiet→live flip after refresh. Removed old capture state/handleCapture/savedMsgTimer/savedMsg + dead flatCapture/QuickCaptureResult; removed obsolete .today-capture-form/input/btn CSS (kept .today-capture-saved); added .composer--compact. Today queue (cards/manual intake +추가/conflict/slots/feasibility/domain filter) and card priority unchanged. Promoted roadmap doc + codebase-map. No backend/shared/route/DB/migration/LLM change. Committed 3533cf7.",
+  "checks": [
+    "corepack pnpm lint (PASS)",
+    "corepack pnpm typecheck (PASS)",
+    "corepack pnpm test (web 471 incl. Today 165 — quick-capture describe migrated to compact Composer: quiet/live render + mode-switch-no-submit + empty-disabled + per-mode endpoint isolation {text,now}/{text}/{title} + scheduled/raw/thread/task cards + failure keeps mode+text; InputHub 54 unchanged)",
+    "corepack pnpm test:integration (686)",
+    "corepack pnpm build (web + server Done)",
+    "git diff --check master...HEAD (OK); no server|shared|drizzle diff; CreationComposer has no fetch/apiJson/api (pure presentational); Today.tsx writes only capture/flat-event, threads/draft, tasks; no watcher/annotation/mirror/DDL/LLM in code"
+  ]
+}
