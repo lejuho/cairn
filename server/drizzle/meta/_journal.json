@@ -71,6 +71,13 @@
       "when": 1782551661769,
       "tag": "0009_abandoned_winter_soldier",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1782628011089,
+      "tag": "0010_mysterious_phalanx",
+      "breakpoints": true
     }
   ]
 }

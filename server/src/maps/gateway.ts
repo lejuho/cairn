@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { MapErrorCode, MapProviderSmokeData, MapSmokeStatus } from "@cairn/shared";
+import type { GeocodeConfidence, MapErrorCode, MapProvider, MapProviderSmokeData, MapSmokeStatus } from "@cairn/shared";
 import type { GoogleMapConfig, MapConfigResult } from "./config.js";
 
 // Single map provider gateway boundary (cycle-72). Mirrors the LLM gateway:
@@ -19,7 +19,23 @@ export type MapSmokeResult =
   | { ok: true; data: MapProviderSmokeData }
   | { ok: false; error: MapGatewayError };
 
-export type MapGateway = { smoke: () => Promise<MapSmokeResult> };
+// Geocode outcomes (cycle-73). Provider-neutral; only label + place id + coord
+// (when present) + a typed uncertainty object leave the gateway. `resolved`/
+// `ambiguous`/`zero_results`/`failed` are cacheable facts; `{ ok:false, error }`
+// is a transient/scoped failure the caller must NOT cache.
+export type GeocodeUncertainty = { locationType?: string | null; partialMatch?: boolean; resultCount?: number; candidateLabels?: string[] };
+export type GeocodeOutcome =
+  | { status: "resolved"; latitude: number; longitude: number; displayLabel: string; providerResultId: string | null; confidence: GeocodeConfidence; providerStatus: string; uncertainty: GeocodeUncertainty }
+  | { status: "ambiguous"; providerStatus: string; uncertainty: GeocodeUncertainty }
+  | { status: "zero_results"; providerStatus: string }
+  | { status: "failed"; providerStatus: string };
+export type GeocodeResult = { ok: true; outcome: GeocodeOutcome } | { ok: false; error: MapGatewayError };
+
+export type MapGateway = {
+  provider: MapProvider;
+  smoke: () => Promise<MapSmokeResult>;
+  geocodeAddress: (address: string) => Promise<GeocodeResult>;
+};
 
 export type MapGatewayOptions = { fetchImpl?: typeof fetch; retryCount?: number };
 
@@ -30,11 +46,32 @@ const GoogleGeocodeResponseSchema = z.object({
   error_message: z.string().optional()
 });
 
+// Richer shape for geocodeAddress — only the provider-neutral fields are read.
+const GoogleResultSchema = z.object({
+  formatted_address: z.string().optional(),
+  place_id: z.string().optional(),
+  partial_match: z.boolean().optional(),
+  geometry: z
+    .object({
+      location: z.object({ lat: z.number(), lng: z.number() }).optional(),
+      location_type: z.string().optional()
+    })
+    .optional()
+});
+const GoogleGeocodeFullSchema = z.object({
+  status: z.string(),
+  results: z.array(GoogleResultSchema).optional(),
+  error_message: z.string().optional()
+});
+
 export function createMapGateway(configResult: MapConfigResult, options: MapGatewayOptions = {}): MapGateway {
   const fetchImpl = options.fetchImpl ?? fetch;
   const retryCount = options.retryCount ?? DEFAULT_RETRY_COUNT;
 
+  const provider: MapProvider = configResult.ok ? configResult.config.provider : "disabled";
+
   return {
+    provider,
     async smoke(): Promise<MapSmokeResult> {
       if (!configResult.ok) {
         return failure("config_error", "Map provider is misconfigured");
@@ -47,6 +84,16 @@ export function createMapGateway(configResult: MapConfigResult, options: MapGate
         };
       }
       return smokeGoogle(config, fetchImpl, retryCount);
+    },
+    async geocodeAddress(address: string): Promise<GeocodeResult> {
+      if (!configResult.ok) {
+        return { ok: false, error: { code: "config_error", message: "Map provider is misconfigured" } };
+      }
+      const config = configResult.config;
+      if (config.provider === "disabled") {
+        return { ok: false, error: { code: "disabled", message: "Map provider is disabled" } };
+      }
+      return geocodeGoogle(config, address, fetchImpl, retryCount);
     }
   };
 }
@@ -124,4 +171,126 @@ function googleData(status: MapSmokeStatus, resultCount: number): MapProviderSmo
 
 function ensureTrailingSlash(value: string): string {
   return value.endsWith("/") ? value : `${value}/`;
+}
+
+// ── geocodeAddress (cycle-73) ────────────────────────────────────────────────
+
+function geocodeError(code: MapErrorCode, message: string): GeocodeResult {
+  return { ok: false, error: { code, message } };
+}
+
+async function geocodeGoogle(config: GoogleMapConfig, address: string, fetchImpl: typeof fetch, retryCount: number): Promise<GeocodeResult> {
+  const url = new URL(GEOCODE_PATH, ensureTrailingSlash(config.baseUrl));
+  url.searchParams.set("address", address);
+  url.searchParams.set("key", config.apiKey);
+
+  for (let attempt = 0; attempt <= retryCount; attempt += 1) {
+    const result = await geocodeGoogleOnce(url, config.timeoutMs, fetchImpl);
+    if (!result.ok && result.error.code === "unavailable" && attempt < retryCount) continue;
+    return result;
+  }
+  return geocodeError("unavailable", "Map provider is unavailable");
+}
+
+async function geocodeGoogleOnce(url: URL, timeoutMs: number, fetchImpl: typeof fetch): Promise<GeocodeResult> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(url, { method: "GET", signal: controller.signal });
+    if (response.status === 429) return geocodeError("rate_limited", "Map provider rate limited the request");
+    if (response.status >= 500) return geocodeError("unavailable", "Map provider returned a server error");
+    if (!response.ok) return geocodeError("unavailable", "Map provider returned an unexpected HTTP status");
+
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      return geocodeError("invalid_response", "Map provider returned invalid JSON");
+    }
+    const parsed = GoogleGeocodeFullSchema.safeParse(payload);
+    if (!parsed.success) {
+      return geocodeError("invalid_response", "Map provider returned an unexpected response shape");
+    }
+    return mapGeocodeStatus(parsed.data);
+  } catch {
+    return geocodeError("unavailable", "Map provider is unavailable");
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+type GoogleResult = z.infer<typeof GoogleResultSchema>;
+
+function mapGeocodeStatus(data: z.infer<typeof GoogleGeocodeFullSchema>): GeocodeResult {
+  const results = data.results ?? [];
+  switch (data.status) {
+    case "OK": {
+      if (results.length === 1) {
+        const r = results[0]!;
+        const loc = r.geometry?.location;
+        // OK with exactly one result but no coordinate is a degenerate stable
+        // outcome — keep it honest as `failed` (no fabricated coordinate).
+        if (!loc) return { ok: true, outcome: { status: "failed", providerStatus: "OK" } };
+        return {
+          ok: true,
+          outcome: {
+            status: "resolved",
+            latitude: loc.lat,
+            longitude: loc.lng,
+            displayLabel: r.formatted_address ?? "",
+            providerResultId: r.place_id ?? null,
+            confidence: deriveConfidence(r.geometry?.location_type, r.partial_match),
+            providerStatus: "OK",
+            uncertainty: { locationType: r.geometry?.location_type ?? null, partialMatch: r.partial_match ?? false }
+          }
+        };
+      }
+      // Multiple results — preserve ambiguity; do NOT silently select a coordinate.
+      return {
+        ok: true,
+        outcome: {
+          status: "ambiguous",
+          providerStatus: "OK",
+          uncertainty: { resultCount: results.length, candidateLabels: candidateLabels(results) }
+        }
+      };
+    }
+    case "ZERO_RESULTS":
+      return { ok: true, outcome: { status: "zero_results", providerStatus: "ZERO_RESULTS" } };
+    // INVALID_REQUEST for a real (non-fixed) address is a stable per-address
+    // failure → cacheable `failed`. (The cycle-72 smoke route maps the SAME
+    // provider status to a scoped `invalid_request` error because its query is
+    // a fixed constant — the divergence is intentional, not a bug.)
+    case "INVALID_REQUEST":
+      return { ok: true, outcome: { status: "failed", providerStatus: "INVALID_REQUEST" } };
+    case "OVER_QUERY_LIMIT":
+      return geocodeError("rate_limited", "Map provider query limit reached");
+    case "OVER_DAILY_LIMIT":
+    case "REQUEST_DENIED":
+      return geocodeError("denied", "Map provider denied the request");
+    case "UNKNOWN_ERROR":
+      return geocodeError("unavailable", "Map provider reported a transient error");
+    default:
+      return geocodeError("invalid_response", "Map provider returned an unrecognized status");
+  }
+}
+
+function candidateLabels(results: GoogleResult[]): string[] {
+  return results.slice(0, 5).map((r) => r.formatted_address ?? "").filter((s) => s.length > 0);
+}
+
+function deriveConfidence(locationType: string | undefined, partialMatch: boolean | undefined): GeocodeConfidence {
+  let base: GeocodeConfidence;
+  switch (locationType) {
+    case "ROOFTOP": base = "high"; break;
+    case "RANGE_INTERPOLATED":
+    case "GEOMETRIC_CENTER": base = "medium"; break;
+    case "APPROXIMATE": base = "low"; break;
+    default: base = "unknown";
+  }
+  // A partial match demotes one notch (never below low for a known type).
+  if (partialMatch && base !== "unknown") {
+    base = base === "high" ? "medium" : "low";
+  }
+  return base;
 }

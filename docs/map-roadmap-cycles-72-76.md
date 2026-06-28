@@ -72,7 +72,11 @@ error and no fabricated location data. Existing Cairn routes behave unchanged.
 
 Branch when promoted: `feature/cycle-73-geocoding-cache-a`
 Skills when promoted: `backend-fastify`
-Status: promoted 2026-06-28
+Status: promoted + implemented 2026-06-28 (`.review/cycle-73/`). SQLite
+`geocode_cache` table keyed by (provider, normalized_location); `POST
+/api/events/:id/geocode` resolves/reuses an event's authored `location` via the
+cycle-72 gateway's new `geocodeAddress`, preserving ambiguous/zero/failed
+uncertainty. No frontend/Today/travel-time. Cycles 74-76 stay roadmap.
 
 ### Goal
 

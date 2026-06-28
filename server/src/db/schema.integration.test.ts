@@ -26,6 +26,7 @@ describe("core SQLite migration", () => {
       "annotations",
       "event_people",
       "events",
+      "geocode_cache",
       "links",
       "params",
       "people",

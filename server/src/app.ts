@@ -4,6 +4,7 @@ import type { CairnDatabase } from "./db/index.js";
 import type { LlmGateway } from "./llm/gateway.js";
 import type { MapGateway } from "./maps/gateway.js";
 import { registerMapRoutes } from "./routes/maps.js";
+import { registerGeocodingRoutes } from "./routes/geocoding.js";
 import { registerAnnotationRoutes } from "./routes/annotations.js";
 import { registerCaptureRoutes } from "./routes/capture.js";
 import { registerThreadDraftRoutes } from "./routes/threadDraft.js";
@@ -54,6 +55,10 @@ export function buildServer(db?: CairnDatabase, gateway?: LlmGateway, mapGateway
     registerMirrorRoutes(app, db);
     registerResourceRoutes(app, db);
     registerRelationRoutes(app, db);
+    // Event geocoding (cycle-73): needs both DB (cache) and the map gateway.
+    if (mapGateway) {
+      registerGeocodingRoutes(app, db, mapGateway);
+    }
     if (gateway) {
       registerAnnotationRoutes(app, db, gateway);
       registerCaptureRoutes(app, db, gateway);

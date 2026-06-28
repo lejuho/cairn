@@ -5,7 +5,11 @@ import type { MapGateway, MapSmokeResult } from "../maps/gateway.js";
 // The diagnostic route must work with NO DB and NO real network — buildServer
 // is given only a fake map gateway (no db, no llm gateway).
 function appWith(result: MapSmokeResult) {
-  const gateway: MapGateway = { smoke: async () => result };
+  const gateway: MapGateway = {
+    provider: "disabled",
+    smoke: async () => result,
+    geocodeAddress: async () => ({ ok: false, error: { code: "disabled", message: "n/a" } })
+  };
   return buildServer(undefined, undefined, gateway);
 }
 
