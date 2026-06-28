@@ -184,7 +184,9 @@ function computeGaps(scheduled: EventRow[], now: string, p: FeasibilityParams, t
 function travelGapReason(travel: TransitionTravel, p: FeasibilityParams, addRequired: (extra: number) => void): string | null {
   if (travel.status === "fresh" && travel.durationMinutes != null) {
     addRequired(Math.round(travel.durationMinutes * p.travelMargin));
-    return "gap_travel_included";
+    // A user-pinned fact contributes the same duration*margin but is labeled
+    // distinctly so the surface can explain "manual" vs provider evidence (cycle-78).
+    return travel.source === "pinned_user" ? "gap_travel_pinned_included" : "gap_travel_included";
   }
   return TRAVEL_QUIET_REASON[travel.status] ?? null;
 }

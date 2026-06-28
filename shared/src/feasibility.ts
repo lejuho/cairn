@@ -65,6 +65,12 @@ export const TransitionFirmnessSchema = z.enum(["hard", "soft"]);
 export const TRAVEL_EVIDENCE_STATUSES = ["fresh", "stale", "unavailable", "missing_geocode", "same_location"] as const;
 export const TravelEvidenceStatusSchema = z.enum(TRAVEL_EVIDENCE_STATUSES);
 
+// Provenance of the travel evidence (cycle-78). Optional + back-compatible:
+// existing provider/cache evidence omits it; a user-pinned fact sets
+// `pinned_user` so the UI/gap math can label and explain manual facts.
+export const TRAVEL_EVIDENCE_SOURCES = ["provider", "pinned_user"] as const;
+export const TravelEvidenceSourceSchema = z.enum(TRAVEL_EVIDENCE_SOURCES);
+
 export const TransitionTravelSchema = z
   .object({
     status: TravelEvidenceStatusSchema,
@@ -74,7 +80,8 @@ export const TransitionTravelSchema = z
     providerStatus: z.string().nullable(),
     mode: z.string().nullable(),
     ageMinutes: z.number().nullable(),
-    reasonCodes: z.array(z.string())
+    reasonCodes: z.array(z.string()),
+    source: TravelEvidenceSourceSchema.optional()
   })
   .strict();
 
@@ -181,6 +188,7 @@ export type TransitionCostLevel = z.infer<typeof TransitionCostLevelSchema>;
 export type TransitionRelationKind = z.infer<typeof TransitionRelationKindSchema>;
 export type TransitionFirmness = z.infer<typeof TransitionFirmnessSchema>;
 export type TravelEvidenceStatus = z.infer<typeof TravelEvidenceStatusSchema>;
+export type TravelEvidenceSource = z.infer<typeof TravelEvidenceSourceSchema>;
 export type TransitionTravel = z.infer<typeof TransitionTravelSchema>;
 export type TransitionCost = z.infer<typeof TransitionCostSchema>;
 export type SequenceEnergy = z.infer<typeof SequenceEnergySchema>;

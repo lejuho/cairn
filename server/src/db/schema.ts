@@ -357,3 +357,42 @@ export const travelTimeCache = sqliteTable(
     check("travel_time_cache_duration_check", sql`(${table.status} = 'no_route') or (${table.durationSeconds} is not null)`)
   ]
 );
+
+// Pinned transit facts (cycle-78, Pinned Transit Facts A). A user-authored manual
+// public-transit duration for a recurring adjacent location pair, keyed by the
+// DIRECTIONAL (origin_normalized, dest_normalized, mode) — A→B is distinct from
+// B→A. Coordinates/labels are server-derived from the resolved geocode cache (for
+// audit/display), NEVER browser-supplied. Always provenance-labeled
+// (source=pinned_user); no provider/route payload stored. Additive — no existing
+// table is touched.
+const PINNED_TRANSIT_MODES = ["public_transit"] as const;
+const PINNED_TRANSIT_SOURCES = ["pinned_user"] as const;
+export const pinnedTransitFacts = sqliteTable(
+  "pinned_transit_facts",
+  {
+    id: integer("id").primaryKey(),
+    originNormalized: text("origin_normalized").notNull(),
+    destNormalized: text("dest_normalized").notNull(),
+    originLabel: text("origin_label"),
+    destLabel: text("dest_label"),
+    originLat: real("origin_lat").notNull(),
+    originLng: real("origin_lng").notNull(),
+    destLat: real("dest_lat").notNull(),
+    destLng: real("dest_lng").notNull(),
+    mode: text("mode").notNull(),
+    durationMinutes: integer("duration_minutes").notNull(),
+    note: text("note"),
+    source: text("source").notNull(),
+    active: integer("active").default(1).notNull(),
+    createdAt: text("created_at").default(sql`(datetime('now'))`),
+    updatedAt: text("updated_at"),
+    lastConfirmedAt: text("last_confirmed_at")
+  },
+  (table) => [
+    uniqueIndex("pinned_transit_facts_pair_idx").on(table.originNormalized, table.destNormalized, table.mode),
+    check("pinned_transit_facts_mode_check", sql`${table.mode} in (${enumSqlList(PINNED_TRANSIT_MODES)})`),
+    check("pinned_transit_facts_source_check", sql`${table.source} in (${enumSqlList(PINNED_TRANSIT_SOURCES)})`),
+    check("pinned_transit_facts_active_check", sql`${table.active} in (0, 1)`),
+    check("pinned_transit_facts_duration_check", sql`${table.durationMinutes} > 0 and ${table.durationMinutes} <= 600`)
+  ]
+);
