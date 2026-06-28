@@ -1838,7 +1838,7 @@ p {
   flex-basis: 100%;
   margin: 0;
   font-size: 0.78rem;
-  color: var(--conflict);
+  color: var(--cancelled);
 }
 .feas-travel--pinned {
   color: var(--accent);

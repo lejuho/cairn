@@ -3931,9 +3931,6 @@ describe("Today — pinned transit fact (cycle-78)", () => {
     fireEvent.click(screen.getByLabelText("회의→운동 고정 이동시간 입력"));
     fireEvent.change(await screen.findByLabelText("이동 시간(분)"), { target: { value: "0" } });
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
-    await new Promise(r=>setTimeout(r,50));
-    console.log("INPUTVAL=["+ (screen.getByLabelText("이동 시간(분)") as HTMLInputElement).value +"]");
-    screen.debug(screen.getByTestId("pin-transit-1-2"), 20000);
     expect(await screen.findByText("이동 시간을 1~600분 사이로 입력해줘")).toBeInTheDocument();
     expect(calls).toHaveLength(0);
     expect(screen.getByLabelText("이동 시간(분)")).toBeInTheDocument(); // form stays open

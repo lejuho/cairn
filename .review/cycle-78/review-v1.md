@@ -51,3 +51,19 @@ None in the Cycle 78 branch diff. Unrelated uncommitted dotfile/config changes a
 <!-- RESOLVED-BOUNDARY · above=Codex immutable, below=Executor append-only · check-resolved-immutable.sh enforces -->
 
 ## RESOLVED (Executor response, append at file end)
+
+### Issue Classification
+- ISSUE-1: APPLY (committed diagnostic output makes the repeatable automatic checks noisy; the Sprint Contract requires clean repeatable verification.)
+- ISSUE-2: APPLY (the frontend Sprint Contract requires semantic-token-only styles; `--conflict` is undefined so the scoped error tone was unreliable.)
+
+### Applied
+
+RESOLVED: ISSUE-1 — removed the leftover debug output from the invalid-duration pin-form test.
+- `web/src/Today.test.tsx`: deleted the three unconditional diagnostic lines (`await new Promise(r=>setTimeout(r,50))`, `console.log("INPUTVAL=…")`, and `screen.debug(…)`) that were accidentally left in the "rejects an invalid duration" test. The test keeps its real assertions: the scoped error `"이동 시간을 1~600분 사이로 입력해줘"`, `calls.toHaveLength(0)` (no PUT), and the form-stays-open check.
+
+RESOLVED: ISSUE-2 — the pin-form error now uses a defined semantic token.
+- `web/src/styles.css`: `.feas-pin-error` color changed from the undefined `var(--conflict)` to `var(--cancelled)` — the design-system error/negative token (defined `#c05e52`, dark `#ad453b`), so the scoped error state has a deliberate negative tone. (The pre-existing watcher-snooze `var(--conflict)` at `Today.tsx:2296` predates this cycle and is outside the cycle-78 diff/scope; only the flagged `.feas-pin-error` was changed.)
+
+Scope: test + one style-token change only. No shared schema, DB, repository, service, route, or feasibility/travel logic changed; the pinned-fact behavior, gap math, provenance, and provider boundary are untouched. (Unrelated worktree dotfile/config and old cycle-artifact edits predate this cycle and are excluded from the pass-002 commit, as review-v1 noted.)
+
+자동 체크: `corepack pnpm lint` ✅ / `typecheck` ✅ / `test` shared 445 / server 519 / web 521 ✅ / `test:integration` 749 ✅ / `build` ✅ / `git diff --check master...HEAD` ✅. (A single PersonDetail timing flake under full-parallel `pnpm test` passes on a dedicated `--filter @cairn/web test` run; not in this cycle's files.) Committed in pass-002.
