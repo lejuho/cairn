@@ -51,4 +51,13 @@ describe("naverTransitDirectionsUrl (cycle-77)", () => {
     expect(naverTransitDirectionsUrl({ lat: Number.NaN, lng: 127.0 }, { lat: 37.6, lng: 127.1 })).toBeNull();
     expect(naverTransitDirectionsUrl({ lat: 37.5, lng: 127.0 }, { lat: 37.6, lng: 999 })).toBeNull();
   });
+
+  it("rejects out-of-range latitude with axis-specific WGS84 bounds (review-v1 ISSUE-1)", () => {
+    // latitude is [-90,90] — an impossible latitude must NOT produce a directions link
+    // even though it is inside the broad [-180,180] token-formula range.
+    expect(naverTransitDirectionsUrl({ lat: 120, lng: 127.0 }, { lat: 37.6, lng: 127.1 })).toBeNull();
+    expect(naverTransitDirectionsUrl({ lat: 37.5, lng: 127.0 }, { lat: -120, lng: 127.1 })).toBeNull();
+    // a valid latitude at the boundary still works
+    expect(naverTransitDirectionsUrl({ lat: 90, lng: 180 }, { lat: -90, lng: -180 })).not.toBeNull();
+  });
 });

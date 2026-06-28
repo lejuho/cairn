@@ -41,3 +41,16 @@ None in the Cycle 77 branch diff. Unrelated uncommitted dotfile/config changes a
 <!-- RESOLVED-BOUNDARY · above=Codex immutable, below=Executor append-only · check-resolved-immutable.sh enforces -->
 
 ## RESOLVED (Executor response, append at file end)
+
+### Issue Classification
+- ISSUE-1: APPLY (the Sprint Contract requires out-of-range coordinates to omit the directions link / return null; an impossible latitude must not produce a bogus Naver directions URL.)
+
+### Applied
+
+RESOLVED: ISSUE-1 — direction points are now validated with axis-specific WGS84 bounds before tokenizing.
+- `web/src/naver-map-links.ts`: `directionsSegment` now rejects a point unless latitude is finite and within `[-90, 90]` AND longitude is finite and within `[-180, 180]` (new `isValidLat`/`isValidLng` guards), returning `null` — so `naverTransitDirectionsUrl` returns `null` for any invalid latitude/longitude pair and the transition row renders no directions link (fail soft). The token formula stays isolated; `naverCoordToken` keeps its broad `[-180, 180]` formula-overflow guard (it is a single-coordinate encoder and cannot know which axis it is).
+- `web/src/naver-map-links.test.ts` (+1): asserts `lat: 120` → `null`, `lat: -120` → `null` (out of latitude range despite being inside the broad token range), and that valid boundary coordinates (`lat 90/-90`, `lng 180/-180`) still produce a non-null URL. Existing invalid-longitude and NaN/Infinity cases remain covered.
+
+Scope: frontend-only, change limited to the one helper file (+ its test). No Today render change, shared/server/DB/migration/gateway/config change; the Naver-search path, the valid-coordinate directions path, and all travel/feasibility/transition behavior are unchanged. (Unrelated worktree dotfile/config and old cycle-artifact edits predate this cycle and are excluded from the pass-002 commit, as review-v1 noted.)
+
+자동 체크: `corepack pnpm lint` ✅ / `typecheck` ✅ / `test` shared 438 / server 519 / web 517 (+1) ✅ / `test:integration` 733 ✅ / `build` ✅ / `git diff --check master...HEAD` ✅. Committed in pass-002.

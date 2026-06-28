@@ -39,7 +39,19 @@ export type NaverDirectionsPoint = { lat: number; lng: number; label?: string | 
 // EMPTY placeholders — isolated here so a later Naver place-search cycle can swap
 // in real ids/types without touching callers. Returns null if either coordinate
 // token is invalid.
+// WGS84 axis bounds (cycle-77 review-v1 ISSUE-1): latitude is [-90,90],
+// longitude is [-180,180]. `naverCoordToken` alone only guards the broad
+// [-180,180] formula range, so an impossible latitude (e.g. 120) would still
+// tokenize — validate each axis explicitly before building a segment.
+function isValidLat(n: number): boolean {
+  return Number.isFinite(n) && n >= -90 && n <= 90;
+}
+function isValidLng(n: number): boolean {
+  return Number.isFinite(n) && n >= -180 && n <= 180;
+}
+
 function directionsSegment(point: NaverDirectionsPoint): string | null {
+  if (!isValidLat(point.lat) || !isValidLng(point.lng)) return null;
   const lonToken = naverCoordToken(point.lng);
   const latToken = naverCoordToken(point.lat);
   if (lonToken == null || latToken == null) return null;
