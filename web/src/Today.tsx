@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ConflictDecision, CreateThreadDraftResponseData, DayFeasibility, DomainFilter, EventDetailData, EventMode, EventRow, FeasibilityParamLimits, FeasibilityParamSettingsData, FeasibilityParams, NeedsReviewPlacement, NotificationDraft, PreferredPeriod, ScheduleBrief, SlotCandidate, SlotSuggestionContribution, ThreadSummary, TodaySurface, UpdateFeasibilityParamsRequest, Weekday } from "@cairn/shared";
-import { ResolveConflictResponseDataSchema } from "@cairn/shared";
+import type { ConflictDecision, CreateThreadDraftResponseData, DayFeasibility, DomainFilter, EventDetailData, EventGeocodeData, EventMode, EventRow, FeasibilityParamLimits, FeasibilityParamSettingsData, FeasibilityParams, NeedsReviewPlacement, NotificationDraft, PreferredPeriod, ScheduleBrief, SlotCandidate, SlotSuggestionContribution, ThreadSummary, TodaySurface, UpdateFeasibilityParamsRequest, Weekday } from "@cairn/shared";
+import { EventGeocodeResponseSchema, ResolveConflictResponseDataSchema } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString } from "./dateUtils.js";
 import { apiJson, type AccessSessionError } from "./api.js";
 import { DomainFilterControl } from "./DomainFilter.js";
@@ -14,6 +14,38 @@ type EventDetailState =
   | { tag: "loading" }
   | { tag: "loaded"; data: EventDetailData }
   | { tag: "error"; message: string };
+
+// Event location geocode preview (cycle-74). Keyed by eventId so a late response
+// never lands in the wrong (closed/switched) sheet.
+type GeocodePreviewState =
+  | { tag: "idle" }
+  | { tag: "quiet"; eventId: number }
+  | { tag: "loading"; eventId: number }
+  | { tag: "live"; eventId: number; data: EventGeocodeData }
+  | { tag: "error"; eventId: number; message: string };
+
+// No request body and no query — satisfies the cycle-73 route's strict guards.
+// The typed {ok:false,error} responses (provider/route errors) come back as data;
+// only access/network throw. An invalid shape becomes a local preview error.
+async function fetchEventGeocode(id: number): Promise<ReturnType<typeof EventGeocodeResponseSchema.parse>> {
+  const body = await apiJson<unknown>(`/api/events/${id}/geocode`, { method: "POST" });
+  const parsed = EventGeocodeResponseSchema.safeParse(body);
+  if (!parsed.success) throw new Error("INVALID_GEOCODE_RESPONSE");
+  return parsed.data;
+}
+
+// External map action — a public Google Maps search URL with ONLY encoded
+// coordinates (resolved) or authored location text. No API key, provider request
+// URL, or raw provider data ever appears here.
+function mapSearchHref(data: EventGeocodeData): string {
+  const query =
+    data.status === "resolved" && data.latitude != null && data.longitude != null
+      ? `${data.latitude},${data.longitude}`
+      : data.locationText;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
+
+const GEO_CONFIDENCE_LABEL: Record<string, string> = { high: "정확", medium: "보통", low: "대략", unknown: "불확실" };
 type DetailNoteState = { text: string; submitting: boolean; error: string | null };
 type SlotState =
   | { tag: "idle" }
@@ -802,6 +834,10 @@ export function Today() {
   const [recordTargetId, setRecordTargetId] = useState<number | null>(null);
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [eventDetail, setEventDetail] = useState<EventDetailState>({ tag: "idle" });
+  const [geocodePreview, setGeocodePreview] = useState<GeocodePreviewState>({ tag: "idle" });
+  // Mirrors selectedEventId synchronously (set in open/close before any await) so
+  // an in-flight geocode for a now-closed/switched sheet is dropped (cycle-74).
+  const selectedEventIdRef = useRef<number | null>(null);
   const [detailNote, setDetailNote] = useState<DetailNoteState>({ text: "", submitting: false, error: null });
   const [prepForm, setPrepForm] = useState<{ open: boolean; text: string; submitting: boolean; error: string | null }>({ open: false, text: "", submitting: false, error: null });
   const [suggestAccept, setSuggestAccept] = useState<{ pending: string | null; error: string | null }>({ pending: null, error: null });
@@ -1231,10 +1267,34 @@ export function Today() {
 
   const handleCloseEventDetail = useCallback(() => {
     setSelectedEventId(null);
+    selectedEventIdRef.current = null;
     setEventDetail({ tag: "idle" });
+    setGeocodePreview({ tag: "idle" });
     setDetailNote({ text: "", submitting: false, error: null });
     setPrepForm({ open: false, text: "", submitting: false, error: null });
     setSuggestAccept({ pending: null, error: null });
+  }, []);
+
+  // Location preview (cycle-74). Blank location → quiet (no POST). Otherwise one
+  // body/query-less POST /api/events/:id/geocode; a late response is dropped if
+  // the sheet has since closed or switched (selectedEventIdRef guard).
+  const loadGeocode = useCallback(async (eventId: number, location: string) => {
+    if (!location.trim()) {
+      setGeocodePreview({ tag: "quiet", eventId });
+      return;
+    }
+    setGeocodePreview({ tag: "loading", eventId });
+    try {
+      const resp = await fetchEventGeocode(eventId);
+      if (selectedEventIdRef.current !== eventId) return;
+      setGeocodePreview(resp.ok ? { tag: "live", eventId, data: resp.data } : { tag: "error", eventId, message: resp.error.message });
+    } catch (e) {
+      if (selectedEventIdRef.current !== eventId) return;
+      const msg = (e as AccessSessionError).kind === "access_session_required"
+        ? "로그인 세션이 만료됐거나 네트워크가 끊겼어"
+        : "위치 정보를 불러오지 못했어";
+      setGeocodePreview({ tag: "error", eventId, message: msg });
+    }
   }, []);
 
   // Accept a deterministic preparation suggestion (cycle-47). Reuses the existing
@@ -1273,15 +1333,20 @@ export function Today() {
 
   const handleOpenEventDetail = useCallback(async (id: number) => {
     setSelectedEventId(id);
+    selectedEventIdRef.current = id;
     setEventDetail({ tag: "loading" });
+    setGeocodePreview({ tag: "idle" });
     setDetailNote({ text: "", submitting: false, error: null });
     try {
       const data = await fetchEventDetail(id);
       setEventDetail({ tag: "loaded", data });
+      if (selectedEventIdRef.current === id) {
+        void loadGeocode(id, data.event.location ?? "");
+      }
     } catch (e) {
       setEventDetail({ tag: "error", message: e instanceof Error ? e.message : "오류" });
     }
-  }, []);
+  }, [loadGeocode]);
 
   const handlePatchStatus = useCallback(async (status: string) => {
     if (selectedEventId == null) return;
@@ -1515,6 +1580,65 @@ export function Today() {
                 <p className="event-detail-thread">{eventDetail.data.thread.name}</p>
               )}
             </div>
+            {geocodePreview.tag !== "idle" && geocodePreview.eventId === selectedEventId && (
+              <section className="event-geo" data-testid="event-geo" aria-label="위치">
+                <h3 className="event-geo-title">위치</h3>
+                {geocodePreview.tag === "quiet" && (
+                  <p className="event-geo-quiet" data-testid="geo-quiet">위치 정보 없음</p>
+                )}
+                {geocodePreview.tag === "loading" && (
+                  <p className="event-geo-loading" role="status" data-testid="geo-loading">위치 확인 중…</p>
+                )}
+                {geocodePreview.tag === "error" && (
+                  <div data-testid="geo-error">
+                    <p className="sheet-error" role="alert">{geocodePreview.message}</p>
+                    <button
+                      type="button"
+                      className="event-geo-retry"
+                      onClick={() => void loadGeocode(geocodePreview.eventId, eventDetail.data.event.location ?? "")}
+                    >
+                      다시 시도
+                    </button>
+                  </div>
+                )}
+                {geocodePreview.tag === "live" && (
+                  <div data-testid={`geo-${geocodePreview.data.status}`}>
+                    {geocodePreview.data.status === "resolved" ? (
+                      <>
+                        <p className="event-geo-label">{geocodePreview.data.displayLabel ?? geocodePreview.data.locationText}</p>
+                        <p className="event-geo-authored">입력: {eventDetail.data.event.location ?? geocodePreview.data.locationText}</p>
+                        <span className="event-geo-chip" data-testid="geo-confidence">
+                          {GEO_CONFIDENCE_LABEL[geocodePreview.data.confidence] ?? geocodePreview.data.confidence}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <p className="event-geo-authored">입력: {eventDetail.data.event.location ?? geocodePreview.data.locationText}</p>
+                        {geocodePreview.data.status === "ambiguous" && (
+                          <>
+                            <p className="event-geo-uncertain">여러 곳이 검색됐어 — 정확한 위치는 확인이 필요해.</p>
+                            {geocodePreview.data.uncertainty?.candidateLabels && geocodePreview.data.uncertainty.candidateLabels.length > 0 && (
+                              <ul className="event-geo-candidates" role="list">
+                                {geocodePreview.data.uncertainty.candidateLabels.map((c, i) => (
+                                  <li key={i} className="event-geo-candidate">{c}</li>
+                                ))}
+                              </ul>
+                            )}
+                          </>
+                        )}
+                        {(geocodePreview.data.status === "zero_results" || geocodePreview.data.status === "failed") && (
+                          <p className="event-geo-uncertain">위치를 찾지 못했어 — 입력한 텍스트로 지도를 열 수 있어.</p>
+                        )}
+                      </>
+                    )}
+                    <a className="event-geo-map" href={mapSearchHref(geocodePreview.data)} target="_blank" rel="noopener noreferrer">
+                      지도에서 열기
+                    </a>
+                    <span className="event-geo-cache" data-testid="geo-cache">{geocodePreview.data.cacheStatus === "hit" ? "캐시" : "방금 조회"}</span>
+                  </div>
+                )}
+              </section>
+            )}
             <ScheduleBriefSection brief={eventDetail.data.scheduleBrief} />
             {eventDetail.data.scheduleBrief.preparationSuggestions.length > 0 && (
               <div className="event-prep-suggest" data-testid="prep-suggestions" aria-label="준비물 제안">

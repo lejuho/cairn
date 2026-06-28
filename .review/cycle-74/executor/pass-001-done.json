@@ -1,0 +1,16 @@
+{
+  "cycle": 74,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-28T08:38:26Z",
+  "summary": "Event Map Preview A (frontend-only). The Today event detail sheet renders a location preview between the header and ScheduleBriefSection. fetchEventGeocode does a body-less/query-less POST /api/events/:id/geocode (cycle-73 route) validated with EventGeocodeResponseSchema (invalid shape → local preview error, not a crash). geocodePreview state {idle|quiet|loading|live|error} is keyed by eventId with a selectedEventIdRef (set synchronously in open/close) so a late response is dropped for a closed/switched sheet; the render also guards preview.eventId===selectedEventId. handleOpenEventDetail triggers loadGeocode after the detail loads: blank/null location → quiet with NO POST; non-empty → exactly one POST per open. States: geo-loading (static text, no motion), geo-quiet, geo-error (sheet-local role=alert + 44px 다시 시도 retry that re-POSTs the same event, never closes the sheet or refetches Today), and live by status — geo-resolved (displayLabel∥locationText, authored 입력 text, geo-confidence chip, external map link from coordinates), geo-ambiguous (authored text + neutral copy + uncertainty.candidateLabels, no coordinate), geo-zero_results/geo-failed (honest unresolved copy, authored-text link). mapSearchHref builds a public https://www.google.com/maps/search/?api=1&query=… URL with ONLY encoded coordinates (resolved with non-null lat/lng) or authored location text — target=_blank rel=noopener noreferrer; no API key, provider request URL, raw payload, error_message, SDK, or browser key; providerStatus/providerResultId never surfaced. cacheStatus shown quietly. styles.css .event-geo* uses semantic tokens, map/retry min-height 44px (matches existing .today-dismiss-btn pattern). No Today card/priority change, no travel-time, no backend/shared/migration change. 9 new tests (blank→quiet+no POST; loading→resolved+coord href; no-body/no-query POST; ambiguous+candidates+authored href+no confidence; zero_results+failed honest; provider error→sheet-local error+retry recovers; access failure→access copy+sheet open; invalid shape→local error; close-before-resolve→no stale). 170 existing detail-sheet tests still pass. docs/codebase-map.md + roadmap updated. Committed 783d684.",
+  "checks": [
+    "corepack pnpm lint (PASS)",
+    "corepack pnpm typecheck (PASS)",
+    "corepack pnpm test (shared 431 / server 507 / web 494 — +9 event-location-preview)",
+    "corepack pnpm test:integration (706 — unchanged, no backend change)",
+    "corepack pnpm build (web + server Done)",
+    "git diff --check master...HEAD (OK); changed files limited to web/src/{Today.tsx,Today.test.tsx,styles.css} + docs + .review/cycle-74; no server/drizzle/db/maps/geocode-cache/geocoding/routes change; no MAP_PROVIDER_API_KEY/googleapis-key/@googlemaps/mapbox/leaflet/naver/kakao/Maps-JavaScript/iframe/SDK; no travel_time/duration/distanceMeters/Today-Location/autocomplete/cron/bulk-geocod"
+  ]
+}
