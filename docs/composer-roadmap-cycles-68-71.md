@@ -7,9 +7,10 @@ This document concatenates the intended Composer cleanup roadmap for cycles
 68-71 so agents can read the whole direction before individual cycles are
 promoted into `.review/cycle-N/plan.md`.
 
-Cycle 68 has been promoted and merged. Cycle 69 is now promoted through
-`.review/cycle-69/plan.md`. Cycles 70-71 remain roadmap sections only and must
-not be treated as active cycle plans until they are explicitly promoted.
+Cycles 68 and 69 have been promoted, implemented, and merged. Cycle 70 is now
+promoted through `.review/cycle-70/plan.md`. Cycle 71 remains a roadmap section
+only and must not be treated as an active cycle plan until it is explicitly
+promoted.
 
 ## Product Direction
 
@@ -92,8 +93,8 @@ unchanged.
 
 ## Cycle 69: Composer Core A
 
-Status: PROMOTED + implemented (`.review/cycle-69/`). `/input` is now a
-mode-selected Composer; manual event/task forms moved behind `고급 입력`.
+Status: PROMOTED + implemented + merged (`.review/cycle-69/`). `/input` is now
+a mode-selected Composer; manual event/task forms moved behind `고급 입력`.
 Branch: `feature/cycle-69-composer-core-a`
 Skills: `frontend-react-pwa`
 
@@ -136,8 +137,10 @@ are secondary and collapsed by default.
 
 ## Cycle 70: Today Composer Adoption A
 
-Branch when promoted: `feature/cycle-70-today-composer-adoption-a`
-Skills when promoted: `frontend-react-pwa`
+Status: PROMOTED (`.review/cycle-70/`). Today quick capture should be replaced
+by a compact shared Composer entry while Today remains the processing queue.
+Branch: `feature/cycle-70-today-composer-adoption-a`
+Skills: `frontend-react-pwa`
 
 ### Goal
 
@@ -216,5 +219,5 @@ Before promoting a roadmap section to a real cycle:
 - keep the cycle scope narrow;
 - do not implement future roadmap items inside an earlier cycle.
 
-The active promoted cycle is Cycle 69. Cycles 70-71 remain roadmap-only until a
-future `.review/cycle-N/plan.md` promotes one of them.
+The active promoted cycle is Cycle 70. Cycle 71 remains roadmap-only until a
+future `.review/cycle-N/plan.md` promotes it.
