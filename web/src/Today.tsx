@@ -6,6 +6,7 @@ import { apiJson, type AccessSessionError } from "./api.js";
 import { DomainFilterControl } from "./DomainFilter.js";
 import { ResultCard } from "./ResultCard.js";
 import { CreationComposer, type ComposerMode, type ComposerModeConfig } from "./CreationComposer.js";
+import { WatcherFieldsPanel, RecordTargetSelect, createWatcher, createRecord, dedupeTargets, watcherSubtypeValid, EMPTY_WATCHER_FIELDS, type WatcherSubtype, type WatcherFields } from "./composerModes.js";
 
 type ReplyState = { text: string; error: string | null; submitting: boolean };
 type EventDetailState =
@@ -123,12 +124,16 @@ async function createTask(title: string, estMinutes: number, threadId?: number):
 type ComposerResult =
   | { kind: "capture"; scheduled: boolean }
   | { kind: "thread"; draft: CreateThreadDraftResponseData }
-  | { kind: "task" };
+  | { kind: "task" }
+  | { kind: "watcher"; label: string } // cycle-71
+  | { kind: "record"; eventTitle: string; parseStatus: "parsed" | "raw_stored" }; // cycle-71
 type ComposerState = { mode: ComposerMode; text: string; submitting: boolean; error: string | null; result: ComposerResult | null };
 const TODAY_COMPOSER_MODES: ComposerModeConfig[] = [
   { mode: "event", label: "일정", placeholder: "내일 3시 치과 — 한 줄로 적으면 일정으로 잡아줄게" },
   { mode: "thread", label: "스레드", placeholder: "예: 6월 파리 여행 준비. 항공권 예약하고 여권 유효기간 확인." },
-  { mode: "task", label: "할 일", placeholder: "할 일 제목 — 예: 코드 리뷰" }
+  { mode: "task", label: "할 일", placeholder: "할 일 제목 — 예: 코드 리뷰" },
+  { mode: "watcher", label: "Watcher", placeholder: "지켜볼 것 이름 — 예: 여권 갱신" },
+  { mode: "record", label: "기록", placeholder: "무슨 일이 있었는지 적어줘 — 이벤트에 기록돼" }
 ];
 
 async function fetchEventDetail(id: number): Promise<EventDetailData> {
@@ -791,6 +796,10 @@ export function Today() {
   const [sheet, setSheet] = useState<SheetState>({ open: false });
   const [threadOptions, setThreadOptions] = useState<ThreadSummary[]>([]);
   const [composer, setComposer] = useState<ComposerState>({ mode: "event", text: "", submitting: false, error: null, result: null });
+  // Watcher/record Composer modes (cycle-71).
+  const [watcherSubtype, setWatcherSubtype] = useState<WatcherSubtype>("date_threshold");
+  const [watcherFields, setWatcherFields] = useState<WatcherFields>(EMPTY_WATCHER_FIELDS);
+  const [recordTargetId, setRecordTargetId] = useState<number | null>(null);
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [eventDetail, setEventDetail] = useState<EventDetailState>({ tag: "idle" });
   const [detailNote, setDetailNote] = useState<DetailNoteState>({ text: "", submitting: false, error: null });
@@ -885,6 +894,9 @@ export function Today() {
     }
   }, [sheet, refresh]);
 
+  // Record-mode targets (cycle-71): scheduled day events in the current surface.
+  const recordTargets = view.tag === "live" || view.tag === "quiet" ? dedupeTargets(view.surface.dayEvents) : [];
+
   const handleComposerSubmit = useCallback(async () => {
     const text = composer.text.trim();
     if (!text || composer.submitting) return;
@@ -907,7 +919,7 @@ export function Today() {
         });
         if (!body.ok || !body.data) throw new Error(body.error?.message ?? "초안 생성 실패");
         setComposer((c) => ({ ...c, text: "", submitting: false, result: { kind: "thread", draft: body.data! }, error: null }));
-      } else {
+      } else if (composer.mode === "task") {
         const body = await apiJson<{ ok: boolean; error?: { message: string } }>("/api/tasks", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ title: text })
@@ -915,13 +927,43 @@ export function Today() {
         if (!body.ok) throw new Error(body.error?.message ?? "저장 실패");
         setComposer((c) => ({ ...c, text: "", submitting: false, result: { kind: "task" }, error: null }));
         await refresh(); // a 2-min/due task may surface as a new Today card
+      } else if (composer.mode === "watcher") {
+        // watcher (cycle-71): central text is the label; subtype picks the endpoint.
+        await createWatcher(watcherSubtype, text, watcherFields);
+        setComposer((c) => ({ ...c, text: "", submitting: false, result: { kind: "watcher", label: text }, error: null }));
+        setWatcherFields(EMPTY_WATCHER_FIELDS);
+        await refresh(); // watcher bubbles may change
+      } else {
+        // record (cycle-71): event-linked annotation; explicit target.
+        if (recordTargetId == null) return; // gated by submitDisabled
+        const { parseStatus } = await createRecord(recordTargetId, text);
+        const eventTitle = recordTargets.find((t) => t.id === recordTargetId)?.title ?? "이벤트";
+        setComposer((c) => ({ ...c, text: "", submitting: false, result: { kind: "record", eventTitle, parseStatus }, error: null }));
+        await refresh();
       }
     } catch (e) {
       const msg = (e as AccessSessionError).kind === "access_session_required"
         ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "저장 실패";
       setComposer((c) => ({ ...c, submitting: false, error: msg }));
     }
-  }, [composer, refresh]);
+  }, [composer, refresh, watcherSubtype, watcherFields, recordTargetId, recordTargets]);
+
+  const composerDetail =
+    composer.mode === "watcher" ? (
+      <WatcherFieldsPanel
+        subtype={watcherSubtype}
+        fields={watcherFields}
+        onSubtypeChange={setWatcherSubtype}
+        onFieldsChange={(patch) => setWatcherFields((f) => ({ ...f, ...patch }))}
+      />
+    ) : composer.mode === "record" ? (
+      <RecordTargetSelect targets={recordTargets} selectedId={recordTargetId} onSelect={setRecordTargetId} />
+    ) : undefined;
+
+  const composerSubmitDisabled =
+    composer.mode === "watcher" ? !watcherSubtypeValid(watcherSubtype, watcherFields)
+    : composer.mode === "record" ? recordTargetId == null || !recordTargets.some((t) => t.id === recordTargetId)
+    : false;
 
   const composerEl = (compact: boolean) => (
     <CreationComposer
@@ -930,6 +972,8 @@ export function Today() {
       mode={composer.mode}
       text={composer.text}
       submitting={composer.submitting}
+      detail={composerDetail}
+      submitDisabled={composerSubmitDisabled}
       onModeChange={(m) => setComposer((c) => (c.mode === m ? c : { ...c, mode: m, error: null, result: null }))}
       onTextChange={(t) => setComposer((c) => ({ ...c, text: t }))}
       onSubmit={() => void handleComposerSubmit()}
@@ -981,13 +1025,37 @@ export function Today() {
         />
       );
     }
+    if (r.kind === "task") {
+      return (
+        <ResultCard
+          kind="할 일"
+          status="저장됐어"
+          primary={{ label: "오늘 새로고침", onClick: () => { setComposer((c) => ({ ...c, result: null })); void refresh(); } }}
+          secondary="오늘 화면에서 할 일을 확인할 수 있어."
+          testId="task-result"
+        />
+      );
+    }
+    if (r.kind === "watcher") {
+      return (
+        <ResultCard
+          kind="Watcher"
+          title={r.label}
+          status="지켜볼 것이 만들어졌어"
+          primary={{ label: "지켜볼 것에서 보기", href: "/watch" }}
+          secondary="여백(/watch)에서 방금 만든 Watcher를 확인할 수 있어."
+          testId="watcher-result"
+        />
+      );
+    }
     return (
       <ResultCard
-        kind="할 일"
-        status="저장됐어"
+        kind="기록"
+        title={r.eventTitle}
+        status={r.parseStatus === "parsed" ? "기록됐어" : "원문 저장됨 (분석 대기)"}
         primary={{ label: "오늘 새로고침", onClick: () => { setComposer((c) => ({ ...c, result: null })); void refresh(); } }}
-        secondary="오늘 화면에서 할 일을 확인할 수 있어."
-        testId="task-result"
+        secondary="이벤트에 연결된 기록이야 — 이벤트 상세와 거울에서 볼 수 있어."
+        testId="record-result"
       />
     );
   })();

@@ -168,9 +168,9 @@ chat history.
 
 ## Cycle 71: Watcher And Record Modes A
 
-Status: PROMOTED (`.review/cycle-71/`). This cycle adds `Watcher` and `기록`
-Composer modes using existing watcher and event-annotation endpoints; backend
-changes are not planned.
+Status: PROMOTED + implemented (`.review/cycle-71/`). Added `Watcher` and `기록`
+Composer modes (5 modes total) on /input + Today using existing watcher and
+event-annotation endpoints; no backend change.
 Branch: `feature/cycle-71-watcher-record-modes-a`
 Skills: `frontend-react-pwa`
 

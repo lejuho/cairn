@@ -1,8 +1,11 @@
-// Shared creation Composer (cycle-70). Presentational only: data-in /
-// callbacks-out. NO API calls, navigation, data fetching, or result
-// construction — the owning page holds state, routes submits by mode, and
-// renders the ResultCard/error. Used by /input (full) and /today (compact).
-export type ComposerMode = "event" | "thread" | "task";
+import type { ReactNode } from "react";
+
+// Shared creation Composer (cycle-70, extended cycle-71). Presentational only:
+// data-in / callbacks-out. NO API calls, navigation, data fetching, or result
+// construction — the owning page holds state, routes submits by mode, renders
+// the success card / error, and supplies the optional `detail` slot (watcher
+// subtype fields / record target selector). Used by /input (full) + /today.
+export type ComposerMode = "event" | "thread" | "task" | "watcher" | "record";
 export type ComposerModeConfig = { mode: ComposerMode; label: string; placeholder: string };
 
 export function CreationComposer({
@@ -14,7 +17,9 @@ export function CreationComposer({
   onTextChange,
   onSubmit,
   title,
-  compact
+  compact,
+  detail,
+  submitDisabled
 }: {
   mode: ComposerMode;
   text: string;
@@ -25,6 +30,8 @@ export function CreationComposer({
   onSubmit: () => void;
   title?: string;
   compact?: boolean;
+  detail?: ReactNode;
+  submitDisabled?: boolean;
 }) {
   const meta = modes.find((m) => m.mode === mode);
   return (
@@ -54,10 +61,11 @@ export function CreationComposer({
           disabled={submitting}
           aria-label="만들기 입력"
         />
+        {detail}
         <button
           type="submit"
           className="composer-submit"
-          disabled={!text.trim() || submitting}
+          disabled={!text.trim() || submitting || submitDisabled}
           aria-label="만들기"
         >
           {submitting ? "…" : "만들기 →"}

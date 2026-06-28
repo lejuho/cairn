@@ -3036,6 +3036,97 @@ p {
   opacity: 0.5;
   cursor: default;
 }
+/* Composer detail slot (cycle-71): watcher subtype fields + record target.
+   Semantic tokens only; interactive controls 44px. */
+.composer-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 0;
+}
+.composer-detail-empty {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 4px 0;
+}
+.composer-subtypes {
+  display: inline-flex;
+  flex-wrap: wrap;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.composer-subtype {
+  min-height: 44px;
+  padding: 8px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.composer-subtype + .composer-subtype {
+  border-left: 1px solid var(--border);
+}
+.composer-subtype--active {
+  background: color-mix(in srgb, var(--accent) 15%, var(--surface));
+  color: var(--accent);
+  font-weight: 600;
+}
+.composer-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.composer-field-input {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.95rem;
+  font-family: inherit;
+}
+.composer-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.composer-step-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.composer-step-row .composer-field-input {
+  flex: 1;
+}
+.composer-step-lead {
+  flex: 0 0 72px !important;
+}
+.composer-step-remove {
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.composer-step-add {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.85rem;
+  cursor: pointer;
+  align-self: flex-start;
+}
 .input-advanced-toggle {
   min-height: 44px;
   padding: 8px 14px;

@@ -561,7 +561,7 @@ describe("Today — needs_review card", () => {
     });
     render(<Today />);
     await waitFor(() => {
-      expect(screen.getByText("기록")).toBeInTheDocument();
+      expect(screen.getByText("기록", { selector: ".card-chip" })).toBeInTheDocument();
     });
     expect(screen.getByText("팀 회의 — 어떻게 됐어?")).toBeInTheDocument();
     expect(screen.getByLabelText("팀 회의 메모")).toBeInTheDocument();
@@ -3418,5 +3418,76 @@ describe("Today — domain filter (cycle-67)", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "개인" })).toHaveAttribute("aria-pressed", "true"));
     expect(screen.getByTestId("today-quiet")).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "오늘 도메인 필터" })).toBeInTheDocument();
+  });
+});
+
+describe("Today — Watcher & 기록 Composer modes (cycle-71)", () => {
+  const DAY_EVENT = { id: 88, title: "데모", start: "2026-06-17T14:00:00+09:00", end: "2026-06-17T15:00:00+09:00", source: "cairn", selfImposed: 1, status: "planned", threadId: null, commitment: 2, reversible: 1, cancelMoney: 0, cancelSocial: 0, externalCalendarId: null, externalCalendarName: null, externalId: null, type: null, location: null, mode: null, createdAt: null, updatedAt: null };
+  function recordingFetch(opts: { dayEvents?: unknown[]; ok?: boolean; parseStatus?: string } = {}) {
+    const calls: Array<{ url: string; method: string; body: unknown }> = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: { method?: string; body?: string }) => {
+      calls.push({ url, method: init?.method ?? "GET", body: init?.body ? JSON.parse(init.body) : undefined });
+      if (url === "/api/threads") return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url.includes("/api/watchers")) return Promise.resolve({ json: () => Promise.resolve(opts.ok === false ? { ok: false, error: { message: "watcher 실패" } } : { ok: true, data: { id: 9 } }) });
+      if (/\/api\/events\/\d+\/annotations/.test(url)) return Promise.resolve({ json: () => Promise.resolve(opts.ok === false ? { ok: false, error: { message: "기록 실패" } } : { ok: true, data: { annotation: { id: 1 }, parseStatus: opts.parseStatus ?? "parsed" } }) });
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { ...BASE_SURFACE, state: "quiet", dayEvents: opts.dayEvents ?? [] } }) });
+    }));
+    return calls;
+  }
+  const posts = (calls: Array<{ url: string; method: string; body: unknown }>) => calls.filter((c) => c.method === "POST");
+
+  it("compact Composer exposes five modes including Watcher and 기록", async () => {
+    recordingFetch();
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
+    for (const label of ["일정", "스레드", "할 일", "Watcher", "기록"]) {
+      expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it("date-threshold watcher posts only to /api/watchers and shows a Watcher card → /watch", async () => {
+    const calls = recordingFetch();
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Watcher" }));
+    expect(screen.getByTestId("watcher-fields")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "여권 갱신" } });
+    fireEvent.change(screen.getByLabelText("watcher 마감일"), { target: { value: "2026-07-01" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
+    const card = await screen.findByTestId("watcher-result");
+    expect(within(card).getByText("지켜볼 것에서 보기")).toHaveAttribute("href", "/watch");
+    const p = posts(calls);
+    expect(p.some((c) => c.url.includes("/api/watchers") && (c.body as { threshold?: string }).threshold === "2026-07-01")).toBe(true);
+    expect(p.every((c) => c.url.includes("/api/watchers"))).toBe(true); // no other POST endpoint
+  });
+
+  it("기록 mode requires an explicit target; submit posts only to annotations {text}", async () => {
+    const calls = recordingFetch({ dayEvents: [DAY_EVENT], parseStatus: "parsed" });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "기록" }));
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "데모 잘 끝남" } });
+    expect(screen.getByLabelText("만들기")).toBeDisabled(); // no target yet
+    fireEvent.change(screen.getByLabelText("기록할 이벤트"), { target: { value: "88" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
+    const card = await screen.findByTestId("record-result");
+    expect(card).toHaveTextContent("데모");
+    const p = posts(calls);
+    expect(p).toHaveLength(1);
+    expect(p[0]!.url).toBe("/api/events/88/annotations");
+    expect(p[0]!.body).toEqual({ text: "데모 잘 끝남" });
+  });
+
+  it("record API failure preserves text and target", async () => {
+    recordingFetch({ dayEvents: [DAY_EVENT], ok: false });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "기록" }));
+    fireEvent.change(screen.getByLabelText("기록할 이벤트"), { target: { value: "88" } });
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "유지" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("기록 실패"));
+    expect(screen.getByLabelText("만들기 입력")).toHaveValue("유지");
+    expect((screen.getByLabelText("기록할 이벤트") as HTMLSelectElement).value).toBe("88");
   });
 });

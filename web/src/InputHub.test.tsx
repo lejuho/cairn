@@ -990,3 +990,140 @@ describe("InputHub — Composer (cycle-69)", () => {
     expect(screen.getByRole("tab", { name: "할 일" })).toBeInTheDocument();
   });
 });
+
+describe("InputHub — Watcher & 기록 Composer modes (cycle-71)", () => {
+  const DAY_EVENT = { ...UNSCHEDULED_EVENT, id: 77, title: "팀 회의", start: "2026-06-17T10:00:00+09:00", end: "2026-06-17T11:00:00+09:00" };
+  function recordingFetch(opts: { surfaceDayEvents?: unknown[]; ok?: boolean; parseStatus?: string } = {}) {
+    const calls: Array<{ url: string; method: string; body: unknown }> = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: { method?: string; body?: string }) => {
+      calls.push({ url, method: init?.method ?? "GET", body: init?.body ? JSON.parse(init.body) : undefined });
+      if (url.includes("/api/threads")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url.includes("/api/people")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url.includes("/api/watchers")) return Promise.resolve({ json: () => Promise.resolve(opts.ok === false ? { ok: false, error: { message: "watcher 실패" } } : { ok: true, data: { id: 9 } }) });
+      if (/\/api\/events\/\d+\/annotations/.test(url)) return Promise.resolve({ json: () => Promise.resolve(opts.ok === false ? { ok: false, error: { message: "기록 실패" } } : { ok: true, data: { annotation: { id: 1 }, parseStatus: opts.parseStatus ?? "parsed" } }) });
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { ...QUIET_SURFACE, dayEvents: opts.surfaceDayEvents ?? [] } }) });
+    }));
+    return calls;
+  }
+  const posts = (calls: Array<{ url: string; method: string; body: unknown }>) => calls.filter((c) => c.method === "POST");
+
+  it("Composer exposes five modes including Watcher and 기록", async () => {
+    recordingFetch();
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    for (const label of ["일정", "스레드", "할 일", "Watcher", "기록"]) {
+      expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it("Watcher mode shows subtype controls and does not submit on switch", async () => {
+    const calls = recordingFetch();
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Watcher" }));
+    expect(screen.getByTestId("watcher-fields")).toBeInTheDocument();
+    for (const s of ["날짜 기반", "역산 계획", "수동 확인"]) expect(screen.getByRole("button", { name: s })).toBeInTheDocument();
+    expect(posts(calls)).toHaveLength(0);
+    expect(screen.getByLabelText("만들기")).toBeDisabled(); // no label + no threshold
+  });
+
+  it("date-threshold watcher posts only to /api/watchers with label + threshold → /watch card", async () => {
+    const calls = recordingFetch();
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Watcher" }));
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "여권 갱신" } });
+    fireEvent.change(screen.getByLabelText("watcher 마감일"), { target: { value: "2026-07-01" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
+    const card = await screen.findByTestId("watcher-result");
+    expect(within(card).getByText("지켜볼 것에서 보기")).toHaveAttribute("href", "/watch");
+    const p = posts(calls);
+    expect(p).toHaveLength(1);
+    expect(p[0]!.url).toContain("/api/watchers");
+    expect(p[0]!.body).toMatchObject({ label: "여권 갱신", threshold: "2026-07-01" });
+  });
+
+  it("reverse-plan watcher posts only to /api/watchers/reverse-plan with targetDate + steps", async () => {
+    const calls = recordingFetch();
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Watcher" }));
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "출국 준비" } });
+    fireEvent.click(screen.getByRole("button", { name: "역산 계획" }));
+    fireEvent.change(screen.getByLabelText("목표 날짜"), { target: { value: "2026-08-01" } });
+    fireEvent.change(screen.getByLabelText("단계 1 이름"), { target: { value: "비자 신청" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
+    await screen.findByTestId("watcher-result");
+    const p = posts(calls);
+    expect(p).toHaveLength(1);
+    expect(p[0]!.url).toContain("/api/watchers/reverse-plan");
+    expect(p[0]!.body).toMatchObject({ label: "출국 준비", targetDate: "2026-08-01", steps: [{ label: "비자 신청" }] });
+  });
+
+  it("manual-exogenous watcher posts only to /api/watchers/manual-exogenous", async () => {
+    const calls = recordingFetch();
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Watcher" }));
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "환율 고시" } });
+    fireEvent.click(screen.getByRole("button", { name: "수동 확인" }));
+    fireEvent.click(screen.getByLabelText("만들기"));
+    await screen.findByTestId("watcher-result");
+    const p = posts(calls);
+    expect(p).toHaveLength(1);
+    expect(p[0]!.url).toContain("/api/watchers/manual-exogenous");
+    expect(p[0]!.body).toMatchObject({ label: "환율 고시", sourceStability: "unknown" });
+  });
+
+  it("watcher API failure preserves label and shows local error", async () => {
+    recordingFetch({ ok: false });
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Watcher" }));
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "유지될 라벨" } });
+    fireEvent.change(screen.getByLabelText("watcher 마감일"), { target: { value: "2026-07-01" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("watcher 실패"));
+    expect(screen.getByLabelText("만들기 입력")).toHaveValue("유지될 라벨");
+  });
+
+  it("기록 mode shows a no-target message and disables submit when no events", async () => {
+    recordingFetch({ surfaceDayEvents: [] });
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "기록" }));
+    expect(screen.getByTestId("record-no-target")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "메모" } });
+    expect(screen.getByLabelText("만들기")).toBeDisabled();
+  });
+
+  it("기록 submit posts only to /api/events/:id/annotations {text} and shows a 기록 card (raw_stored keeps raw status)", async () => {
+    const calls = recordingFetch({ surfaceDayEvents: [DAY_EVENT], parseStatus: "raw_stored" });
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "기록" }));
+    fireEvent.change(screen.getByLabelText("기록할 이벤트"), { target: { value: "77" } });
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "회의 잘 끝남" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
+    const card = await screen.findByTestId("record-result");
+    expect(card).toHaveTextContent("팀 회의");
+    expect(card).toHaveTextContent("원문 저장됨");
+    const p = posts(calls);
+    expect(p).toHaveLength(1);
+    expect(p[0]!.url).toBe("/api/events/77/annotations");
+    expect(p[0]!.body).toEqual({ text: "회의 잘 끝남" });
+  });
+
+  it("record API failure preserves text and selected target", async () => {
+    recordingFetch({ surfaceDayEvents: [DAY_EVENT], ok: false });
+    render(<InputHub />);
+    await waitFor(() => expect(screen.getByTestId("input-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "기록" }));
+    fireEvent.change(screen.getByLabelText("기록할 이벤트"), { target: { value: "77" } });
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "유지될 기록" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("기록 실패"));
+    expect(screen.getByLabelText("만들기 입력")).toHaveValue("유지될 기록");
+    expect((screen.getByLabelText("기록할 이벤트") as HTMLSelectElement).value).toBe("77");
+  });
+});
