@@ -1760,6 +1760,22 @@ p {
   font-weight: 600;
 }
 
+/* External Naver directions action on a transition row (cycle-77). Compact,
+   semantic-token only, low-noise; 44px tap target. Distinct from the travel-time
+   copy — it opens Naver for route detail, not a Cairn-owned timing claim. */
+.feas-transition-directions {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 4px 12px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  color: var(--accent);
+  font-size: 0.78rem;
+  text-decoration: none;
+}
+
 /* Travel-time copy (cycle-76). Additive + quiet; no alarm styling for
    unknown/unavailable/missing. `fresh` reads as the active estimate. */
 .feas-travel {

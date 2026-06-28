@@ -2090,6 +2090,44 @@ describe("Today — feasibility panel", () => {
     expect(screen.queryByTestId("transition-row")).not.toBeInTheDocument();
   });
 
+  // ── Naver transit directions on a transition row (cycle-77) ──────────────────
+  const resolvedCtx = (eventId: number, lat: number | null, lng: number | null, label: string | null, status = "resolved") => ({
+    eventId, locationText: label, status, provider: status === "resolved" ? "google" : null,
+    displayLabel: status === "resolved" ? label : null, latitude: lat, longitude: lng,
+    confidence: status === "resolved" ? "high" : null, providerStatus: status === "resolved" ? "OK" : null,
+    uncertainty: null, updatedAt: null, lastCheckedAt: null
+  } as TodaySurface["locationContexts"][number]);
+  const highTransition = { fromEventId: 1, toEventId: 2, fromThreadId: 10, toThreadId: 20, relation: "unrelated" as const, costLevel: "high" as const, reasonCodes: ["transition_unrelated"] };
+  const renderTransitionWithContexts = (locationContexts: TodaySurface["locationContexts"]) => {
+    mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: { ...FEAS_BASE, transitionCosts: [highTransition] }, dayEvents: [tEvent(1, "회의"), tEvent(2, "운동")], locationContexts });
+    render(<Today />);
+  };
+
+  it("renders a Naver transit directions link when both transition endpoints are resolved with coordinates", async () => {
+    renderTransitionWithContexts([resolvedCtx(1, 37.5045700, 127.0248712, "출발"), resolvedCtx(2, 37.5073233, 127.0339086, "도착")]);
+    const link = await screen.findByTestId("transition-directions");
+    expect(link).toHaveTextContent("길찾기");
+    const href = link.getAttribute("href") ?? "";
+    expect(href).toContain("https://map.naver.com/p/directions/");
+    expect(href).toContain("3zjD4Y,2AJrSI"); // origin lon/lat tokens
+    expect(href).toContain("/-/transit?c=15.00,0,0,0,dh");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("omits the directions link when an endpoint is unresolved / coordinate-less", async () => {
+    // event 1 resolved, event 2 uncached (no coordinates)
+    renderTransitionWithContexts([resolvedCtx(1, 37.5045700, 127.0248712, "출발"), resolvedCtx(2, null, null, "어딘가", "uncached")]);
+    await screen.findByTestId("transition-row");
+    expect(screen.queryByTestId("transition-directions")).not.toBeInTheDocument();
+  });
+
+  it("omits the directions link when no location contexts are present (no UI error)", async () => {
+    renderTransitionWithContexts([]);
+    await screen.findByTestId("transition-row");
+    expect(screen.queryByTestId("transition-directions")).not.toBeInTheDocument();
+  });
+
   it("does not render 맥락 전환 section when all transitions are none (same thread)", async () => {
     const feas = {
       ...FEAS_BASE,
@@ -3651,7 +3689,8 @@ describe("Today — event location preview (cycle-74)", () => {
     expect(screen.getByText("N Seoul Tower")).toBeInTheDocument();
     expect(screen.getByTestId("geo-confidence")).toHaveTextContent("정확");
     const link = screen.getByRole("link", { name: "지도에서 열기" });
-    expect(link).toHaveAttribute("href", "https://www.google.com/maps/search/?api=1&query=37.55%2C126.98");
+    // cycle-77: resolved location uses a Naver search URL keyed by the display label.
+    expect(link).toHaveAttribute("href", `https://map.naver.com/p/search/${encodeURIComponent("N Seoul Tower")}`);
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
     expect(calls).toHaveLength(1);
@@ -3675,7 +3714,7 @@ describe("Today — event location preview (cycle-74)", () => {
     expect(screen.getByText("서울역")).toBeInTheDocument();
     expect(screen.getByText("서울시청")).toBeInTheDocument();
     const link = screen.getByRole("link", { name: "지도에서 열기" });
-    expect(link).toHaveAttribute("href", `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent("서울타워")}`);
+    expect(link).toHaveAttribute("href", `https://map.naver.com/p/search/${encodeURIComponent("서울타워")}`);
     expect(screen.queryByTestId("geo-confidence")).not.toBeInTheDocument();
   });
 
@@ -3687,7 +3726,7 @@ describe("Today — event location preview (cycle-74)", () => {
       await openSheet();
       await waitFor(() => expect(screen.getByTestId(`geo-${status}`)).toBeInTheDocument());
       expect(screen.getByText("위치를 찾지 못했어 — 입력한 텍스트로 지도를 열 수 있어.")).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "지도에서 열기" })).toHaveAttribute("href", `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent("서울타워")}`);
+      expect(screen.getByRole("link", { name: "지도에서 열기" })).toHaveAttribute("href", `https://map.naver.com/p/search/${encodeURIComponent("서울타워")}`);
     }
   });
 
@@ -3756,7 +3795,7 @@ describe("Today — card location context (cycle-75)", () => {
     expect(within(loc).getByText("N Seoul Tower")).toBeInTheDocument();
     expect(screen.getByTestId("today-loc-confidence-1")).toHaveTextContent("정확");
     const link = within(loc).getByRole("link");
-    expect(link).toHaveAttribute("href", "https://www.google.com/maps/search/?api=1&query=37.55%2C126.98");
+    expect(link).toHaveAttribute("href", `https://map.naver.com/p/search/${encodeURIComponent("N Seoul Tower")}`);
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
     expect(loc).toHaveAttribute("data-status", "resolved");
     // existing detail-open action preserved
@@ -3779,7 +3818,7 @@ describe("Today — card location context (cycle-75)", () => {
     render(<Today />);
     const loc = await screen.findByTestId("today-loc-3");
     expect(within(loc).getByText("찾지 못함")).toBeInTheDocument();
-    expect(within(loc).getByRole("link")).toHaveAttribute("href", `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent("없는 곳")}`);
+    expect(within(loc).getByRole("link")).toHaveAttribute("href", `https://map.naver.com/p/search/${encodeURIComponent("없는 곳")}`);
     expect(screen.queryByTestId("today-loc-confidence-3")).not.toBeInTheDocument();
   });
 

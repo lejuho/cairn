@@ -26,7 +26,15 @@ store Naver route results.
 
 Branch when promoted: `feature/cycle-77-naver-external-directions-link-a`
 Skills when promoted: `frontend-react-pwa`
-Status: promoted + active 2026-06-28 (`.review/cycle-77/`)
+Status: promoted + implemented 2026-06-28 (`.review/cycle-77/`). Frontend-only.
+New pure `web/src/naver-map-links.ts` (base62 coordinate token verified against
+the observed samples; Naver search URL; best-effort `/p/directions/.../-/transit`
+URL from two resolved coordinate+label endpoints — reverse-engineered, isolated,
+fail-soft null). Today/event-detail single-location map links now use Naver
+search; a transition row renders a compact external "길찾기" Naver transit link
+only when BOTH adjacent endpoints have resolved `locationContexts` coordinates.
+No Naver API call/key/fetch/scrape/storage; no backend/shared/DB/gateway change.
+Cycles 78-79 (Naver place search, manual transit detail) stay candidates.
 
 ### Goal
 
