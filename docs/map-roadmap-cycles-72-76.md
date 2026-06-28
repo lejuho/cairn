@@ -189,8 +189,19 @@ quiet and functional.
 
 Branch when promoted: `feature/cycle-76-travel-time-transition-cost-a`
 Skills when promoted: `backend-fastify, frontend-react-pwa`
-Status: promoted 2026-06-28 (`.review/cycle-76/`). Travel-time / transition
-cost planning only; implementation pending.
+Status: promoted + implemented 2026-06-28 (`.review/cycle-76/`). New SQLite
+`travel_time_cache` (migration 0011) keyed by (provider, mode, origin, dest); the
+map gateway gains a server-only `travelTime` (Distance Matrix) method. A
+route-level `buildDayTravelFacts` resolves adjacent scheduled pairs to geocode
+coordinates and produces provider-neutral evidence (fresh/stale/unavailable/
+missing_geocode/same_location), calling the provider only when both endpoints
+resolve and policy allows; everything fails open to `unavailable`. The pure
+`computeDayFeasibility` attaches `travel` to each `TransitionCost` and adds
+`durationMinutes * travelMargin` to a gap requirement ONLY for fresh evidence
+(stale/unknown is context, never hard truth; sequenceEnergy stays
+thread-transition-only, no double-count). `/api/feasibility/day` + `/api/today`
+include it; preview is cache-read-only. Today renders quiet travel copy on
+transition rows. No reschedule/route-UI/LLM. Roadmap 72-76 complete.
 
 ### Goal
 

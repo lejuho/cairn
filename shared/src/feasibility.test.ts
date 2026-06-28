@@ -300,3 +300,35 @@ describe("SequenceEnergySchema", () => {
     expect(SequenceEnergySchema.safeParse({ ...VALID_SEQ, reorder: true }).success).toBe(false);
   });
 });
+
+describe("TransitionTravel evidence (cycle-76)", () => {
+  const BASE_COST = {
+    fromEventId: 1, toEventId: 2, fromThreadId: null, toThreadId: null,
+    relation: "missing_thread" as const, costLevel: "unknown" as const, reasonCodes: ["transition_missing_thread"]
+  };
+  const FRESH = {
+    status: "fresh" as const, durationMinutes: 24, distanceMeters: 8200, provider: "google",
+    providerStatus: "OK", mode: "drive", ageMinutes: 5, reasonCodes: ["travel_fresh"]
+  };
+
+  it("accepts a transition cost with optional fresh travel evidence", () => {
+    expect(TransitionCostSchema.safeParse({ ...BASE_COST, travel: FRESH }).success).toBe(true);
+  });
+
+  it("still accepts a transition cost WITHOUT travel (back-compat)", () => {
+    expect(TransitionCostSchema.safeParse(BASE_COST).success).toBe(true);
+  });
+
+  it("accepts every travel status with null durations where unusable", () => {
+    for (const status of ["stale", "unavailable", "missing_geocode", "same_location"]) {
+      const t = { ...FRESH, status, durationMinutes: null, distanceMeters: null, ageMinutes: null, reasonCodes: [`travel_${status}`] };
+      expect(TransitionCostSchema.safeParse({ ...BASE_COST, travel: t }).success).toBe(true);
+    }
+  });
+
+  it("rejects an invalid travel status and injected raw provider fields (strict)", () => {
+    expect(TransitionCostSchema.safeParse({ ...BASE_COST, travel: { ...FRESH, status: "guess" } }).success).toBe(false);
+    expect(TransitionCostSchema.safeParse({ ...BASE_COST, travel: { ...FRESH, error_message: "leak" } }).success).toBe(false);
+    expect(TransitionCostSchema.safeParse({ ...BASE_COST, travel: { ...FRESH, rawPayload: {} } }).success).toBe(false);
+  });
+});

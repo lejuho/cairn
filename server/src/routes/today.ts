@@ -11,12 +11,15 @@ import { findEventDependencyLinks } from "../repositories/links.js";
 import { listNeedsReviewEvents } from "../services/needsReview.js";
 import { buildTodaySurface } from "../services/today.js";
 import { buildTodayLocationContexts } from "../services/today-location-context.js";
+import { buildDayTravelFacts } from "../services/travel-time.js";
+import { dayScheduledEvents } from "../services/feasibility.js";
 import { findGeocodeByNormalizedSet } from "../repositories/geocode-cache.js";
 import { normalizeLocation } from "../maps/normalize.js";
+import type { MapGateway } from "../maps/gateway.js";
 import { evaluateWatcherA } from "../services/watchers.js";
 import type { CairnDatabase } from "../db/index.js";
 
-export function registerTodayRoute(app: FastifyInstance, db: CairnDatabase): void {
+export function registerTodayRoute(app: FastifyInstance, db: CairnDatabase, mapGateway?: MapGateway): void {
   app.get("/api/today", async (req, reply) => {
     const parsed = TodayQuerySchema.safeParse(req.query);
     if (!parsed.success) {
@@ -67,7 +70,10 @@ export function registerTodayRoute(app: FastifyInstance, db: CairnDatabase): voi
     });
     const relations = findThreadLinksAmong(db, dayThreadIds(dayEvents, date));
     const dependencyLinks = findEventDependencyLinks(db, dayEventIds(dayEvents, date));
-    const feasibility = computeDayFeasibility(date, now, dayEvents, feasibilityParams, relations, dependencyLinks);
+    // Cache/gateway-backed travel evidence for adjacent scheduled pairs (cycle-76).
+    // Provider failure / disabled → unavailable evidence; Today still returns 200.
+    const travelFacts = await buildDayTravelFacts(db, mapGateway, dayScheduledEvents(dayEvents, date), feasibilityParams, now, { allowProvider: true });
+    const feasibility = computeDayFeasibility(date, now, dayEvents, feasibilityParams, relations, dependencyLinks, travelFacts);
 
     // Cache-only location context (cycle-75). Read existing geocode_cache rows
     // for the event-bearing rows (conflict pairs, next_event, schedule prompts all

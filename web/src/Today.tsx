@@ -287,6 +287,25 @@ const TRANSITION_RELATION_TEXT: Record<DayFeasibility["transitionCosts"][number]
   missing_thread: "스레드 정보가 없어"
 };
 
+// Compact travel-time copy (cycle-76). Additive evidence — quiet for unknown/
+// unavailable/missing (no alarm styling); `fresh` shows the estimate, `stale`
+// flags it as old. `same_location` renders nothing.
+function TransitionTravelLine({ travel }: { travel: NonNullable<DayFeasibility["transitionCosts"][number]["travel"]> | undefined }) {
+  if (!travel || travel.status === "same_location") return null;
+  const mins = travel.durationMinutes != null ? Math.round(travel.durationMinutes) : null;
+  const km = travel.distanceMeters != null ? (travel.distanceMeters / 1000).toFixed(1) : null;
+  let text: string;
+  if (travel.status === "fresh" && mins != null) text = `이동 약 ${mins}분${km ? ` · ${km}km` : ""}`;
+  else if (travel.status === "stale" && mins != null) text = `이동 약 ${mins}분 · 오래된 추정`;
+  else if (travel.status === "missing_geocode") text = "위치 좌표 없음";
+  else text = "이동 시간 미확인";
+  return (
+    <span className={`feas-travel feas-travel--${travel.status}`} data-testid="travel-line" data-travel={travel.status}>
+      {text}
+    </span>
+  );
+}
+
 function TransitionCostsSection({
   transitions,
   events
@@ -315,6 +334,7 @@ function TransitionCostsSection({
             </span>
             <span className="feas-transition-cost">전환 비용 {TRANSITION_COST_LABEL[t.costLevel]}</span>
             <span className="feas-transition-reason card-meta">{TRANSITION_RELATION_TEXT[t.relation]}</span>
+            <TransitionTravelLine travel={t.travel} />
           </li>
         ))}
       </ul>

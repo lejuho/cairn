@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createSqliteConnection, runMigrations, type SqliteConnection } from "../db/index.js";
 import { buildServer } from "../app.js";
+import type { MapGateway } from "../maps/gateway.js";
 
 const tempDirs: string[] = [];
 
@@ -684,5 +685,82 @@ describe("GET /api/feasibility/day — sequence order", () => {
       params: (conn.sqlite.prepare("SELECT count(*) c FROM params").get() as { c: number }).c
     };
     expect(after).toEqual(before);
+  });
+});
+
+// ── travel-time evidence (cycle-76) ────────────────────────────────────────────
+describe("travel-time evidence on /api/feasibility/day + preview", () => {
+  function insertLocEvent(conn: SqliteConnection, start: string, end: string, location: string): void {
+    conn.sqlite
+      .prepare("INSERT INTO events (title, start, end, location, source, self_imposed, status) VALUES ('E', ?, ?, ?, 'cairn', 1, 'planned')")
+      .run(start, end, location);
+  }
+  function seedGeo(conn: SqliteConnection, norm: string, lat: number, lng: number): void {
+    conn.sqlite.prepare("INSERT INTO geocode_cache (provider, normalized_location, location_text, status, latitude, longitude, confidence) VALUES ('google', ?, ?, 'resolved', ?, ?, 'high')").run(norm, norm, lat, lng);
+  }
+  function seedFreshTravel(conn: SqliteConnection, originNorm: string, destNorm: string, durationMin: number): void {
+    conn.sqlite.prepare("INSERT INTO travel_time_cache (provider, mode, origin_normalized, dest_normalized, origin_lat, origin_lng, dest_lat, dest_lng, duration_seconds, duration_minutes, status, last_checked_at) VALUES ('google','drive',?,?,37.5,127,37.6,127.1,?,?,'resolved','2026-06-19T22:00:00+00:00')")
+      .run(originNorm, destNorm, durationMin * 60, durationMin);
+  }
+  const travelCount = (conn: SqliteConnection) => (conn.sqlite.prepare("SELECT count(*) AS n FROM travel_time_cache").get() as { n: number }).n;
+  // A gateway whose provider is "google" so cache reads use the seeded provider
+  // key. travelTime is never reached here (fresh hit / preview is read-only); if
+  // it were it returns a scoped error, so behavior stays fail-open.
+  const googleGateway: MapGateway = {
+    provider: "google",
+    smoke: async () => ({ ok: false, error: { code: "unavailable", message: "n/a" } }),
+    geocodeAddress: async () => ({ ok: false, error: { code: "unavailable", message: "n/a" } }),
+    travelTime: async () => ({ ok: false, error: { code: "unavailable", message: "n/a" } })
+  };
+  const getWithGoogle = (conn: SqliteConnection, now: string) =>
+    buildServer(conn.db, undefined, googleGateway).inject({ method: "GET", url: `/api/feasibility/day?date=${DATE}&now=${encodeURIComponent(now)}` });
+
+  it("attaches fresh travel evidence and includes travel time in the gap requirement", async () => {
+    const conn = makeTestDb();
+    insertLocEvent(conn, "2026-06-20T09:00:00+00:00", "2026-06-20T10:00:00+00:00", "Alpha");
+    insertLocEvent(conn, "2026-06-20T11:00:00+00:00", "2026-06-20T12:00:00+00:00", "Beta");
+    seedGeo(conn, "alpha", 37.5, 127.0);
+    seedGeo(conn, "beta", 37.6, 127.1);
+    seedFreshTravel(conn, "alpha", "beta", 30);
+
+    const res = await getWithGoogle(conn, "2026-06-19T23:30:00+00:00");
+    expect(res.statusCode).toBe(200);
+    const data = res.json().data;
+    expect(data.transitionCosts[0].travel).toMatchObject({ status: "fresh", durationMinutes: 30, provider: "google", mode: "drive" });
+    // gap requirement = meetBuffer(15) + round(30 * travelMargin 1) = 45
+    expect(data.gaps[0].requiredMinutes).toBe(45);
+    expect(data.gaps[0].reasonCodes).toContain("gap_travel_included");
+  });
+
+  it("returns 200 with unavailable travel evidence when geocode is missing (fail open, no gateway)", async () => {
+    const conn = makeTestDb();
+    insertLocEvent(conn, "2026-06-20T09:00:00+00:00", "2026-06-20T10:00:00+00:00", "Alpha");
+    insertLocEvent(conn, "2026-06-20T11:00:00+00:00", "2026-06-20T12:00:00+00:00", "Beta");
+    // no geocode rows → missing_geocode
+    const res = await get(conn, "2026-06-19T23:30:00+00:00");
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.transitionCosts[0].travel.status).toBe("missing_geocode");
+    expect(res.json().data.gaps[0].reasonCodes).toContain("gap_travel_missing_geocode");
+  });
+
+  it("preview is cache-read-only — reads fresh travel but writes no travel_time_cache row", async () => {
+    const conn = makeTestDb();
+    insertLocEvent(conn, "2026-06-20T09:00:00+00:00", "2026-06-20T10:00:00+00:00", "Alpha");
+    insertLocEvent(conn, "2026-06-20T11:00:00+00:00", "2026-06-20T12:00:00+00:00", "Beta");
+    seedGeo(conn, "alpha", 37.5, 127.0);
+    seedGeo(conn, "beta", 37.6, 127.1);
+    seedFreshTravel(conn, "alpha", "beta", 30);
+    const before = travelCount(conn);
+    const app = buildServer(conn.db, undefined, googleGateway);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/feasibility/day/preview",
+      payload: { date: DATE, now: "2026-06-19T23:30:00+00:00", params: { energyBudget: 8, meetBufferMinutes: 15, deepBufferMinutes: 30, travelMargin: 2, maxContinuousMinutes: 600 } }
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.transitionCosts[0].travel.status).toBe("fresh");
+    // travelMargin 2 → required = 15 + round(30*2) = 75
+    expect(res.json().data.gaps[0].requiredMinutes).toBe(75);
+    expect(travelCount(conn)).toBe(before); // no write from preview
   });
 });

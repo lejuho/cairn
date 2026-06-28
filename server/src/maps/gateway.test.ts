@@ -242,3 +242,65 @@ describe("geocodeAddress (cycle-73)", () => {
     if (!r.ok) expect(JSON.stringify(r.error)).not.toContain("SECRET_KEY_123");
   });
 });
+
+describe("travelTime (cycle-76)", () => {
+  const O = { lat: 37.55, lng: 126.98 };
+  const D = { lat: 37.50, lng: 127.03 };
+  function dm(status: string, element?: { status: string; duration?: number; distance?: number }): Response {
+    const rows = element ? [{ elements: [{ status: element.status, duration: element.duration != null ? { value: element.duration } : undefined, distance: element.distance != null ? { value: element.distance } : undefined }] }] : [];
+    return jsonResponse(200, { status, rows });
+  }
+
+  it("disabled provider returns a scoped disabled error and does not fetch", async () => {
+    const f = vi.fn();
+    const r = await createMapGateway(DISABLED, { fetchImpl: f as unknown as typeof fetch }).travelTime(O, D, "drive");
+    expect(f).not.toHaveBeenCalled();
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.code).toBe("disabled");
+  });
+
+  it("OK element → resolved with duration + distance", async () => {
+    const f = vi.fn(async () => dm("OK", { status: "OK", duration: 1440, distance: 8200 }));
+    const r = await createMapGateway(GOOGLE, { fetchImpl: f as unknown as typeof fetch }).travelTime(O, D, "drive");
+    expect(r.ok).toBe(true);
+    if (r.ok && r.outcome.status === "resolved") {
+      expect(r.outcome).toMatchObject({ durationSeconds: 1440, distanceMeters: 8200, providerStatus: "OK" });
+    } else {
+      throw new Error("expected resolved");
+    }
+  });
+
+  it("element ZERO_RESULTS/NOT_FOUND → no_route (cacheable)", async () => {
+    for (const s of ["ZERO_RESULTS", "NOT_FOUND"]) {
+      const f = vi.fn(async () => dm("OK", { status: s }));
+      const r = await createMapGateway(GOOGLE, { fetchImpl: f as unknown as typeof fetch }).travelTime(O, D, "drive");
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.outcome.status).toBe("no_route");
+    }
+  });
+
+  it("rate-limit / denied / transient top statuses are scoped errors (not cached)", async () => {
+    const cases: [string, string][] = [["OVER_QUERY_LIMIT", "rate_limited"], ["REQUEST_DENIED", "denied"], ["OVER_DAILY_LIMIT", "denied"], ["UNKNOWN_ERROR", "unavailable"]];
+    for (const [status, code] of cases) {
+      const f = vi.fn(async () => dm(status));
+      const r = await createMapGateway(GOOGLE, { fetchImpl: f as unknown as typeof fetch, retryCount: 0 }).travelTime(O, D, "drive");
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error.code).toBe(code);
+    }
+  });
+
+  it("HTTP 429 → rate_limited; bad JSON → invalid_response", async () => {
+    const f429 = vi.fn(async () => jsonResponse(429, {}));
+    const r429 = await createMapGateway(GOOGLE, { fetchImpl: f429 as unknown as typeof fetch }).travelTime(O, D, "drive");
+    if (!r429.ok) expect(r429.error.code).toBe("rate_limited");
+    const fBad = vi.fn(async () => ({ status: 200, ok: true, json: async () => { throw new Error("bad"); } } as unknown as Response));
+    const rBad = await createMapGateway(GOOGLE, { fetchImpl: fBad as unknown as typeof fetch }).travelTime(O, D, "drive");
+    if (!rBad.ok) expect(rBad.error.code).toBe("invalid_response");
+  });
+
+  it("scoped error surfaces never include the API key", async () => {
+    const f = vi.fn(async () => jsonResponse(200, { status: "REQUEST_DENIED", error_message: "key invalid: SECRET_KEY_123", rows: [] }));
+    const r = await createMapGateway(GOOGLE, { fetchImpl: f as unknown as typeof fetch }).travelTime(O, D, "drive");
+    if (!r.ok) expect(JSON.stringify(r.error)).not.toContain("SECRET_KEY_123");
+  });
+});

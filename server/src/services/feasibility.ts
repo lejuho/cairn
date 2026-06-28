@@ -1,4 +1,4 @@
-import type { DayFeasibility, FeasibilityParams, Gap } from "@cairn/shared";
+import type { DayFeasibility, FeasibilityParams, Gap, TransitionTravel } from "@cairn/shared";
 import type { EventRow } from "@cairn/shared";
 import { computeSequenceEnergy, computeTransitionCosts, type ThreadLinkRow } from "./context-switch.js";
 import { computeSequenceOrder, type DependencyLinkRow } from "./sequence-order.js";
@@ -35,10 +35,34 @@ export function computeDayFeasibility(
   // event-event requires/blocks links among the day's events (cycle-48). Optional:
   // internal callers omit it → a quiet sequenceOrder they ignore. Routes pass
   // real rows. Read-only diagnostics; never constrains energy/gaps.
-  dependencyLinks: DependencyLinkRow[] = []
+  dependencyLinks: DependencyLinkRow[] = [],
+  // Provider-neutral travel-time evidence keyed by `${fromEventId}:${toEventId}`
+  // (cycle-76). Computed impurely by the route (cache/gateway) and passed in so
+  // this function stays pure. Omitted → byte-identical to pre-cycle-76 behavior.
+  travelFacts: Map<string, TransitionTravel> = new Map()
 ): DayFeasibility {
-  // Only scheduled planned/confirmed events with both start and end on this date
-  const scheduled = events
+  const scheduled = dayScheduledEvents(events, date);
+
+  const energy = computeEnergy(scheduled, p);
+  const gaps = computeGaps(scheduled, now, p, travelFacts);
+  const continuous = computeContinuous(scheduled, p);
+  // Travel evidence is attached additively; costLevel/relation are unchanged, so
+  // sequenceEnergy (which reads only costLevel) never double-counts travel load.
+  const transitionCosts = computeTransitionCosts(scheduled, relations).map((t) => {
+    const travel = travelFacts.get(`${t.fromEventId}:${t.toEventId}`);
+    return travel ? { ...t, travel } : t;
+  });
+  const sequenceEnergy = computeSequenceEnergy(energy.loadUnits, transitionCosts, energy.budgetUnits);
+  const sequenceOrder = computeSequenceOrder(scheduled, dependencyLinks, relations);
+
+  return { date, now, params: p, energy, gaps, continuous, transitionCosts, sequenceEnergy, sequenceOrder };
+}
+
+// The day's scheduled planned/confirmed events (start/end on date), sorted by
+// start. Exported so the travel-time builder pairs the SAME adjacent events the
+// pure feasibility step does — gaps[i] ↔ transitionCosts[i] ↔ (scheduled[i], i+1).
+export function dayScheduledEvents(events: EventRow[], date: string): EventRow[] {
+  return events
     .filter((e) =>
       (e.status === "planned" || e.status === "confirmed") &&
       e.start != null &&
@@ -46,15 +70,6 @@ export function computeDayFeasibility(
       e.start.startsWith(date)
     )
     .sort((a, b) => Date.parse(a.start!) - Date.parse(b.start!));
-
-  const energy = computeEnergy(scheduled, p);
-  const gaps = computeGaps(scheduled, now, p);
-  const continuous = computeContinuous(scheduled, p);
-  const transitionCosts = computeTransitionCosts(scheduled, relations);
-  const sequenceEnergy = computeSequenceEnergy(energy.loadUnits, transitionCosts, energy.budgetUnits);
-  const sequenceOrder = computeSequenceOrder(scheduled, dependencyLinks, relations);
-
-  return { date, now, params: p, energy, gaps, continuous, transitionCosts, sequenceEnergy, sequenceOrder };
 }
 
 // Distinct positive thread ids among the day's scheduled planned/confirmed
@@ -115,7 +130,14 @@ function computeEnergy(scheduled: EventRow[], p: FeasibilityParams) {
   };
 }
 
-function computeGaps(scheduled: EventRow[], now: string, p: FeasibilityParams): Gap[] {
+const TRAVEL_QUIET_REASON: Record<string, string> = {
+  stale: "gap_travel_stale",
+  unavailable: "gap_travel_unavailable",
+  missing_geocode: "gap_travel_missing_geocode",
+  same_location: "gap_travel_same_location"
+};
+
+function computeGaps(scheduled: EventRow[], now: string, p: FeasibilityParams, travelFacts: Map<string, TransitionTravel>): Gap[] {
   const nowMs = Date.parse(now);
   const gaps: Gap[] = [];
 
@@ -128,7 +150,14 @@ function computeGaps(scheduled: EventRow[], now: string, p: FeasibilityParams): 
 
     const gapMs = nextStart - prevEnd;
     const availableMinutes = gapMs / (1000 * 60);
-    const requiredMinutes = p.meetBufferMinutes;
+    let requiredMinutes = p.meetBufferMinutes;
+
+    // Travel time is added to the requirement ONLY for fresh, usable evidence —
+    // stale/unavailable/missing/same-location is context (a reason code), never a
+    // hard requirement. Guard durationMinutes != null so a no_route/null fact
+    // (which is never `fresh`) can never add 0/NaN to the requirement.
+    const travel = travelFacts.get(`${prev.id}:${next.id}`);
+    const travelReasonCode = travel ? travelGapReason(travel, p, (extra) => { requiredMinutes += extra; }) : null;
 
     let status: Gap["status"];
     const reasonCodes: string[] = [];
@@ -142,6 +171,7 @@ function computeGaps(scheduled: EventRow[], now: string, p: FeasibilityParams): 
       status = "ok";
       reasonCodes.push("gap_ok");
     }
+    if (travelReasonCode) reasonCodes.push(travelReasonCode);
 
     const mode: Gap["mode"] = nextStart - nowMs <= NEAR_HORIZON_MS ? "near" : "planning";
 
@@ -149,6 +179,14 @@ function computeGaps(scheduled: EventRow[], now: string, p: FeasibilityParams): 
   }
 
   return gaps;
+}
+
+function travelGapReason(travel: TransitionTravel, p: FeasibilityParams, addRequired: (extra: number) => void): string | null {
+  if (travel.status === "fresh" && travel.durationMinutes != null) {
+    addRequired(Math.round(travel.durationMinutes * p.travelMargin));
+    return "gap_travel_included";
+  }
+  return TRAVEL_QUIET_REASON[travel.status] ?? null;
 }
 
 function computeContinuous(scheduled: EventRow[], p: FeasibilityParams) {

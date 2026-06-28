@@ -41,7 +41,8 @@ function mockGateway(opts: MockOpts = {}) {
       if (opts.result) return opts.result;
       if (provider === "disabled") return { ok: false, error: { code: "disabled", message: "Map provider is disabled" } };
       return { ok: true, outcome: RESOLVED_OUTCOME };
-    }
+    },
+    travelTime: async () => ({ ok: false, error: { code: "disabled", message: "n/a" } })
   };
   return { gateway, calls: () => calls };
 }

@@ -31,10 +31,21 @@ export type GeocodeOutcome =
   | { status: "failed"; providerStatus: string };
 export type GeocodeResult = { ok: true; outcome: GeocodeOutcome } | { ok: false; error: MapGatewayError };
 
+// Travel-time (cycle-76). Provider-neutral; only duration/distance + a status
+// label leave the gateway. `resolved` carries a duration; `no_route` is a stable
+// "no path" fact (cacheable). Transient/scoped failures are `{ok:false,error}`
+// and must NOT be cached.
+export type TravelPoint = { lat: number; lng: number };
+export type TravelTimeOutcome =
+  | { status: "resolved"; durationSeconds: number; distanceMeters: number | null; providerStatus: string }
+  | { status: "no_route"; providerStatus: string };
+export type TravelTimeResult = { ok: true; outcome: TravelTimeOutcome } | { ok: false; error: MapGatewayError };
+
 export type MapGateway = {
   provider: MapProvider;
   smoke: () => Promise<MapSmokeResult>;
   geocodeAddress: (address: string) => Promise<GeocodeResult>;
+  travelTime: (origin: TravelPoint, dest: TravelPoint, mode: string) => Promise<TravelTimeResult>;
 };
 
 export type MapGatewayOptions = { fetchImpl?: typeof fetch; retryCount?: number };
@@ -94,6 +105,16 @@ export function createMapGateway(configResult: MapConfigResult, options: MapGate
         return { ok: false, error: { code: "disabled", message: "Map provider is disabled" } };
       }
       return geocodeGoogle(config, address, fetchImpl, retryCount);
+    },
+    async travelTime(origin: TravelPoint, dest: TravelPoint, mode: string): Promise<TravelTimeResult> {
+      if (!configResult.ok) {
+        return { ok: false, error: { code: "config_error", message: "Map provider is misconfigured" } };
+      }
+      const config = configResult.config;
+      if (config.provider === "disabled") {
+        return { ok: false, error: { code: "disabled", message: "Map provider is disabled" } };
+      }
+      return travelTimeGoogle(config, origin, dest, mode, fetchImpl, retryCount);
     }
   };
 }
@@ -293,4 +314,109 @@ function deriveConfidence(locationType: string | undefined, partialMatch: boolea
     base = base === "high" ? "medium" : "low";
   }
   return base;
+}
+
+// ── travelTime (cycle-76) ────────────────────────────────────────────────────
+// Google Distance Matrix (GET, same baseUrl as geocoding). Server-only; the
+// request URL, API key, and provider error_message never leave this gateway.
+const DISTANCE_MATRIX_PATH = "/maps/api/distancematrix/json";
+const GOOGLE_TRAVEL_MODES: Record<string, string> = { drive: "driving", walk: "walking", transit: "transit", bike: "bicycling" };
+
+const DistanceMatrixSchema = z.object({
+  status: z.string(),
+  error_message: z.string().optional(),
+  rows: z
+    .array(
+      z.object({
+        elements: z.array(
+          z.object({
+            status: z.string(),
+            duration: z.object({ value: z.number() }).optional(),
+            distance: z.object({ value: z.number() }).optional()
+          })
+        )
+      })
+    )
+    .optional()
+});
+
+function travelError(code: MapErrorCode, message: string): TravelTimeResult {
+  return { ok: false, error: { code, message } };
+}
+
+async function travelTimeGoogle(config: GoogleMapConfig, origin: TravelPoint, dest: TravelPoint, mode: string, fetchImpl: typeof fetch, retryCount: number): Promise<TravelTimeResult> {
+  const url = new URL(DISTANCE_MATRIX_PATH, ensureTrailingSlash(config.baseUrl));
+  url.searchParams.set("origins", `${origin.lat},${origin.lng}`);
+  url.searchParams.set("destinations", `${dest.lat},${dest.lng}`);
+  url.searchParams.set("mode", GOOGLE_TRAVEL_MODES[mode] ?? "driving");
+  url.searchParams.set("key", config.apiKey);
+
+  for (let attempt = 0; attempt <= retryCount; attempt += 1) {
+    const result = await travelTimeOnce(url, config.timeoutMs, fetchImpl);
+    if (!result.ok && result.error.code === "unavailable" && attempt < retryCount) continue;
+    return result;
+  }
+  return travelError("unavailable", "Map provider is unavailable");
+}
+
+async function travelTimeOnce(url: URL, timeoutMs: number, fetchImpl: typeof fetch): Promise<TravelTimeResult> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(url, { method: "GET", signal: controller.signal });
+    if (response.status === 429) return travelError("rate_limited", "Map provider rate limited the request");
+    if (response.status >= 500) return travelError("unavailable", "Map provider returned a server error");
+    if (!response.ok) return travelError("unavailable", "Map provider returned an unexpected HTTP status");
+
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      return travelError("invalid_response", "Map provider returned invalid JSON");
+    }
+    const parsed = DistanceMatrixSchema.safeParse(payload);
+    if (!parsed.success) return travelError("invalid_response", "Map provider returned an unexpected response shape");
+    return mapDistanceMatrix(parsed.data);
+  } catch {
+    return travelError("unavailable", "Map provider is unavailable");
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function mapDistanceMatrix(data: z.infer<typeof DistanceMatrixSchema>): TravelTimeResult {
+  switch (data.status) {
+    case "OK":
+      break;
+    case "OVER_QUERY_LIMIT":
+      return travelError("rate_limited", "Map provider query limit reached");
+    case "OVER_DAILY_LIMIT":
+    case "REQUEST_DENIED":
+      return travelError("denied", "Map provider denied the request");
+    case "INVALID_REQUEST":
+      return travelError("invalid_request", "Map provider rejected the request as invalid");
+    case "UNKNOWN_ERROR":
+      return travelError("unavailable", "Map provider reported a transient error");
+    default:
+      return travelError("invalid_response", "Map provider returned an unrecognized status");
+  }
+
+  const element = data.rows?.[0]?.elements?.[0];
+  if (!element) return travelError("invalid_response", "Map provider returned no route element");
+
+  switch (element.status) {
+    case "OK": {
+      if (!element.duration) return travelError("invalid_response", "Map provider returned no duration");
+      return {
+        ok: true,
+        outcome: { status: "resolved", durationSeconds: element.duration.value, distanceMeters: element.distance?.value ?? null, providerStatus: "OK" }
+      };
+    }
+    case "ZERO_RESULTS":
+    case "NOT_FOUND":
+    case "MAX_ROUTE_LENGTH_EXCEEDED":
+      return { ok: true, outcome: { status: "no_route", providerStatus: element.status } };
+    default:
+      return travelError("unavailable", "Map provider could not compute the route");
+  }
 }
