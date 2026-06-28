@@ -32,6 +32,12 @@ export const WATCHER_SUBTYPES: { key: WatcherSubtype; label: string }[] = [
 ];
 const MAX_STEPS = 8; // matches the existing reverse-plan route bound
 
+// Subtype display label (cycle-71 review-v1 ISSUE-2): watcher result cards show
+// which kind was created.
+export function watcherSubtypeLabel(subtype: WatcherSubtype): string {
+  return WATCHER_SUBTYPES.find((s) => s.key === subtype)?.label ?? "Watcher";
+}
+
 // Pure validity — `label` is the Composer central text (always required separately).
 export function watcherSubtypeValid(subtype: WatcherSubtype, f: WatcherFields): boolean {
   if (subtype === "date_threshold") return f.threshold !== "";

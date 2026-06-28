@@ -6,7 +6,7 @@ import { apiJson, type AccessSessionError } from "./api.js";
 import { DomainFilterControl } from "./DomainFilter.js";
 import { ResultCard } from "./ResultCard.js";
 import { CreationComposer, type ComposerMode, type ComposerModeConfig } from "./CreationComposer.js";
-import { WatcherFieldsPanel, RecordTargetSelect, createWatcher, createRecord, dedupeTargets, watcherSubtypeValid, EMPTY_WATCHER_FIELDS, type WatcherSubtype, type WatcherFields } from "./composerModes.js";
+import { WatcherFieldsPanel, RecordTargetSelect, createWatcher, createRecord, dedupeTargets, watcherSubtypeValid, watcherSubtypeLabel, EMPTY_WATCHER_FIELDS, type WatcherSubtype, type WatcherFields } from "./composerModes.js";
 
 type ReplyState = { text: string; error: string | null; submitting: boolean };
 type EventDetailState =
@@ -125,7 +125,7 @@ type ComposerResult =
   | { kind: "capture"; scheduled: boolean }
   | { kind: "thread"; draft: CreateThreadDraftResponseData }
   | { kind: "task" }
-  | { kind: "watcher"; label: string } // cycle-71
+  | { kind: "watcher"; label: string; subtype: WatcherSubtype } // cycle-71
   | { kind: "record"; eventTitle: string; parseStatus: "parsed" | "raw_stored" }; // cycle-71
 type ComposerState = { mode: ComposerMode; text: string; submitting: boolean; error: string | null; result: ComposerResult | null };
 const TODAY_COMPOSER_MODES: ComposerModeConfig[] = [
@@ -894,8 +894,19 @@ export function Today() {
     }
   }, [sheet, refresh]);
 
-  // Record-mode targets (cycle-71): scheduled day events in the current surface.
-  const recordTargets = view.tag === "live" || view.tag === "quiet" ? dedupeTargets(view.surface.dayEvents) : [];
+  // Record-mode targets (cycle-71, +review-v1 ISSUE-1): scheduled day events
+  // PLUS every event-bearing card in the current surface (conflict pairs,
+  // next_event, needs_review, schedule_prompt), deduped by event id.
+  const recordTargets = (() => {
+    if (view.tag !== "live" && view.tag !== "quiet") return [];
+    const s = view.surface;
+    const cardEvents = s.cards.flatMap((c) =>
+      c.kind === "conflict" ? [c.pair.a, c.pair.b]
+      : c.kind === "next_event" || c.kind === "needs_review" || c.kind === "schedule_prompt" ? [c.event]
+      : []
+    );
+    return dedupeTargets([...s.dayEvents, ...cardEvents]);
+  })();
 
   const handleComposerSubmit = useCallback(async () => {
     const text = composer.text.trim();
@@ -930,7 +941,7 @@ export function Today() {
       } else if (composer.mode === "watcher") {
         // watcher (cycle-71): central text is the label; subtype picks the endpoint.
         await createWatcher(watcherSubtype, text, watcherFields);
-        setComposer((c) => ({ ...c, text: "", submitting: false, result: { kind: "watcher", label: text }, error: null }));
+        setComposer((c) => ({ ...c, text: "", submitting: false, result: { kind: "watcher", label: text, subtype: watcherSubtype }, error: null }));
         setWatcherFields(EMPTY_WATCHER_FIELDS);
         await refresh(); // watcher bubbles may change
       } else {
@@ -1041,7 +1052,7 @@ export function Today() {
         <ResultCard
           kind="Watcher"
           title={r.label}
-          status="지켜볼 것이 만들어졌어"
+          status={`${watcherSubtypeLabel(r.subtype)} Watcher가 만들어졌어`}
           primary={{ label: "지켜볼 것에서 보기", href: "/watch" }}
           secondary="여백(/watch)에서 방금 만든 Watcher를 확인할 수 있어."
           testId="watcher-result"

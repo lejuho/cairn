@@ -57,3 +57,23 @@ None in committed implementation scope.
 <!-- RESOLVED-BOUNDARY · above=Codex immutable, below=Executor append-only · check-resolved-immutable.sh enforces -->
 
 ## RESOLVED
+
+### Issue Classification
+- ISSUE-1: APPLY (plan Input/Output Spec requires Today record targets = scheduled day events AND event-bearing cards in the current surface; the gap is real.)
+- ISSUE-2: APPLY (plan Normal output requires the Watcher result card status to indicate which watcher kind was created.)
+
+### Applied
+
+RESOLVED: ISSUE-1 — Today 기록 targets now include event-bearing cards, not just `dayEvents`.
+- `web/src/Today.tsx`: `recordTargets` = `dedupeTargets([...surface.dayEvents, ...cardEvents])` where `cardEvents` extracts events from `surface.cards` — `conflict`→`pair.a`+`pair.b`, `next_event`/`needs_review`/`schedule_prompt`→`event` (watcher/two_minute_task/task_schedule_prompt carry no event, excluded). Deduped by event id. Derived in a separate value (not in the card render), so Today card priority/order is unchanged.
+- `web/src/Today.test.tsx`: new test — `dayEvents: []` but a `next_event` card present → its event (id 91) is selectable in 기록 mode and submit posts `/api/events/91/annotations` `{ text }`.
+- `/input` was already correct (record targets merged `dayEvents` + `unscheduledEvents` in `loadData`), so this was a Today-only gap; no `/input` change.
+
+RESOLVED: ISSUE-2 — Watcher result card now states the created watcher kind.
+- `web/src/composerModes.tsx`: added `watcherSubtypeLabel(subtype)` → 날짜 기반 / 역산 계획 / 수동 확인 (from `WATCHER_SUBTYPES`).
+- `web/src/InputHub.tsx` + `web/src/Today.tsx`: `ComposerResult` watcher variant gains `subtype: WatcherSubtype` (stored from the selected `watcherSubtype` at submit); the Watcher `ResultCard` status is now `${watcherSubtypeLabel(subtype)} Watcher가 만들어졌어` on both pages. Endpoints/request shapes unchanged.
+- Tests: the three InputHub subtype tests assert the result card status contains its subtype label (날짜 기반 / 역산 계획 / 수동 확인); the Today date-threshold test asserts "날짜 기반".
+
+Scope: frontend-only, within plan. `CreationComposer` untouched (still presentational/pure). No backend/shared/route/DB/LLM change; no card-priority change.
+
+자동 체크: `corepack pnpm lint` ✅ / `typecheck` ✅ / `test` web 485 (InputHub 63 / Today 170) ✅ / `build` ✅ / `git diff --check master...HEAD` ✅ / CreationComposer purity grep ∅ / Today card-priority diff ∅. Committed in pass-002.

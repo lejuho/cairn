@@ -4,7 +4,7 @@ import { datetimeLocalToRfc3339, localDateString, localNowRfc3339 } from "./date
 import { apiJson, type AccessSessionError } from "./api.js";
 import { ResultCard } from "./ResultCard.js";
 import { CreationComposer, type ComposerMode } from "./CreationComposer.js";
-import { WatcherFieldsPanel, RecordTargetSelect, createWatcher, createRecord, dedupeTargets, watcherSubtypeValid, EMPTY_WATCHER_FIELDS, type WatcherSubtype, type WatcherFields, type RecordTarget } from "./composerModes.js";
+import { WatcherFieldsPanel, RecordTargetSelect, createWatcher, createRecord, dedupeTargets, watcherSubtypeValid, watcherSubtypeLabel, EMPTY_WATCHER_FIELDS, type WatcherSubtype, type WatcherFields, type RecordTarget } from "./composerModes.js";
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -23,7 +23,7 @@ type ComposerResult =
   | { kind: "capture"; scheduled: boolean }
   | { kind: "thread"; draft: CreateThreadDraftResponseData }
   | { kind: "task" }
-  | { kind: "watcher"; label: string } // cycle-71
+  | { kind: "watcher"; label: string; subtype: WatcherSubtype } // cycle-71
   | { kind: "record"; eventTitle: string; parseStatus: "parsed" | "raw_stored" }; // cycle-71
 type ComposerState = { mode: ComposerMode; text: string; submitting: boolean; error: string | null; result: ComposerResult | null };
 
@@ -153,7 +153,7 @@ export function InputHub() {
       } else if (composer.mode === "watcher") {
         // watcher (cycle-71): central text is the label; subtype picks the endpoint.
         await createWatcher(watcherSubtype, text, watcherFields);
-        setComposer((c) => ({ ...c, text: "", submitting: false, result: { kind: "watcher", label: text }, error: null }));
+        setComposer((c) => ({ ...c, text: "", submitting: false, result: { kind: "watcher", label: text, subtype: watcherSubtype }, error: null }));
         setWatcherFields(EMPTY_WATCHER_FIELDS);
         await loadData();
       } else {
@@ -400,7 +400,7 @@ export function InputHub() {
         <ResultCard
           kind="Watcher"
           title={r.label}
-          status="지켜볼 것이 만들어졌어"
+          status={`${watcherSubtypeLabel(r.subtype)} Watcher가 만들어졌어`}
           primary={{ label: "지켜볼 것에서 보기", href: "/watch" }}
           secondary="여백(/watch)에서 방금 만든 Watcher를 확인할 수 있어."
           testId="watcher-result"

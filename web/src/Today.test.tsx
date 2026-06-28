@@ -3456,9 +3456,33 @@ describe("Today — Watcher & 기록 Composer modes (cycle-71)", () => {
     fireEvent.click(screen.getByLabelText("만들기"));
     const card = await screen.findByTestId("watcher-result");
     expect(within(card).getByText("지켜볼 것에서 보기")).toHaveAttribute("href", "/watch");
+    expect(card).toHaveTextContent("날짜 기반"); // subtype kind in status (review-v1 ISSUE-2)
     const p = posts(calls);
     expect(p.some((c) => c.url.includes("/api/watchers") && (c.body as { threshold?: string }).threshold === "2026-07-01")).toBe(true);
     expect(p.every((c) => c.url.includes("/api/watchers"))).toBe(true); // no other POST endpoint
+  });
+
+  it("기록 targets include event-bearing cards when dayEvents is empty (review-v1 ISSUE-1)", async () => {
+    const CARD_EVENT = { ...DAY_EVENT, id: 91, title: "리뷰 미팅" };
+    const calls = recordingFetch({ dayEvents: [] });
+    // override surface to a live state with a next_event card but no dayEvents
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: { method?: string; body?: string }) => {
+      calls.push({ url, method: init?.method ?? "GET", body: init?.body ? JSON.parse(init.body) : undefined });
+      if (url === "/api/threads") return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (/\/api\/events\/\d+\/annotations/.test(url)) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { annotation: { id: 1 }, parseStatus: "parsed" } }) });
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { ...BASE_SURFACE, state: "live", dayEvents: [], cards: [{ kind: "next_event", event: CARD_EVENT }] } }) });
+    }));
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("만들기 입력")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "기록" }));
+    // the card's event is an available record target even though dayEvents is empty
+    fireEvent.change(screen.getByLabelText("기록할 이벤트"), { target: { value: "91" } });
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "리뷰 메모" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
+    await screen.findByTestId("record-result");
+    const annotationPost = calls.find((c) => c.method === "POST" && /\/api\/events\/\d+\/annotations/.test(c.url));
+    expect(annotationPost?.url).toBe("/api/events/91/annotations");
+    expect(annotationPost?.body).toEqual({ text: "리뷰 메모" });
   });
 
   it("기록 mode requires an explicit target; submit posts only to annotations {text}", async () => {

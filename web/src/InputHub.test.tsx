@@ -1037,6 +1037,7 @@ describe("InputHub — Watcher & 기록 Composer modes (cycle-71)", () => {
     fireEvent.click(screen.getByLabelText("만들기"));
     const card = await screen.findByTestId("watcher-result");
     expect(within(card).getByText("지켜볼 것에서 보기")).toHaveAttribute("href", "/watch");
+    expect(card).toHaveTextContent("날짜 기반"); // subtype kind in status (review-v1 ISSUE-2)
     const p = posts(calls);
     expect(p).toHaveLength(1);
     expect(p[0]!.url).toContain("/api/watchers");
@@ -1053,7 +1054,7 @@ describe("InputHub — Watcher & 기록 Composer modes (cycle-71)", () => {
     fireEvent.change(screen.getByLabelText("목표 날짜"), { target: { value: "2026-08-01" } });
     fireEvent.change(screen.getByLabelText("단계 1 이름"), { target: { value: "비자 신청" } });
     fireEvent.click(screen.getByLabelText("만들기"));
-    await screen.findByTestId("watcher-result");
+    expect(await screen.findByTestId("watcher-result")).toHaveTextContent("역산 계획"); // subtype kind (ISSUE-2)
     const p = posts(calls);
     expect(p).toHaveLength(1);
     expect(p[0]!.url).toContain("/api/watchers/reverse-plan");
@@ -1068,7 +1069,7 @@ describe("InputHub — Watcher & 기록 Composer modes (cycle-71)", () => {
     fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "환율 고시" } });
     fireEvent.click(screen.getByRole("button", { name: "수동 확인" }));
     fireEvent.click(screen.getByLabelText("만들기"));
-    await screen.findByTestId("watcher-result");
+    expect(await screen.findByTestId("watcher-result")).toHaveTextContent("수동 확인"); // subtype kind (ISSUE-2)
     const p = posts(calls);
     expect(p).toHaveLength(1);
     expect(p[0]!.url).toContain("/api/watchers/manual-exogenous");
