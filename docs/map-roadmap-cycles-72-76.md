@@ -1,6 +1,6 @@
 # Map API Roadmap: Cycles 72-76
 
-Status: Cycle 74 promoted and active; Cycles 72-73 merged; cycles 75-76 remain roadmap candidates
+Status: Cycle 75 promoted and active; Cycles 72-74 merged; cycle 76 remains a roadmap candidate
 Created: 2026-06-28
 
 This document concatenates the intended map/location integration roadmap for
@@ -111,7 +111,7 @@ the event itself remains readable and editable.
 
 Branch when promoted: `feature/cycle-74-event-map-preview-a`
 Skills when promoted: `frontend-react-pwa`
-Status: promoted + implemented 2026-06-28 (`.review/cycle-74/`). The Today event
+Status: promoted + implemented + merged 2026-06-28 (`.review/cycle-74/`). The Today event
 detail sheet now calls the cycle-73 `POST /api/events/:id/geocode` once per open
 (non-empty location only) and renders loading/quiet/live(resolved|ambiguous|
 zero_results|failed)/error states with a public external map link (encoded
@@ -148,6 +148,8 @@ keeps the authored location visible and honest.
 
 Branch when promoted: `feature/cycle-75-today-location-context-a`
 Skills when promoted: `frontend-react-pwa, backend-fastify`
+Status: promoted 2026-06-28 (`.review/cycle-75/`). Today location context
+planning only; implementation pending.
 
 ### Goal
 
@@ -227,5 +229,5 @@ Before promoting a roadmap section to a real cycle:
   persistence work;
 - do not implement later map cycles inside an earlier cycle.
 
-Cycle 73 is promoted. The next eligible unpromoted cycle is Cycle 74 after
-Cycle 73 is implemented, verified, and merged.
+Cycle 75 is promoted. The next eligible unpromoted cycle is Cycle 76 after
+Cycle 75 is implemented, verified, and merged.
