@@ -894,94 +894,124 @@ describe("Today — thread picker in intake sheet", () => {
   });
 });
 
-describe("Today — quick capture", () => {
-  function mockQuiet() {
-    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
-      if ((url as string).includes("/api/capture/flat-event") && opts?.method === "POST") {
-        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { captureStatus: "scheduled" } }) });
-      }
-      if ((url as string) === "/api/threads") {
-        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
-      }
+describe("Today — compact Composer (cycle-70)", () => {
+  function recordingFetch(opts: { captureStatus?: string; draft?: boolean; ok?: boolean } = {}) {
+    const calls: Array<{ url: string; method: string; body: unknown }> = [];
+    const DRAFT = { thread: { id: 9, name: "파리 여행" }, events: [{}], tasks: [{}, {}], nodeLinks: [{}], warnings: [{ message: "날짜가 필요해" }] };
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, init?: { method?: string; body?: string }) => {
+      calls.push({ url, method: init?.method ?? "GET", body: init?.body ? JSON.parse(init.body) : undefined });
+      if (url.includes("/api/capture/flat-event")) return Promise.resolve({ json: () => Promise.resolve(opts.ok === false ? { ok: false, error: { message: "캡처 실패" } } : { ok: true, data: { captureStatus: opts.captureStatus ?? "scheduled" } }) });
+      if (url.includes("/api/threads/draft")) return Promise.resolve({ json: () => Promise.resolve(opts.ok === false ? { ok: false, error: { message: "초안 실패" } } : { ok: true, data: DRAFT }) });
+      if (url === "/api/threads") return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
+      if (url.includes("/api/tasks")) return Promise.resolve({ json: () => Promise.resolve(opts.ok === false ? { ok: false, error: { message: "할 일 실패" } } : { ok: true }) });
       return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { ...BASE_SURFACE, state: "quiet" } }) });
     }));
+    return calls;
   }
+  const posts = (calls: Array<{ url: string; method: string; body: unknown }>) => calls.filter((c) => c.method === "POST");
 
-  it("renders quick capture input in quiet state", async () => {
-    mockQuiet();
+  it("renders the compact Composer (3 modes/input/submit) in quiet state", async () => {
+    recordingFetch();
     render(<Today />);
     await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
-    expect(screen.getByLabelText("빠른 입력")).toBeInTheDocument();
+    expect(screen.getByLabelText("만들기 입력")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "만들기 종류" })).toBeInTheDocument();
+    for (const label of ["일정", "스레드", "할 일"]) expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "일정" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("renders quick capture input in live state", async () => {
+  it("renders the compact Composer in live state without removing + 추가", async () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
-      if ((url as string) === "/api/threads") {
-        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
-      }
+      if (url === "/api/threads") return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
       return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { ...BASE_SURFACE, state: "live" } }) });
     }));
     render(<Today />);
-    await waitFor(() => expect(screen.getByLabelText("빠른 입력")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText("만들기 입력")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "추가" })).toBeInTheDocument();
   });
 
-  it("empty submit does not call fetch capture endpoint", async () => {
-    const fetchSpy = vi.fn().mockImplementation((url: string) => {
-      if ((url as string) === "/api/threads") {
-        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
-      }
-      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { ...BASE_SURFACE, state: "quiet" } }) });
-    });
-    vi.stubGlobal("fetch", fetchSpy);
+  it("switching mode updates pressed state and does not submit; empty submit disabled", async () => {
+    const calls = recordingFetch();
     render(<Today />);
     await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
-    fireEvent.click(screen.getByLabelText("빠른 입력 저장"));
-    // only initial load + thread list — no capture call
-    expect(fetchSpy).not.toHaveBeenCalledWith(expect.stringContaining("flat-event"), expect.anything());
+    expect(screen.getByLabelText("만들기")).toBeDisabled();
+    const before = posts(calls).length;
+    fireEvent.click(screen.getByRole("button", { name: "스레드" }));
+    expect(screen.getByRole("button", { name: "스레드" })).toHaveAttribute("aria-pressed", "true");
+    expect(posts(calls).length).toBe(before);
   });
 
-  it("scheduled capture calls endpoint and refetches", async () => {
-    const fetchSpy = vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
-      if ((url as string).includes("flat-event") && opts?.method === "POST") {
-        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { captureStatus: "scheduled" } }) });
-      }
-      if ((url as string) === "/api/threads") {
-        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
-      }
-      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { ...BASE_SURFACE, state: "quiet" } }) });
-    });
-    vi.stubGlobal("fetch", fetchSpy);
+  it("일정 mode posts only to flat-event {text,now}, refreshes, shows scheduled 일정 card", async () => {
+    const calls = recordingFetch({ captureStatus: "scheduled" });
     render(<Today />);
     await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
-
-    fireEvent.change(screen.getByLabelText("빠른 입력"), { target: { value: "내일 오후 2시 치과" } });
-    fireEvent.click(screen.getByLabelText("빠른 입력 저장"));
-
-    await waitFor(() => {
-      expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining("flat-event"), expect.objectContaining({ method: "POST" }));
-    });
-    // no savedMsg for scheduled
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "내일 오후 2시 치과" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
+    const card = await screen.findByTestId("capture-result");
+    expect(card).toHaveTextContent("일정");
+    const p = posts(calls);
+    expect(p).toHaveLength(1);
+    expect(p[0]!.url).toContain("/api/capture/flat-event");
+    expect(p[0]!.body).toMatchObject({ text: "내일 오후 2시 치과" });
+    expect((p[0]!.body as { now?: string }).now).toBeDefined();
   });
 
-  it("raw/unscheduled outcome shows saved-without-date message", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string }) => {
-      if ((url as string).includes("flat-event") && opts?.method === "POST") {
-        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { captureStatus: "raw_stored" } }) });
-      }
-      if ((url as string) === "/api/threads") {
-        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
-      }
-      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { ...BASE_SURFACE, state: "quiet" } }) });
-    }));
+  it("일정 raw/unscheduled shows 미정 일정 card with 날짜 잡기 → /input", async () => {
+    recordingFetch({ captureStatus: "raw_stored" });
     render(<Today />);
     await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "독서" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
+    const card = await screen.findByTestId("capture-result");
+    expect(card).toHaveTextContent("미정 일정");
+    expect(card).toHaveTextContent("날짜 없이 저장됐어");
+    expect(within(card).getByText("날짜 잡기")).toHaveAttribute("href", "/input");
+  });
 
-    fireEvent.change(screen.getByLabelText("빠른 입력"), { target: { value: "독서" } });
-    fireEvent.click(screen.getByLabelText("빠른 입력 저장"));
+  it("스레드 mode posts only to threads/draft and shows 스레드 초안 card with counts/warning/link", async () => {
+    const calls = recordingFetch();
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "스레드" }));
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "파리 여행 준비" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
+    const card = await screen.findByTestId("thread-draft-success");
+    expect(card).toHaveTextContent("스레드 초안");
+    expect(card).toHaveTextContent("이벤트 1");
+    expect(card).toHaveTextContent("작업 2");
+    expect(screen.getByTestId("draft-warning")).toHaveTextContent("날짜가 필요해");
+    expect(screen.getByTestId("draft-open-link")).toHaveAttribute("href", "/threads/9");
+    const p = posts(calls);
+    expect(p).toHaveLength(1);
+    expect(p[0]!.url).toContain("/api/threads/draft");
+    expect(p[0]!.body).toEqual({ text: "파리 여행 준비" });
+  });
 
-    await waitFor(() => expect(screen.getByRole("status")).toBeInTheDocument());
-    expect(screen.getByRole("status")).toHaveTextContent("날짜 없이 저장됐어");
+  it("할 일 mode posts only to /api/tasks {title}, refreshes, shows 할 일 card", async () => {
+    const calls = recordingFetch();
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "할 일" }));
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "코드 리뷰" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
+    const card = await screen.findByTestId("task-result");
+    expect(card).toHaveTextContent("할 일");
+    const p = posts(calls);
+    expect(p).toHaveLength(1);
+    expect(p[0]!.url).toContain("/api/tasks");
+    expect(p[0]!.body).toEqual({ title: "코드 리뷰" });
+  });
+
+  it("Composer failure keeps mode and typed text and shows a scoped role=alert error", async () => {
+    recordingFetch({ ok: false });
+    render(<Today />);
+    await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "할 일" }));
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "유지될 텍스트" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("할 일 실패"));
+    expect(screen.getByRole("button", { name: "할 일" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText("만들기 입력")).toHaveValue("유지될 텍스트");
   });
 });
 
@@ -1197,9 +1227,9 @@ describe("Today — schedule prompt", () => {
     });
     vi.stubGlobal("fetch", fetchSpy);
     render(<Today />);
-    await waitFor(() => expect(screen.getByLabelText("빠른 입력")).toBeInTheDocument());
-    fireEvent.change(screen.getByLabelText("빠른 입력"), { target: { value: "내일 9시 회의" } });
-    fireEvent.click(screen.getByLabelText("빠른 입력 저장"));
+    await waitFor(() => expect(screen.getByLabelText("만들기 입력")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "내일 9시 회의" } });
+    fireEvent.click(screen.getByLabelText("만들기"));
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining("flat-event"), expect.objectContaining({ method: "POST" })));
   });
 

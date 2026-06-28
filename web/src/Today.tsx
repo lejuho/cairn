@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ConflictDecision, DayFeasibility, DomainFilter, EventDetailData, EventMode, EventRow, FeasibilityParamLimits, FeasibilityParamSettingsData, FeasibilityParams, NeedsReviewPlacement, NotificationDraft, PreferredPeriod, ScheduleBrief, SlotCandidate, SlotSuggestionContribution, ThreadSummary, TodaySurface, UpdateFeasibilityParamsRequest, Weekday } from "@cairn/shared";
+import type { ConflictDecision, CreateThreadDraftResponseData, DayFeasibility, DomainFilter, EventDetailData, EventMode, EventRow, FeasibilityParamLimits, FeasibilityParamSettingsData, FeasibilityParams, NeedsReviewPlacement, NotificationDraft, PreferredPeriod, ScheduleBrief, SlotCandidate, SlotSuggestionContribution, ThreadSummary, TodaySurface, UpdateFeasibilityParamsRequest, Weekday } from "@cairn/shared";
 import { ResolveConflictResponseDataSchema } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString } from "./dateUtils.js";
 import { apiJson, type AccessSessionError } from "./api.js";
 import { DomainFilterControl } from "./DomainFilter.js";
+import { ResultCard } from "./ResultCard.js";
+import { CreationComposer, type ComposerMode, type ComposerModeConfig } from "./CreationComposer.js";
 
 type ReplyState = { text: string; error: string | null; submitting: boolean };
 type EventDetailState =
@@ -116,18 +118,18 @@ async function createTask(title: string, estMinutes: number, threadId?: number):
   if (!body.ok) throw new Error("작업 생성 실패");
 }
 
-type QuickCaptureResult = { captureStatus: "scheduled" | "unscheduled" | "raw_stored" };
-
-async function flatCapture(text: string): Promise<QuickCaptureResult> {
-  const now = new Date().toISOString().replace("Z", "+00:00");
-  const body = await apiJson<{ ok: boolean; data?: QuickCaptureResult; error?: { message: string } }>("/api/capture/flat-event", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, now })
-  });
-  if (!body.ok) throw new Error(body.error?.message ?? "캡처 실패");
-  return body.data!;
-}
+// Today compact Composer (cycle-70). Same three explicit modes as /input; the
+// selected mode alone selects the endpoint (no classifier).
+type ComposerResult =
+  | { kind: "capture"; scheduled: boolean }
+  | { kind: "thread"; draft: CreateThreadDraftResponseData }
+  | { kind: "task" };
+type ComposerState = { mode: ComposerMode; text: string; submitting: boolean; error: string | null; result: ComposerResult | null };
+const TODAY_COMPOSER_MODES: ComposerModeConfig[] = [
+  { mode: "event", label: "일정", placeholder: "내일 3시 치과 — 한 줄로 적으면 일정으로 잡아줄게" },
+  { mode: "thread", label: "스레드", placeholder: "예: 6월 파리 여행 준비. 항공권 예약하고 여권 유효기간 확인." },
+  { mode: "task", label: "할 일", placeholder: "할 일 제목 — 예: 코드 리뷰" }
+];
 
 async function fetchEventDetail(id: number): Promise<EventDetailData> {
   const body = await apiJson<{ ok: boolean; data?: EventDetailData; error?: { message: string } }>(`/api/events/${id}`);
@@ -788,9 +790,7 @@ export function Today() {
   const [taskApplyError, setTaskApplyError] = useState<Record<number, string>>({});
   const [sheet, setSheet] = useState<SheetState>({ open: false });
   const [threadOptions, setThreadOptions] = useState<ThreadSummary[]>([]);
-  const [capture, setCapture] = useState<{ text: string; submitting: boolean; savedMsg: string | null }>({
-    text: "", submitting: false, savedMsg: null
-  });
+  const [composer, setComposer] = useState<ComposerState>({ mode: "event", text: "", submitting: false, error: null, result: null });
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [eventDetail, setEventDetail] = useState<EventDetailState>({ tag: "idle" });
   const [detailNote, setDetailNote] = useState<DetailNoteState>({ text: "", submitting: false, error: null });
@@ -801,7 +801,6 @@ export function Today() {
   const [feasSettings, setFeasSettings] = useState<FeasSettingsSheetState>({ open: false });
   const feasPreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const feasPreviewAbortRef = useRef<AbortController | null>(null);
-  const savedMsgTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firstInputRef = useRef<HTMLInputElement>(null);
   const conflictOpenerRef = useRef<HTMLElement | null>(null);
   const conflictOpenerPairRef = useRef<string | null>(null);
@@ -886,27 +885,116 @@ export function Today() {
     }
   }, [sheet, refresh]);
 
-  const handleCapture = useCallback(async () => {
-    if (!capture.text.trim() || capture.submitting) return;
-    setCapture((c) => ({ ...c, submitting: true, savedMsg: null }));
-    if (savedMsgTimer.current) clearTimeout(savedMsgTimer.current);
+  const handleComposerSubmit = useCallback(async () => {
+    const text = composer.text.trim();
+    if (!text || composer.submitting) return;
+    setComposer((c) => ({ ...c, submitting: true, error: null, result: null }));
     try {
-      const result = await flatCapture(capture.text.trim());
-      setCapture((c) => ({
-        ...c, text: "", submitting: false,
-        savedMsg: result.captureStatus === "scheduled" ? null : "날짜 없이 저장됐어"
-      }));
-      if (result.captureStatus !== "scheduled") {
-        savedMsgTimer.current = setTimeout(() => setCapture((c) => ({ ...c, savedMsg: null })), 4000);
+      if (composer.mode === "event") {
+        const now = new Date().toISOString().replace("Z", "+00:00");
+        const body = await apiJson<{ ok: boolean; data?: { captureStatus: string }; error?: { message: string } }>("/api/capture/flat-event", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text, now })
+        });
+        if (!body.ok) throw new Error(body.error?.message ?? "저장 실패");
+        const scheduled = body.data?.captureStatus === "scheduled";
+        setComposer((c) => ({ ...c, text: "", submitting: false, result: { kind: "capture", scheduled }, error: null }));
+        await refresh(); // a scheduled event may surface as a new Today card
+      } else if (composer.mode === "thread") {
+        const body = await apiJson<{ ok: boolean; data?: CreateThreadDraftResponseData; error?: { message: string } }>("/api/threads/draft", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text })
+        });
+        if (!body.ok || !body.data) throw new Error(body.error?.message ?? "초안 생성 실패");
+        setComposer((c) => ({ ...c, text: "", submitting: false, result: { kind: "thread", draft: body.data! }, error: null }));
+      } else {
+        const body = await apiJson<{ ok: boolean; error?: { message: string } }>("/api/tasks", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: text })
+        });
+        if (!body.ok) throw new Error(body.error?.message ?? "저장 실패");
+        setComposer((c) => ({ ...c, text: "", submitting: false, result: { kind: "task" }, error: null }));
+        await refresh(); // a 2-min/due task may surface as a new Today card
       }
-      await refresh();
     } catch (e) {
       const msg = (e as AccessSessionError).kind === "access_session_required"
-        ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : null;
-      setCapture((c) => ({ ...c, submitting: false, savedMsg: msg }));
-      if (msg) savedMsgTimer.current = setTimeout(() => setCapture((c) => ({ ...c, savedMsg: null })), 6000);
+        ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "저장 실패";
+      setComposer((c) => ({ ...c, submitting: false, error: msg }));
     }
-  }, [capture, refresh]);
+  }, [composer, refresh]);
+
+  const composerEl = (compact: boolean) => (
+    <CreationComposer
+      compact={compact}
+      modes={TODAY_COMPOSER_MODES}
+      mode={composer.mode}
+      text={composer.text}
+      submitting={composer.submitting}
+      onModeChange={(m) => setComposer((c) => (c.mode === m ? c : { ...c, mode: m, error: null, result: null }))}
+      onTextChange={(t) => setComposer((c) => ({ ...c, text: t }))}
+      onSubmit={() => void handleComposerSubmit()}
+    />
+  );
+
+  const composerResultCard = (() => {
+    const r = composer.result;
+    if (!r) return null;
+    if (r.kind === "capture") {
+      return (
+        <ResultCard
+          kind={r.scheduled ? "일정" : "미정 일정"}
+          status={r.scheduled ? "저장됐어" : "날짜 없이 저장됐어"}
+          primary={r.scheduled
+            ? { label: "오늘 새로고침", onClick: () => { setComposer((c) => ({ ...c, result: null })); void refresh(); } }
+            : { label: "날짜 잡기", href: "/input" }}
+          secondary={r.scheduled
+            ? "방금 만든 일정은 오늘 화면에 반영됐어."
+            : "날짜를 잡으면 일정으로 확정돼 — /input에서 잡을 수 있어."}
+          testId="capture-result"
+        />
+      );
+    }
+    if (r.kind === "thread") {
+      return (
+        <ResultCard
+          testId="thread-draft-success"
+          kind="스레드 초안"
+          title={`“${r.draft.thread.name}”`}
+          status="초안이 만들어졌어"
+          primary={{ label: "스레드 열기", href: `/threads/${r.draft.thread.id}`, testId: "draft-open-link" }}
+          secondary={
+            <>
+              <p className="card-meta" style={{ display: "flex", flexWrap: "wrap", gap: "6px", margin: "0 0 6px" }}>
+                <span className="card-chip">이벤트 {r.draft.events.length}</span>
+                <span className="card-chip">작업 {r.draft.tasks.length}</span>
+                <span className="card-chip">연결 {r.draft.nodeLinks.length}</span>
+              </p>
+              {r.draft.warnings.length > 0 && (
+                <ul className="thread-draft-warnings" role="list" style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                  {r.draft.warnings.map((w, i) => (
+                    <li key={i} className="card-meta" data-testid="draft-warning" style={{ color: "var(--moved)" }}>확인 필요: {w.message}</li>
+                  ))}
+                </ul>
+              )}
+            </>
+          }
+        />
+      );
+    }
+    return (
+      <ResultCard
+        kind="할 일"
+        status="저장됐어"
+        primary={{ label: "오늘 새로고침", onClick: () => { setComposer((c) => ({ ...c, result: null })); void refresh(); } }}
+        secondary="오늘 화면에서 할 일을 확인할 수 있어."
+        testId="task-result"
+      />
+    );
+  })();
+
+  const composerError = composer.error ? (
+    <p className="today-capture-saved" role="alert">{composer.error}</p>
+  ) : null;
 
   const handleLoadCandidates = useCallback(async (eventId: number) => {
     setSlotState((s) => ({ ...s, [eventId]: { tag: "loading" } }));
@@ -1702,30 +1790,9 @@ export function Today() {
             </button>
             <a href="/input" className="today-input-link">직접 입력하러 가기 →</a>
           </section>
-          <form
-            className="today-capture-form"
-            onSubmit={(e) => { e.preventDefault(); void handleCapture(); }}
-          >
-            <input
-              className="today-capture-input"
-              value={capture.text}
-              onChange={(e) => setCapture((c) => ({ ...c, text: e.target.value }))}
-              placeholder="한 줄로 입력해봐 — 내일 3시 치과"
-              disabled={capture.submitting}
-              aria-label="빠른 입력"
-            />
-            <button
-              type="submit"
-              className="today-capture-btn"
-              disabled={!capture.text.trim() || capture.submitting}
-              aria-label="빠른 입력 저장"
-            >
-              {capture.submitting ? "…" : "→"}
-            </button>
-          </form>
-          {capture.savedMsg && (
-            <p className="today-capture-saved" role="status" aria-live="polite">{capture.savedMsg}</p>
-          )}
+          {composerEl(true)}
+          {composerResultCard}
+          {composerError}
           <FeasibilityPanel f={view.surface.feasibility} events={view.surface.dayEvents} />
         </main>
         {sheetEl}
@@ -1755,30 +1822,9 @@ export function Today() {
             + 추가
           </button>
         </div>
-        <form
-          className="today-capture-form"
-          onSubmit={(e) => { e.preventDefault(); void handleCapture(); }}
-        >
-          <input
-            className="today-capture-input"
-            value={capture.text}
-            onChange={(e) => setCapture((c) => ({ ...c, text: e.target.value }))}
-            placeholder="한 줄로 입력해봐 — 내일 3시 치과"
-            disabled={capture.submitting}
-            aria-label="빠른 입력"
-          />
-          <button
-            type="submit"
-            className="today-capture-btn"
-            disabled={!capture.text.trim() || capture.submitting}
-            aria-label="빠른 입력 저장"
-          >
-            {capture.submitting ? "…" : "→"}
-          </button>
-        </form>
-        {capture.savedMsg && (
-          <p className="today-capture-saved" role="status" aria-live="polite">{capture.savedMsg}</p>
-        )}
+        {composerEl(true)}
+        {composerResultCard}
+        {composerError}
         <FeasibilityPanel
           f={surface.feasibility}
           events={surface.dayEvents}

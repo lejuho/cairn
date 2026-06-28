@@ -3,6 +3,7 @@ import type { CreateThreadDraftResponseData, EventMode, EventRow, PersonRow, Slo
 import { datetimeLocalToRfc3339, localDateString, localNowRfc3339 } from "./dateUtils.js";
 import { apiJson, type AccessSessionError } from "./api.js";
 import { ResultCard } from "./ResultCard.js";
+import { CreationComposer, type ComposerMode } from "./CreationComposer.js";
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -16,7 +17,7 @@ type HubViewState =
 // Composer (cycle-69). One central input + an explicit mode that alone selects
 // the endpoint (no classifier): event→capture, thread→thread-draft, task→tasks.
 // `result` is a discriminated union driving the cycle-68 ResultCard per mode.
-type ComposerMode = "event" | "thread" | "task";
+// (ComposerMode moved to CreationComposer.tsx, cycle-70.)
 type ComposerResult =
   | { kind: "capture"; scheduled: boolean }
   | { kind: "thread"; draft: CreateThreadDraftResponseData }
@@ -313,8 +314,6 @@ export function InputHub() {
     { mode: "thread", label: "스레드", placeholder: "예: 6월 파리 여행 준비. 항공권 예약하고 여권 유효기간 확인." },
     { mode: "task", label: "할 일", placeholder: "할 일 제목 — 예: 코드 리뷰" }
   ];
-  const composerMeta = COMPOSER_MODES.find((m) => m.mode === composer.mode)!;
-
   const composerResultCard = (() => {
     const r = composer.result;
     if (!r) return null;
@@ -372,46 +371,22 @@ export function InputHub() {
   })();
 
   const composerSection = (
-    <section className="input-section">
-      <h2 className="input-section-title">새로 만들기</h2>
-      <div className="composer-modes" role="group" aria-label="만들기 종류">
-        {COMPOSER_MODES.map((m) => (
-          <button
-            key={m.mode}
-            type="button"
-            className={`composer-mode${composer.mode === m.mode ? " composer-mode--active" : ""}`}
-            aria-pressed={composer.mode === m.mode}
-            data-mode={m.mode}
-            onClick={() => setComposer((c) => (c.mode === m.mode ? c : { ...c, mode: m.mode, error: null, result: null }))}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
-      <form className="composer-form" onSubmit={(e) => { e.preventDefault(); void handleComposerSubmit(); }}>
-        <textarea
-          className="composer-input"
-          value={composer.text}
-          onChange={(e) => setComposer((c) => ({ ...c, text: e.target.value }))}
-          placeholder={composerMeta.placeholder}
-          rows={composer.mode === "thread" ? 3 : 1}
-          disabled={composer.submitting}
-          aria-label="만들기 입력"
-        />
-        <button
-          type="submit"
-          className="composer-submit"
-          disabled={!composer.text.trim() || composer.submitting}
-          aria-label="만들기"
-        >
-          {composer.submitting ? "…" : "만들기 →"}
-        </button>
-      </form>
+    <>
+      <CreationComposer
+        title="새로 만들기"
+        modes={COMPOSER_MODES}
+        mode={composer.mode}
+        text={composer.text}
+        submitting={composer.submitting}
+        onModeChange={(m) => setComposer((c) => (c.mode === m ? c : { ...c, mode: m, error: null, result: null }))}
+        onTextChange={(text) => setComposer((c) => ({ ...c, text }))}
+        onSubmit={() => void handleComposerSubmit()}
+      />
       {composerResultCard}
       {composer.error && (
         <p className="input-error" role="alert">{composer.error}</p>
       )}
-    </section>
+    </>
   );
 
   const formSection = (

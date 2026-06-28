@@ -137,8 +137,9 @@ are secondary and collapsed by default.
 
 ## Cycle 70: Today Composer Adoption A
 
-Status: PROMOTED (`.review/cycle-70/`). Today quick capture should be replaced
-by a compact shared Composer entry while Today remains the processing queue.
+Status: PROMOTED + implemented (`.review/cycle-70/`). Today event-only quick
+capture replaced by the compact shared `CreationComposer` (3 modes); Today
+remains the processing queue. Cycle 71 stays roadmap-only.
 Branch: `feature/cycle-70-today-composer-adoption-a`
 Skills: `frontend-react-pwa`
 
