@@ -1,6 +1,6 @@
 # Naver Directions Roadmap: Cycles 77-80
 
-Status: Cycle 78 promoted and active; Cycle 77 merged; Cycles 79-80 candidates
+Status: Cycle 79 promoted and active; Cycles 77-78 merged; Cycle 80 candidate
 Created: 2026-06-28
 Note: filename retained for existing references; this roadmap now extends
 through Cycle 80.
@@ -76,7 +76,7 @@ usable.
 
 Branch when promoted: `feature/cycle-78-pinned-transit-facts-a`
 Skills when promoted: `backend-fastify, frontend-react-pwa`
-Status: promoted + implemented 2026-06-28 (`.review/cycle-78/`). New SQLite
+Status: promoted + implemented + merged 2026-06-28 (`.review/cycle-78/`). New SQLite
 `pinned_transit_facts` (additive migration 0012) keyed by the DIRECTIONAL
 (origin_normalized, dest_normalized, mode=public_transit); `PUT
 /api/transit-facts/pair` takes only `{fromEventId,toEventId,durationMinutes,note?}`
@@ -123,7 +123,7 @@ manual travel fact for feasibility while still making the provenance visible.
 
 Branch when promoted: `feature/cycle-79-naver-place-search-a`
 Skills when promoted: `backend-fastify, frontend-react-pwa`
-Status: candidate
+Status: promoted + active 2026-06-28 (`.review/cycle-79/`)
 
 ### Goal
 
@@ -194,5 +194,5 @@ Before promoting a roadmap section to a real cycle:
 - keep Naver credentials server-side when a future cycle adds Naver APIs;
 - define static negative checks that prevent scraping, route-result storage, and
   hidden schedule mutation;
-- do not implement later Naver search/capture cycles inside the pinned-facts
+- do not implement the later manual-transit capture cycle inside the place-search
   cycle.
