@@ -1,0 +1,16 @@
+{
+  "cycle": 71,
+  "pass": 2,
+  "kind": "fix",
+  "review": ".review/cycle-71/review-v1.md",
+  "createdAt": "2026-06-28T03:27:48Z",
+  "summary": "Resolved review-v1 (2 findings, both APPLY, frontend-only). ISSUE-1 [HIGH]: Today 기록 record targets now include events from event-bearing cards (conflict→pair.a/pair.b, next_event/needs_review/schedule_prompt→event) in addition to surface.dayEvents, deduped by id — so any event-bearing Today card is a selectable record target; derived as a separate value (no card render/priority change). New Today test: dayEvents=[] + a next_event card → its event (id 91) is selectable and submit posts /api/events/91/annotations {text}. /input was already correct (loadData merges dayEvents+unscheduled), so no /input change. ISSUE-2 [LOW]: Watcher result card status now states the created subtype kind via new watcherSubtypeLabel (날짜 기반/역산 계획/수동 확인); ComposerResult watcher variant gains subtype:WatcherSubtype (stored at submit) on both /input and Today; status = `${watcherSubtypeLabel(subtype)} Watcher가 만들어졌어`; endpoints/shapes unchanged; InputHub 3 subtype tests + Today date-threshold assert the subtype label. CreationComposer untouched (still pure). RESOLVED appended below the sentinel. Committed 2f2a1a2.",
+  "checks": [
+    "corepack pnpm lint (PASS)",
+    "corepack pnpm typecheck (PASS)",
+    "corepack pnpm test (web 485 incl. InputHub 63 / Today 170 — +1 ISSUE-1 card-target test, +ISSUE-2 subtype-status assertions; shared/server unchanged)",
+    "corepack pnpm test:integration (686)",
+    "corepack pnpm build (web + server Done)",
+    "git diff --check master...HEAD (OK); no server|shared|drizzle diff; CreationComposer purity grep empty; Today card-priority diff empty; ## RESOLVED count above sentinel = 0"
+  ]
+}
