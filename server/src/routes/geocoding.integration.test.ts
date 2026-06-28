@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildServer } from "../app.js";
 import { createSqliteConnection, runMigrations, type SqliteConnection } from "../db/index.js";
+import { EventGeocodeResponseSchema, type MapErrorCode } from "@cairn/shared";
 import type { GeocodeOutcome, MapGateway } from "../maps/gateway.js";
 
 const tempDirs: string[] = [];
@@ -26,13 +27,21 @@ const RESOLVED_OUTCOME: GeocodeOutcome = {
   confidence: "high", providerStatus: "OK", uncertainty: { locationType: "ROOFTOP", partialMatch: false }
 };
 
-type MockOpts = { provider?: "google" | "disabled"; result?: { ok: true; outcome: GeocodeOutcome } | { ok: false; error: { code: "unavailable" | "denied"; message: string } } };
+type MockOpts = { provider?: "google" | "disabled"; result?: { ok: true; outcome: GeocodeOutcome } | { ok: false; error: { code: MapErrorCode; message: string } } };
 function mockGateway(opts: MockOpts = {}) {
   let calls = 0;
+  const provider = opts.provider ?? "google";
   const gateway: MapGateway = {
-    provider: opts.provider ?? "google",
+    provider,
     smoke: async () => ({ ok: true, data: { provider: "disabled", configured: false, attempted: false, reachable: false, status: "disabled", resultCount: 0 } }),
-    geocodeAddress: async () => { calls += 1; return opts.result ?? { ok: true, outcome: RESOLVED_OUTCOME }; }
+    // Mirror the real gateway: a disabled gateway returns a `disabled` error
+    // WITHOUT a provider HTTP call (no fetch is simulated here either).
+    geocodeAddress: async () => {
+      calls += 1;
+      if (opts.result) return opts.result;
+      if (provider === "disabled") return { ok: false, error: { code: "disabled", message: "Map provider is disabled" } };
+      return { ok: true, outcome: RESOLVED_OUTCOME };
+    }
   };
   return { gateway, calls: () => calls };
 }
@@ -86,8 +95,54 @@ describe("POST /api/events/:id/geocode (cycle-73)", () => {
     const res = await app.inject({ method: "POST", url: `/api/events/${id}/geocode` });
     expect(res.statusCode).toBe(503);
     expect(res.json().error.code).toBe("disabled");
+    // geocodeAddress owns the disabled mapping (short-circuits with no HTTP fetch
+    // — the gateway unit test proves no fetch); the cache is never written.
+    expect(cacheCount(conn)).toBe(0);
+  });
+
+  it("config-error gateway → 503 config_error (distinct from disabled), no cache write (review-v1 ISSUE-3)", async () => {
+    setup({ result: { ok: false, error: { code: "config_error", message: "Map provider is misconfigured" } } });
+    const id = insertEvent(conn, "Seoul Tower");
+    const res = await app.inject({ method: "POST", url: `/api/events/${id}/geocode` });
+    expect(res.statusCode).toBe(503);
+    expect(res.json().error.code).toBe("config_error");
+    expect(cacheCount(conn)).toBe(0);
+  });
+
+  it("rejects a non-integer id path segment (e.g. 1abc) with 400 and no provider/cache (review-v1 ISSUE-2)", async () => {
+    setup();
+    const res = await app.inject({ method: "POST", url: "/api/events/1abc/geocode" });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("VALIDATION_ERROR");
     expect(provCalls()).toBe(0);
     expect(cacheCount(conn)).toBe(0);
+  });
+
+  it("rejects a request body and unexpected query params with 400 (review-v1 ISSUE-2)", async () => {
+    setup();
+    const id = insertEvent(conn, "Seoul Tower");
+    const withBody = await app.inject({ method: "POST", url: `/api/events/${id}/geocode`, payload: { address: "elsewhere" } });
+    expect(withBody.statusCode).toBe(400);
+    expect(withBody.json().error.code).toBe("VALIDATION_ERROR");
+    const withQuery = await app.inject({ method: "POST", url: `/api/events/${id}/geocode?address=elsewhere` });
+    expect(withQuery.statusCode).toBe(400);
+    expect(provCalls()).toBe(0); // neither malformed request reached the provider
+    expect(cacheCount(conn)).toBe(0);
+  });
+
+  it("400/404/409 and success responses all satisfy the shared EventGeocodeResponseSchema (review-v1 ISSUE-1)", async () => {
+    setup();
+    const id = insertEvent(conn, "Seoul Tower");
+    const blankId = insertEvent(conn, "   ");
+    const cases = [
+      await app.inject({ method: "POST", url: "/api/events/1abc/geocode" }), // 400 VALIDATION_ERROR
+      await app.inject({ method: "POST", url: "/api/events/999/geocode" }), // 404 NOT_FOUND
+      await app.inject({ method: "POST", url: `/api/events/${blankId}/geocode` }), // 409 LOCATION_MISSING
+      await app.inject({ method: "POST", url: `/api/events/${id}/geocode` }) // 200 success
+    ];
+    for (const res of cases) {
+      expect(EventGeocodeResponseSchema.safeParse(res.json()).success).toBe(true);
+    }
   });
 
   it("cache miss resolved → 200 miss/resolved with coords, one provider call, one cache row", async () => {

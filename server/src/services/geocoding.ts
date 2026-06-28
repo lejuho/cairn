@@ -23,12 +23,8 @@ export async function geocodeEvent(db: CairnDatabase, mapGateway: MapGateway, ev
   const locationText = event.location ?? "";
   if (locationText.trim().length === 0) return { ok: false, kind: "location_missing" };
 
-  const provider = mapGateway.provider;
-  if (provider === "disabled") {
-    return { ok: false, kind: "map_error", code: "disabled", message: "Map provider is disabled" };
-  }
-
   // Single normalization feeds both the cache lookup and the write.
+  const provider = mapGateway.provider;
   const normalized = normalizeLocation(locationText);
 
   const cached = findGeocodeByKey(db, provider, normalized);
@@ -36,9 +32,13 @@ export async function geocodeEvent(db: CairnDatabase, mapGateway: MapGateway, ev
     return { ok: true, data: toData(cached, eventId, "hit") };
   }
 
+  // `geocodeAddress` owns disabled/config-error mapping (cycle-73 review-v1
+  // ISSUE-3): a disabled gateway returns `disabled` and a misconfigured one
+  // returns `config_error` — both WITHOUT a provider HTTP call — so the route
+  // keeps the actionable distinction instead of collapsing both to disabled.
   const result = await mapGateway.geocodeAddress(locationText);
   if (!result.ok) {
-    // Transient/scoped failure — do not cache, do not fabricate coordinates.
+    // Transient/scoped/config failure — do not cache, do not fabricate coordinates.
     return { ok: false, kind: "map_error", code: result.error.code, message: result.error.message };
   }
 

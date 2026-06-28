@@ -95,8 +95,13 @@ export const EventGeocodeDataSchema = z
   })
   .strict();
 
+// The geocode route can fail with map-provider errors OR route-level validation
+// errors; both must satisfy the shared response schema (cycle-73 review-v1 ISSUE-1).
+export const GEOCODE_ROUTE_ERROR_CODES = ["VALIDATION_ERROR", "NOT_FOUND", "LOCATION_MISSING"] as const;
+export const GeocodeErrorCodeSchema = z.enum([...MAP_ERROR_CODES, ...GEOCODE_ROUTE_ERROR_CODES]);
+
 export const EventGeocodeErrorSchema = z
-  .object({ code: MapErrorCodeSchema, message: z.string() })
+  .object({ code: GeocodeErrorCodeSchema, message: z.string() })
   .strict();
 
 export const EventGeocodeResponseSchema = z.union([
@@ -114,6 +119,7 @@ export type GeocodeStatus = z.infer<typeof GeocodeStatusSchema>;
 export type GeocodeConfidence = z.infer<typeof GeocodeConfidenceSchema>;
 export type GeocodeCacheStatus = z.infer<typeof GeocodeCacheStatusSchema>;
 export type GeocodeUncertainty = z.infer<typeof GeocodeUncertaintySchema>;
+export type GeocodeErrorCode = z.infer<typeof GeocodeErrorCodeSchema>;
 export type EventGeocodeData = z.infer<typeof EventGeocodeDataSchema>;
 export type EventGeocodeError = z.infer<typeof EventGeocodeErrorSchema>;
 export type EventGeocodeResponse = z.infer<typeof EventGeocodeResponseSchema>;

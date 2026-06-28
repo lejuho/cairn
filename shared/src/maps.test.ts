@@ -58,4 +58,11 @@ describe("Geocode schemas (cycle-73)", () => {
     expect(EventGeocodeResponseSchema.safeParse({ ok: false, error: { code: "denied", message: "x" } }).success).toBe(true);
     expect(EventGeocodeResponseSchema.safeParse({ ok: true, data: RESOLVED, extra: 1 }).success).toBe(false);
   });
+
+  it("error response accepts the route error codes too (review-v1 ISSUE-1)", () => {
+    for (const code of ["VALIDATION_ERROR", "NOT_FOUND", "LOCATION_MISSING", "disabled", "config_error", "unavailable"]) {
+      expect(EventGeocodeResponseSchema.safeParse({ ok: false, error: { code, message: "x" } }).success).toBe(true);
+    }
+    expect(EventGeocodeResponseSchema.safeParse({ ok: false, error: { code: "WHATEVER", message: "x" } }).success).toBe(false);
+  });
 });

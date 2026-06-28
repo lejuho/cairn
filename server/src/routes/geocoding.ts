@@ -9,10 +9,19 @@ import { geocodeEvent } from "../services/geocoding.js";
 // call the service, map its result to a stable HTTP shape.
 export function registerGeocodingRoutes(app: FastifyInstance, db: CairnDatabase, mapGateway: MapGateway): void {
   app.post("/api/events/:id/geocode", async (req, reply) => {
-    const id = parseInt((req.params as { id: string }).id, 10);
-    if (!Number.isFinite(id) || id <= 0) {
-      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: "id must be a positive integer" } });
-    }
+    const invalid = (message: string) => reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message } });
+
+    // Strict id: the whole path segment must be a positive integer ("1abc" is
+    // rejected, not silently parsed as 1) — cycle-73 review-v1 ISSUE-2.
+    const idStr = (req.params as { id: string }).id;
+    if (!/^\d+$/.test(idStr)) return invalid("id must be a positive integer");
+    const id = Number(idStr);
+    if (id <= 0) return invalid("id must be a positive integer");
+
+    // No request body and no query parameters are accepted — the route geocodes
+    // only the event's own location (no arbitrary address/query) — ISSUE-2.
+    if (hasContent(req.body)) return invalid("this route accepts no request body");
+    if (hasContent(req.query)) return invalid("this route accepts no query parameters");
 
     const result = await geocodeEvent(db, mapGateway, id);
     if (result.ok) {
@@ -27,6 +36,16 @@ export function registerGeocodingRoutes(app: FastifyInstance, db: CairnDatabase,
     // map_error — scoped provider/config failure; no cache row was written.
     return reply.code(httpForMapError(result.code)).send({ ok: false, error: { code: result.code, message: result.message } });
   });
+}
+
+// True when a body/query carries any content (non-empty object, or a non-object
+// payload like a string/array). An absent body or `{}` query is allowed.
+function hasContent(value: unknown): boolean {
+  if (value == null) return false;
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return Object.keys(value as Record<string, unknown>).length > 0;
+  }
+  return true;
 }
 
 function httpForMapError(code: MapErrorCode): number {
