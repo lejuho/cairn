@@ -897,4 +897,18 @@ describe("GET /api/today travel evidence (cycle-76)", () => {
     const tc = res.json().data.feasibility.transitionCosts;
     expect(tc[0].travel).toMatchObject({ status: "fresh", durationMinutes: 20, provider: "google" });
   });
+
+  it("provider failure with resolved geocodes → Today still 200 with unavailable travel, no cache write (review-v1 ISSUE-2)", async () => {
+    const conn = makeTestDb();
+    conn.sqlite.prepare("INSERT INTO events (title, start, end, location, source, self_imposed, status) VALUES ('A', '2026-06-16T10:00:00+00:00','2026-06-16T10:45:00+00:00','Alpha','cairn',1,'planned')").run();
+    conn.sqlite.prepare("INSERT INTO events (title, start, end, location, source, self_imposed, status) VALUES ('B', '2026-06-16T11:30:00+00:00','2026-06-16T12:15:00+00:00','Beta','cairn',1,'planned')").run();
+    conn.sqlite.prepare("INSERT INTO geocode_cache (provider, normalized_location, location_text, status, latitude, longitude, confidence) VALUES ('google','alpha','Alpha','resolved',37.5,127.0,'high')").run();
+    conn.sqlite.prepare("INSERT INTO geocode_cache (provider, normalized_location, location_text, status, latitude, longitude, confidence) VALUES ('google','beta','Beta','resolved',37.6,127.1,'high')").run();
+    // googleGateway.travelTime returns { ok:false }; no travel cache → provider is
+    // reached and fails → unavailable, but Today must still return 200.
+    const res = await buildServer(conn.db, undefined, googleGateway).inject({ method: "GET", url: `/api/today?date=${D}&now=${encodeURIComponent(N)}` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.feasibility.transitionCosts[0].travel.status).toBe("unavailable");
+    expect((conn.sqlite.prepare("SELECT count(*) AS n FROM travel_time_cache").get() as { n: number }).n).toBe(0);
+  });
 });

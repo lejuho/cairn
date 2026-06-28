@@ -313,8 +313,13 @@ function TransitionCostsSection({
   transitions: DayFeasibility["transitionCosts"];
   events: EventRow[];
 }) {
-  // Descriptive only: hide `none` (same-thread) rows; show low/high/unknown.
-  const shown = (transitions ?? []).filter((t) => t.costLevel !== "none");
+  // Show low/high/unknown transition rows, AND any pair carrying meaningful travel
+  // evidence even when the thread transition cost is `none` (cycle-76 review-v1
+  // ISSUE-1): a same-thread adjacent pair can still have fresh travel that makes
+  // the gap tight, or stale/unavailable/missing evidence worth showing quietly.
+  // `same_location` carries nothing, so it never forces a row.
+  const hasMeaningfulTravel = (t: DayFeasibility["transitionCosts"][number]) => t.travel != null && t.travel.status !== "same_location";
+  const shown = (transitions ?? []).filter((t) => t.costLevel !== "none" || hasMeaningfulTravel(t));
   if (shown.length === 0) return null;
   const titleOf = (id: number) => events.find((e) => e.id === id)?.title ?? "이벤트";
 

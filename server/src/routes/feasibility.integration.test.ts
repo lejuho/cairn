@@ -763,4 +763,19 @@ describe("travel-time evidence on /api/feasibility/day + preview", () => {
     expect(res.json().data.gaps[0].requiredMinutes).toBe(75);
     expect(travelCount(conn)).toBe(before); // no write from preview
   });
+
+  it("provider failure with resolved geocodes → 200 + unavailable evidence, no cache write (review-v1 ISSUE-2)", async () => {
+    const conn = makeTestDb();
+    insertLocEvent(conn, "2026-06-20T09:00:00+00:00", "2026-06-20T10:00:00+00:00", "Alpha");
+    insertLocEvent(conn, "2026-06-20T11:00:00+00:00", "2026-06-20T12:00:00+00:00", "Beta");
+    seedGeo(conn, "alpha", 37.5, 127.0);
+    seedGeo(conn, "beta", 37.6, 127.1);
+    // googleGateway.travelTime returns { ok:false } (scoped failure) and the cache
+    // is empty → the route reaches the provider, which fails → unavailable.
+    const res = await getWithGoogle(conn, "2026-06-19T23:30:00+00:00");
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.transitionCosts[0].travel.status).toBe("unavailable");
+    expect(res.json().data.gaps[0].reasonCodes).toContain("gap_travel_unavailable");
+    expect(travelCount(conn)).toBe(0); // transient failure is never cached
+  });
 });

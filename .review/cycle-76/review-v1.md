@@ -48,3 +48,20 @@ None found in the Cycle 76 branch diff. The worktree still contains unrelated un
 <!-- RESOLVED-BOUNDARY · above=Codex immutable, below=Executor append-only · check-resolved-immutable.sh enforces -->
 
 ## RESOLVED (Executor response, append at file end)
+
+### Issue Classification
+- ISSUE-1: APPLY (Sprint Contract requires Today to show high-risk/stale/unavailable/missing travel honestly; the costLevel-none filter hid same-thread travel evidence — including gap-affecting fresh travel.)
+- ISSUE-2: APPLY (Sprint Contract + Review Guidance require route-level proof that a provider failure with resolved geocodes leaves Today/feasibility at 200 with unavailable evidence.)
+
+### Applied
+
+RESOLVED: ISSUE-1 — same-thread travel evidence is no longer hidden by the Today transition filter.
+- `web/src/Today.tsx`: `TransitionCostsSection` now keeps a row when `costLevel !== "none" OR (t.travel != null && t.travel.status !== "same_location")`. A same-thread (`costLevel: none`) adjacent pair whose travel is `fresh` (e.g. enough to make the gap tight) — or `stale`/`unavailable`/`missing_geocode` — renders its transition row ("전환 비용 없음" + relation) and its `TransitionTravelLine`. A `none` pair with no travel, or with `same_location` travel, stays hidden (unchanged).
+- `web/src/Today.test.tsx` (+3): a same-thread fresh pair surfaces the travel line with `data-cost="none"`; same-thread `stale`/`unavailable`/`missing_geocode` render quietly (no `role="alert"`); a same-thread `same_location` pair renders no transition row.
+
+RESOLVED: ISSUE-2 — route integration now proves provider-failure fail-open on both read endpoints.
+- `server/src/routes/feasibility.integration.test.ts` (+1) and `server/src/routes/today.integration.test.ts` (+1): two resolved geocode endpoints, an empty travel cache, and a fake gateway whose `travelTime()` returns `{ ok:false }` (a scoped failure). Each asserts HTTP **200**, `transitionCosts[0].travel.status === "unavailable"`, the gap reason `gap_travel_unavailable`, and `travel_time_cache` row count **0** (a transient failure is never cached).
+
+Scope: the only production change is the one Today.tsx filter line; the rest is additive tests plus one `docs/codebase-map.md` line documenting the filter. No shared schema, gateway, repository, travel service, feasibility computation, or migration changed; the cache-only/server-only/fail-open/no-double-count boundaries are untouched. (Unrelated worktree `.claude/*`, `AGENTS.md`, `CONTRACT_MARKERS.md`, and old cycle-artifact edits predate this cycle and are excluded from the pass-002 commit, as review-v1 noted.)
+
+자동 체크: `corepack pnpm lint` ✅ / `typecheck` ✅ / `test` shared 438 / server 519 / web 507 (+3) ✅ / `test:integration` 733 (+2) ✅ / `build` ✅ / `git diff --check master...HEAD` ✅. Committed in pass-002.
