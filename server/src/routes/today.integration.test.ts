@@ -912,3 +912,28 @@ describe("GET /api/today travel evidence (cycle-76)", () => {
     expect((conn.sqlite.prepare("SELECT count(*) AS n FROM travel_time_cache").get() as { n: number }).n).toBe(0);
   });
 });
+
+describe("GET /api/today excludes dropped tasks from active surfaces (cycle-81)", () => {
+  it("a dropped task is absent from twoMinuteTasks and dueTaskSchedulePrompts while an active one appears", () => {
+    const conn = makeTestDb();
+    const sq = conn.sqlite;
+    // active 2-minute todo + a dropped 2-minute task
+    sq.prepare("INSERT INTO tasks (title, est_minutes, status) VALUES ('active 2분', 2, 'todo')").run();
+    sq.prepare("INSERT INTO tasks (title, est_minutes, status) VALUES ('dropped 2분', 2, 'dropped')").run();
+    // active due task + a dropped due task (both due on DATE)
+    sq.prepare("INSERT INTO tasks (title, est_minutes, due, status) VALUES ('active 마감', 90, ?, 'todo')").run(DATE);
+    sq.prepare("INSERT INTO tasks (title, est_minutes, due, status) VALUES ('dropped 마감', 90, ?, 'dropped')").run(DATE);
+
+    const res = buildServer(conn.db);
+    return res.inject({ method: "GET", url: `/api/today?date=${DATE}&now=${encodeURIComponent(NOW)}` }).then((r) => {
+      expect(r.statusCode).toBe(200);
+      const data = r.json().data as { twoMinuteTasks: { title: string; status: string }[]; dueTaskSchedulePrompts: { status: string }[]; cards: { kind: string; task?: { status: string } }[] };
+      const twoMin = data.twoMinuteTasks.map((t) => t.title);
+      expect(twoMin).toContain("active 2분");
+      expect(twoMin).not.toContain("dropped 2분");
+      expect(data.dueTaskSchedulePrompts.every((t) => t.status !== "dropped")).toBe(true);
+      expect(data.cards.some((c) => c.kind === "two_minute_task" && c.task?.status === "dropped")).toBe(false);
+      expect(data.cards.some((c) => c.kind === "task_schedule_prompt" && c.task?.status === "dropped")).toBe(false);
+    });
+  });
+});

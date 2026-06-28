@@ -4066,3 +4066,62 @@ describe("Today — Naver place search (cycle-79)", () => {
     expect(screen.getByRole("dialog", { name: "일정 상세" })).toBeInTheDocument(); // sheet still open
   });
 });
+
+describe("Today — task drop soft-remove (cycle-81)", () => {
+  const twoMin = { id: 7, title: "메모 확인", estMinutes: 1, status: "todo" as const, threadId: null, due: null, context: null, optional: 0, createdAt: null };
+  const dueTask = { id: 77, title: "보고서", estMinutes: 90, status: "todo" as const, threadId: null, due: "2026-06-20", context: null, optional: 0, createdAt: null };
+
+  function mockDrop(opts: { surface: TodaySurface; patchResult?: { ok: boolean; error?: { code: string; message: string } } }) {
+    const calls: { url: string; method?: string; body?: unknown }[] = [];
+    let getCall = 0;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, init?: { method?: string; body?: unknown }) => {
+      if (init?.method === "PATCH") {
+        calls.push({ url, method: init.method, body: init.body });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(opts.patchResult ?? { ok: true }) });
+      }
+      getCall += 1;
+      const data = getCall === 1 ? opts.surface : { ...BASE_SURFACE, state: "quiet" };
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data }) });
+    }));
+    return calls;
+  }
+
+  it("two-minute task drop sends exactly {status:'dropped'} and refreshes", async () => {
+    const calls = mockDrop({ surface: { ...BASE_SURFACE, state: "live", twoMinuteTasks: [twoMin], cards: [{ kind: "two_minute_task", task: twoMin }] } });
+    render(<Today />);
+    fireEvent.click(await screen.findByTestId("task-drop-7"));
+    await waitFor(() => expect(screen.getByTestId("today-quiet")).toBeInTheDocument());
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toContain("/api/tasks/7/status");
+    expect(JSON.parse(calls[0]!.body as string)).toEqual({ status: "dropped" });
+  });
+
+  it("due-task schedule prompt has a permanent drop (status:dropped) distinct from one-day 오늘 숨기기", async () => {
+    const calls = mockDrop({ surface: { ...BASE_SURFACE, state: "live", dueTaskSchedulePrompts: [dueTask], cards: [{ kind: "task_schedule_prompt", task: dueTask }] } });
+    render(<Today />);
+    fireEvent.click(await screen.findByTestId("task-prompt-drop-77"));
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(calls[0]!.url).toContain("/api/tasks/77/status");
+    expect(JSON.parse(calls[0]!.body as string)).toEqual({ status: "dropped" });
+  });
+
+  it("one-day 오늘 숨기기 still sends only dismissedOn and does NOT drop the task", async () => {
+    const calls = mockDrop({ surface: { ...BASE_SURFACE, state: "live", dueTaskSchedulePrompts: [dueTask], cards: [{ kind: "task_schedule_prompt", task: dueTask }] } });
+    render(<Today />);
+    fireEvent.click(await screen.findByTestId("task-dismiss-prompt-77"));
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(calls[0]!.url).toContain("/schedule-prompt/dismiss");
+    expect(calls[0]!.url).not.toContain("/status");
+    const body = JSON.parse(calls[0]!.body as string);
+    expect(body).toHaveProperty("dismissedOn");
+    expect(body).not.toHaveProperty("status");
+  });
+
+  it("a failed drop shows a scoped error and keeps the card visible", async () => {
+    mockDrop({ surface: { ...BASE_SURFACE, state: "live", twoMinuteTasks: [twoMin], cards: [{ kind: "two_minute_task", task: twoMin }] }, patchResult: { ok: false, error: { code: "DB_ERROR", message: "드롭에 실패했어" } } });
+    render(<Today />);
+    fireEvent.click(await screen.findByTestId("task-drop-7"));
+    expect(await screen.findByTestId("task-drop-error-7")).toHaveTextContent("드롭에 실패했어");
+    expect(screen.getByText("메모 확인")).toBeInTheDocument(); // card still visible
+  });
+});

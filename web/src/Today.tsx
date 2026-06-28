@@ -171,6 +171,18 @@ async function markTaskDone(id: number): Promise<void> {
   if (!body.ok) throw new Error("완료 처리 실패");
 }
 
+// Soft-remove (cycle-81): drop a task by reusing the existing status route. Sends
+// ONLY {status:"dropped"} — no hard delete, no other field. A dropped task leaves
+// active surfaces but stays in done/dropped history.
+async function markTaskDropped(id: number): Promise<void> {
+  const body = await apiJson<{ ok: boolean; error?: { message: string } }>(`/api/tasks/${id}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status: "dropped" })
+  });
+  if (!body.ok) throw new Error(body.error?.message ?? "드롭 실패");
+}
+
 async function submitAnnotation(eventId: number, text: string): Promise<void> {
   const body = await apiJson<{ ok: boolean; error?: { message: string } }>(`/api/events/${eventId}/annotations`, {
     method: "POST",
@@ -1006,6 +1018,8 @@ export function Today() {
   // Due-task schedule prompt candidate + dismiss + apply state (cycle-62/63), keyed by task id.
   const [taskSlotState, setTaskSlotState] = useState<TaskSlotStateMap>({});
   const [taskDismissError, setTaskDismissError] = useState<Record<number, string>>({});
+  // Scoped per-task drop error (cycle-81), mirrors taskDismissError.
+  const [taskDropError, setTaskDropError] = useState<Record<number, string>>({});
   const [taskApplyError, setTaskApplyError] = useState<Record<number, string>>({});
   const [sheet, setSheet] = useState<SheetState>({ open: false });
   const [threadOptions, setThreadOptions] = useState<ThreadSummary[]>([]);
@@ -1451,6 +1465,26 @@ export function Today() {
         if ((e as AccessSessionError).kind === "access_session_required") {
           await refresh();
         }
+      }
+    },
+    [refresh]
+  );
+
+  // Soft-remove a task (cycle-81). Unlike handleDone, a generic failure surfaces a
+  // SCOPED per-task error so the card stays visible; access errors re-surface via
+  // refresh. Sends only {status:"dropped"}; never touches a scheduled block.
+  const handleDropTask = useCallback(
+    async (taskId: number) => {
+      try {
+        await markTaskDropped(taskId);
+        setTaskDropError((s) => { const n = { ...s }; delete n[taskId]; return n; });
+        await refresh();
+      } catch (e) {
+        if ((e as AccessSessionError).kind === "access_session_required") {
+          await refresh();
+          return;
+        }
+        setTaskDropError((s) => ({ ...s, [taskId]: e instanceof Error ? e.message : "드롭 실패" }));
       }
     },
     [refresh]
@@ -2459,13 +2493,28 @@ export function Today() {
               <li key={`task-${i}`} className="today-card today-card--task" style={delay}>
                 <span className="card-chip">2분</span>
                 <p className="card-title">{card.task.title}</p>
-                <button
-                  className="today-done-btn"
-                  onClick={() => void handleDone(card.task.id)}
-                  aria-label={`${card.task.title} 완료`}
-                >
-                  완료 ✓
-                </button>
+                <div className="today-card-actions">
+                  <button
+                    className="today-done-btn"
+                    onClick={() => void handleDone(card.task.id)}
+                    aria-label={`${card.task.title} 완료`}
+                  >
+                    완료 ✓
+                  </button>
+                  <button
+                    className="today-drop-btn"
+                    onClick={() => void handleDropTask(card.task.id)}
+                    aria-label={`${card.task.title} 드롭 (활성 목록에서 제거)`}
+                    data-testid={`task-drop-${card.task.id}`}
+                  >
+                    드롭
+                  </button>
+                </div>
+                {taskDropError[card.task.id] && (
+                  <p className="card-meta" role="alert" data-testid={`task-drop-error-${card.task.id}`} style={{ color: "var(--cancelled)" }}>
+                    {taskDropError[card.task.id]}
+                  </p>
+                )}
               </li>
             );
           }
@@ -2662,17 +2711,32 @@ export function Today() {
                   </>
                 )}
                 {ts.tag === "error" && <p className="today-slot-error" role="alert">{ts.message}</p>}
-                <button
-                  className="today-dismiss-btn"
-                  onClick={() => void handleDismissTaskPrompt(card.task.id, surface.date)}
-                  aria-label={`${card.task.title} 오늘 숨기기`}
-                  data-testid={`task-dismiss-prompt-${card.task.id}`}
-                >
-                  오늘 숨기기
-                </button>
+                <div className="today-card-actions">
+                  <button
+                    className="today-dismiss-btn"
+                    onClick={() => void handleDismissTaskPrompt(card.task.id, surface.date)}
+                    aria-label={`${card.task.title} 오늘 숨기기`}
+                    data-testid={`task-dismiss-prompt-${card.task.id}`}
+                  >
+                    오늘 숨기기
+                  </button>
+                  <button
+                    className="today-drop-btn"
+                    onClick={() => void handleDropTask(card.task.id)}
+                    aria-label={`${card.task.title} 드롭 (할 일에서 영구 제거)`}
+                    data-testid={`task-prompt-drop-${card.task.id}`}
+                  >
+                    드롭
+                  </button>
+                </div>
                 {taskDismissError[card.task.id] && (
                   <p className="today-slot-error" role="alert" data-testid={`task-dismiss-error-${card.task.id}`}>
                     {taskDismissError[card.task.id]}
+                  </p>
+                )}
+                {taskDropError[card.task.id] && (
+                  <p className="today-slot-error" role="alert" data-testid={`task-prompt-drop-error-${card.task.id}`}>
+                    {taskDropError[card.task.id]}
                   </p>
                 )}
               </li>
