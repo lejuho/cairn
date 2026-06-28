@@ -1,6 +1,6 @@
 # Map API Roadmap: Cycles 72-76
 
-Status: Cycle 73 promoted and active; Cycle 72 merged; cycles 74-76 remain roadmap candidates
+Status: Cycle 74 promoted and active; Cycles 72-73 merged; cycles 75-76 remain roadmap candidates
 Created: 2026-06-28
 
 This document concatenates the intended map/location integration roadmap for
@@ -72,7 +72,7 @@ error and no fabricated location data. Existing Cairn routes behave unchanged.
 
 Branch when promoted: `feature/cycle-73-geocoding-cache-a`
 Skills when promoted: `backend-fastify`
-Status: promoted + implemented 2026-06-28 (`.review/cycle-73/`). SQLite
+Status: promoted + implemented + merged 2026-06-28 (`.review/cycle-73/`). SQLite
 `geocode_cache` table keyed by (provider, normalized_location); `POST
 /api/events/:id/geocode` resolves/reuses an event's authored `location` via the
 cycle-72 gateway's new `geocodeAddress`, preserving ambiguous/zero/failed
@@ -111,6 +111,8 @@ the event itself remains readable and editable.
 
 Branch when promoted: `feature/cycle-74-event-map-preview-a`
 Skills when promoted: `frontend-react-pwa`
+Status: promoted 2026-06-28 (`.review/cycle-74/`). Event detail map preview
+planning only; implementation pending.
 
 ### Goal
 
