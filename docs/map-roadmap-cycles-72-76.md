@@ -111,8 +111,12 @@ the event itself remains readable and editable.
 
 Branch when promoted: `feature/cycle-74-event-map-preview-a`
 Skills when promoted: `frontend-react-pwa`
-Status: promoted 2026-06-28 (`.review/cycle-74/`). Event detail map preview
-planning only; implementation pending.
+Status: promoted + implemented 2026-06-28 (`.review/cycle-74/`). The Today event
+detail sheet now calls the cycle-73 `POST /api/events/:id/geocode` once per open
+(non-empty location only) and renders loading/quiet/live(resolved|ambiguous|
+zero_results|failed)/error states with a public external map link (encoded
+coordinates or authored text — no key/SDK). Frontend-only; no Today card,
+travel-time, or backend change. Cycles 75-76 stay roadmap.
 
 ### Goal
 

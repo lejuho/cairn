@@ -252,6 +252,96 @@ p {
   font-weight: 600;
 }
 
+/* Event location preview (cycle-74). Semantic tokens only; map/retry actions 44px.
+   Reduced-motion is covered by the global motion rules. */
+.event-geo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-b, var(--surface)) 60%, transparent);
+}
+.event-geo-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 0;
+}
+.event-geo-quiet,
+.event-geo-loading {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 0;
+}
+.event-geo-label {
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+.event-geo-authored {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 0;
+}
+.event-geo-uncertain {
+  font-size: 0.85rem;
+  color: var(--text);
+  margin: 0;
+}
+.event-geo-chip {
+  align-self: flex-start;
+  font-size: 0.72rem;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+  color: var(--accent);
+}
+.event-geo-candidates {
+  list-style: none;
+  margin: 2px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.event-geo-candidate {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.event-geo-map {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 8px 14px;
+  border-radius: 22px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+.event-geo-retry {
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.event-geo-cache {
+  align-self: flex-start;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
 .event-brief {
   display: flex;
   flex-direction: column;

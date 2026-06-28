@@ -3515,3 +3515,150 @@ describe("Today — Watcher & 기록 Composer modes (cycle-71)", () => {
     expect((screen.getByLabelText("기록할 이벤트") as HTMLSelectElement).value).toBe("88");
   });
 });
+
+describe("Today — event location preview (cycle-74)", () => {
+  const EVENT_WITH_LOC = {
+    id: 42, title: "팀 스프린트",
+    start: "2026-06-20T10:00:00+09:00", end: "2026-06-20T11:00:00+09:00",
+    threadId: null, type: null, location: "서울타워",
+    mode: null, source: "cairn" as const, selfImposed: 1, status: "planned" as const,
+    createdAt: null, updatedAt: null
+  };
+  const DETAIL_LOC: EventDetailData = {
+    event: EVENT_WITH_LOC, people: [], annotations: [], thread: null,
+    scheduleBrief: { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], preparations: [], preparationSuggestions: [], reasonCodes: [] }
+  };
+  const SURFACE_LOC: TodaySurface = { ...BASE_SURFACE, state: "live", cards: [{ kind: "next_event", event: EVENT_WITH_LOC }] };
+
+  const GEO_RESOLVED = {
+    eventId: 42, provider: "google", locationText: "서울타워", normalizedLocation: "서울타워",
+    cacheStatus: "miss", status: "resolved", latitude: 37.55, longitude: 126.98,
+    displayLabel: "N Seoul Tower", providerResultId: "p1", confidence: "high", providerStatus: "OK",
+    uncertainty: { locationType: "ROOFTOP", partialMatch: false }, createdAt: "t", updatedAt: null, lastCheckedAt: "t"
+  };
+
+  type GeoMock = { detail?: EventDetailData; geocodeImpl?: () => Promise<{ status?: number; ok?: boolean; json: () => Promise<unknown> }> };
+  function mockGeo(o: GeoMock) {
+    const calls: { url: string; method?: string; body?: unknown }[] = [];
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string; body?: unknown }) => {
+      if (typeof url === "string" && url.includes("/geocode") && opts?.method === "POST") {
+        calls.push({ url, method: opts?.method, body: opts?.body });
+        return (o.geocodeImpl ?? (() => Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, data: GEO_RESOLVED }) })))();
+      }
+      if (typeof url === "string" && url.match(/\/api\/events\/\d+$/) && !opts?.method) {
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: o.detail ?? DETAIL_LOC }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: SURFACE_LOC }) });
+    }));
+    return calls;
+  }
+  const openSheet = async () => {
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("팀 스프린트 상세 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("팀 스프린트 상세 보기"));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "일정 상세" })).toBeInTheDocument());
+  };
+
+  it("blank location → quiet state, no /geocode call", async () => {
+    const blank = { ...DETAIL_LOC, event: { ...EVENT_WITH_LOC, location: null } };
+    const calls = mockGeo({ detail: blank });
+    await openSheet();
+    await waitFor(() => expect(screen.getByTestId("geo-quiet")).toBeInTheDocument());
+    expect(calls).toHaveLength(0);
+  });
+
+  it("non-empty location → loading then resolved preview with coords map action", async () => {
+    let resolveGeo: (v: unknown) => void = () => {};
+    const calls = mockGeo({ geocodeImpl: () => new Promise((r) => { resolveGeo = () => r({ ok: true, json: () => Promise.resolve({ ok: true, data: GEO_RESOLVED }) }); }) });
+    await openSheet();
+    expect(screen.getByTestId("geo-loading")).toBeInTheDocument();
+    await act(async () => { resolveGeo(undefined); });
+    await waitFor(() => expect(screen.getByTestId("geo-resolved")).toBeInTheDocument());
+    expect(screen.getByText("N Seoul Tower")).toBeInTheDocument();
+    expect(screen.getByTestId("geo-confidence")).toHaveTextContent("정확");
+    const link = screen.getByRole("link", { name: "지도에서 열기" });
+    expect(link).toHaveAttribute("href", "https://www.google.com/maps/search/?api=1&query=37.55%2C126.98");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("geocode POST carries no body and no query string", async () => {
+    const calls = mockGeo({});
+    await openSheet();
+    await waitFor(() => expect(screen.getByTestId("geo-resolved")).toBeInTheDocument());
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe("/api/events/42/geocode");
+    expect(calls[0]!.url).not.toContain("?");
+    expect(calls[0]!.body).toBeUndefined();
+  });
+
+  it("ambiguous → uncertainty + candidate labels, authored-text map action, no coordinate", async () => {
+    const geo = { ...GEO_RESOLVED, status: "ambiguous", latitude: null, longitude: null, displayLabel: null, providerResultId: null, confidence: "unknown", uncertainty: { resultCount: 2, candidateLabels: ["서울역", "서울시청"] } };
+    mockGeo({ geocodeImpl: () => Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, data: geo }) }) });
+    await openSheet();
+    await waitFor(() => expect(screen.getByTestId("geo-ambiguous")).toBeInTheDocument());
+    expect(screen.getByText("서울역")).toBeInTheDocument();
+    expect(screen.getByText("서울시청")).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: "지도에서 열기" });
+    expect(link).toHaveAttribute("href", `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent("서울타워")}`);
+    expect(screen.queryByTestId("geo-confidence")).not.toBeInTheDocument();
+  });
+
+  it("zero_results and failed → honest unresolved with authored-text map action", async () => {
+    for (const status of ["zero_results", "failed"]) {
+      cleanup();
+      const geo = { ...GEO_RESOLVED, status, latitude: null, longitude: null, displayLabel: null, providerResultId: null, confidence: "unknown", uncertainty: null };
+      mockGeo({ geocodeImpl: () => Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, data: geo }) }) });
+      await openSheet();
+      await waitFor(() => expect(screen.getByTestId(`geo-${status}`)).toBeInTheDocument());
+      expect(screen.getByText("위치를 찾지 못했어 — 입력한 텍스트로 지도를 열 수 있어.")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "지도에서 열기" })).toHaveAttribute("href", `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent("서울타워")}`);
+    }
+  });
+
+  it("provider error response → sheet-local error + retry recovers", async () => {
+    let n = 0;
+    mockGeo({ geocodeImpl: () => {
+      n += 1;
+      return n === 1
+        ? Promise.resolve({ ok: false, json: () => Promise.resolve({ ok: false, error: { code: "unavailable", message: "Map provider is unavailable" } }) })
+        : Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, data: GEO_RESOLVED }) });
+    } });
+    await openSheet();
+    await waitFor(() => expect(screen.getByTestId("geo-error")).toBeInTheDocument());
+    expect(screen.getByText("Map provider is unavailable")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "일정 상세" })).toBeInTheDocument(); // sheet still open
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+    await waitFor(() => expect(screen.getByTestId("geo-resolved")).toBeInTheDocument());
+    expect(n).toBe(2);
+  });
+
+  it("access/session failure → access copy, sheet stays open", async () => {
+    mockGeo({ geocodeImpl: () => Promise.reject(new Error("network")) });
+    await openSheet();
+    await waitFor(() => expect(screen.getByTestId("geo-error")).toBeInTheDocument());
+    expect(screen.getByText("로그인 세션이 만료됐거나 네트워크가 끊겼어")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "일정 상세" })).toBeInTheDocument();
+  });
+
+  it("invalid geocode response shape → local error, no crash", async () => {
+    mockGeo({ geocodeImpl: () => Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, data: { garbage: 1 } }) }) });
+    await openSheet();
+    await waitFor(() => expect(screen.getByTestId("geo-error")).toBeInTheDocument());
+    expect(screen.getByText("위치 정보를 불러오지 못했어")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "일정 상세" })).toBeInTheDocument();
+  });
+
+  it("closing the sheet before the geocode resolves shows no stale preview", async () => {
+    let resolveGeo: (v: unknown) => void = () => {};
+    mockGeo({ geocodeImpl: () => new Promise((r) => { resolveGeo = () => r({ ok: true, json: () => Promise.resolve({ ok: true, data: GEO_RESOLVED }) }); }) });
+    await openSheet();
+    expect(screen.getByTestId("geo-loading")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "닫기" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "일정 상세" })).not.toBeInTheDocument());
+    await act(async () => { resolveGeo(undefined); });
+    expect(screen.queryByTestId("geo-resolved")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("event-geo")).not.toBeInTheDocument();
+  });
+});
