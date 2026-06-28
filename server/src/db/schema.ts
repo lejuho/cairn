@@ -3,6 +3,7 @@ import {
   check,
   integer,
   primaryKey,
+  real,
   sqliteTable,
   text,
   uniqueIndex
@@ -285,5 +286,38 @@ export const resourceLinks = sqliteTable(
     check("resource_links_target_type_check", sql`${table.targetType} in (${enumSqlList(RESOURCE_TARGET_TYPES)})`),
     check("resource_links_firmness_check", sql`${table.firmness} in (${enumSqlList(RESOURCE_FIRMNESSES)})`),
     uniqueIndex("resource_links_unique_idx").on(table.resourceId, table.targetType, table.targetId)
+  ]
+);
+
+// Geocode cache (cycle-73, Geocoding Cache A). Provenance-preserving provider
+// facts keyed by (provider, normalized_location); the authored event.location is
+// never rewritten. Coordinates are both-present or both-null (uncertainty stays
+// honest). No raw provider payload/key/error_message is ever stored here.
+const GEOCODE_STATUSES = ["resolved", "ambiguous", "zero_results", "failed"] as const;
+const GEOCODE_CONFIDENCES = ["high", "medium", "low", "unknown"] as const;
+export const geocodeCache = sqliteTable(
+  "geocode_cache",
+  {
+    id: integer("id").primaryKey(),
+    provider: text("provider").notNull(),
+    normalizedLocation: text("normalized_location").notNull(),
+    locationText: text("location_text").notNull(),
+    status: text("status").notNull(),
+    latitude: real("latitude"),
+    longitude: real("longitude"),
+    displayLabel: text("display_label"),
+    providerResultId: text("provider_result_id"),
+    confidence: text("confidence").notNull(),
+    providerStatus: text("provider_status"),
+    uncertaintyJson: text("uncertainty_json"),
+    createdAt: text("created_at").default(sql`(datetime('now'))`),
+    updatedAt: text("updated_at"),
+    lastCheckedAt: text("last_checked_at")
+  },
+  (table) => [
+    uniqueIndex("geocode_cache_provider_location_idx").on(table.provider, table.normalizedLocation),
+    check("geocode_cache_status_check", sql`${table.status} in (${enumSqlList(GEOCODE_STATUSES)})`),
+    check("geocode_cache_confidence_check", sql`${table.confidence} in (${enumSqlList(GEOCODE_CONFIDENCES)})`),
+    check("geocode_cache_coords_check", sql`(${table.latitude} is null) = (${table.longitude} is null)`)
   ]
 );

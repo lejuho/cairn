@@ -1,0 +1,16 @@
+{
+  "cycle": 73,
+  "pass": 2,
+  "kind": "fix",
+  "review": ".review/cycle-73/review-v1.md",
+  "createdAt": "2026-06-28T07:39:16Z",
+  "summary": "Resolved review-v1 (3 findings, all APPLY). ISSUE-1 [HIGH]: the shared EventGeocodeErrorSchema only accepted map-provider codes, so the route's VALIDATION_ERROR/NOT_FOUND/LOCATION_MISSING responses failed EventGeocodeResponseSchema. Fix: shared/src/maps.ts adds GEOCODE_ROUTE_ERROR_CODES + GeocodeErrorCodeSchema = z.enum([...MAP_ERROR_CODES, ...route codes]); shared test + a route integration test assert 400/404/409/200 all satisfy the response schema. ISSUE-2 [HIGH]: routes/geocoding.ts used parseInt (so /api/events/1abc/geocode was accepted as id 1) and ignored request bodies. Fix: the whole :id segment must match /^\\d+$/ and be >0; any request body or query parameter is rejected with 400 VALIDATION_ERROR via a hasContent() guard — the route geocodes only the event's own location. Tests: 1abc→400, body {address}→400, ?address=→400, each with no provider call + no cache write. ISSUE-3 [MEDIUM]: createMapGateway(config_error) exposes provider:'disabled', and the service pre-checked provider so config errors collapsed to disabled. Fix: services/geocoding.ts removes the provider==='disabled' pre-check; geocodeAddress now owns the disabled vs config_error mapping (the gateway already returns disabled for a disabled provider and config_error for a misconfig, both WITHOUT a fetch). A config-error gateway now returns 503 config_error (distinct from disabled); neither writes a cache row. Production change limited to shared/src/maps.ts (error enum), routes/geocoding.ts (validation), services/geocoding.ts (remove pre-check) — gateway, geocode_cache table, migration 0010, and the repository are unchanged; events.location still never rewritten; cycle-72 smoke route unchanged. RESOLVED appended below the sentinel. Committed c1dabd0.",
+  "checks": [
+    "corepack pnpm lint (PASS)",
+    "corepack pnpm typecheck (PASS)",
+    "corepack pnpm test (shared 431 / server 507 / web 485 — +1 shared route-error-code test)",
+    "corepack pnpm test:integration (706 — geocode route +4: config-error 503, 1abc→400, body/query→400, all-responses-satisfy-schema)",
+    "corepack pnpm build (web + server Done)",
+    "git diff --check master...HEAD (OK); ## RESOLVED count above sentinel = 0; fix limited to maps.ts/routes-geocoding.ts/services-geocoding.ts — gateway/table/migration/repo unchanged"
+  ]
+}

@@ -145,3 +145,100 @@ describe("createMapGateway (cycle-72)", () => {
     }
   });
 });
+
+describe("geocodeAddress (cycle-73)", () => {
+  function geo(status: string, results: unknown[] = []): Response {
+    return jsonResponse(200, { status, results });
+  }
+  const ROOFTOP = { formatted_address: "N Seoul Tower, Seoul", place_id: "place_123", geometry: { location: { lat: 37.55, lng: 126.98 }, location_type: "ROOFTOP" } };
+
+  it("disabled provider returns a scoped disabled error and does not fetch", async () => {
+    const f = vi.fn();
+    const gw = createMapGateway(DISABLED, { fetchImpl: f as unknown as typeof fetch });
+    expect(gw.provider).toBe("disabled");
+    const r = await gw.geocodeAddress("Seoul Tower");
+    expect(f).not.toHaveBeenCalled();
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.code).toBe("disabled");
+  });
+
+  it("exposes the configured provider id", () => {
+    expect(createMapGateway(GOOGLE).provider).toBe("google");
+  });
+
+  it("OK with one ROOFTOP result → resolved with coords, label, place id, high confidence", async () => {
+    const f = vi.fn(async () => geo("OK", [ROOFTOP]));
+    const r = await createMapGateway(GOOGLE, { fetchImpl: f as unknown as typeof fetch }).geocodeAddress("Seoul Tower");
+    expect(r.ok).toBe(true);
+    if (r.ok && r.outcome.status === "resolved") {
+      expect(r.outcome).toMatchObject({ latitude: 37.55, longitude: 126.98, displayLabel: "N Seoul Tower, Seoul", providerResultId: "place_123", confidence: "high", providerStatus: "OK" });
+      expect(r.outcome.uncertainty).toEqual({ locationType: "ROOFTOP", partialMatch: false });
+    } else {
+      throw new Error("expected resolved");
+    }
+  });
+
+  it("partial_match demotes confidence one notch", async () => {
+    const f = vi.fn(async () => geo("OK", [{ ...ROOFTOP, partial_match: true }]));
+    const r = await createMapGateway(GOOGLE, { fetchImpl: f as unknown as typeof fetch }).geocodeAddress("Seoul Tower");
+    if (r.ok && r.outcome.status === "resolved") expect(r.outcome.confidence).toBe("medium");
+  });
+
+  it("OK with multiple results → ambiguous with candidate labels and NO coordinate", async () => {
+    const f = vi.fn(async () => geo("OK", [ROOFTOP, { ...ROOFTOP, formatted_address: "Other Tower" }]));
+    const r = await createMapGateway(GOOGLE, { fetchImpl: f as unknown as typeof fetch }).geocodeAddress("Tower");
+    expect(r.ok).toBe(true);
+    if (r.ok && r.outcome.status === "ambiguous") {
+      expect(r.outcome.uncertainty.resultCount).toBe(2);
+      expect(r.outcome.uncertainty.candidateLabels).toEqual(["N Seoul Tower, Seoul", "Other Tower"]);
+      expect(r.outcome).not.toHaveProperty("latitude");
+    } else {
+      throw new Error("expected ambiguous");
+    }
+  });
+
+  it("ZERO_RESULTS → zero_results (no coordinate)", async () => {
+    const f = vi.fn(async () => geo("ZERO_RESULTS", []));
+    const r = await createMapGateway(GOOGLE, { fetchImpl: f as unknown as typeof fetch }).geocodeAddress("nowhere xyz");
+    if (r.ok) expect(r.outcome.status).toBe("zero_results");
+  });
+
+  it("INVALID_REQUEST → cacheable failed outcome (not a scoped error)", async () => {
+    const f = vi.fn(async () => geo("INVALID_REQUEST"));
+    const r = await createMapGateway(GOOGLE, { fetchImpl: f as unknown as typeof fetch }).geocodeAddress("???");
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.outcome.status).toBe("failed");
+  });
+
+  it("rate-limit / denied / unavailable provider statuses are scoped errors (not cached)", async () => {
+    const cases: [string, string][] = [["OVER_QUERY_LIMIT", "rate_limited"], ["OVER_DAILY_LIMIT", "denied"], ["REQUEST_DENIED", "denied"], ["UNKNOWN_ERROR", "unavailable"]];
+    for (const [status, code] of cases) {
+      const f = vi.fn(async () => geo(status));
+      const r = await createMapGateway(GOOGLE, { fetchImpl: f as unknown as typeof fetch, retryCount: 0 }).geocodeAddress("x");
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error.code).toBe(code);
+    }
+  });
+
+  it("HTTP 429 → rate_limited; bad JSON / shape → invalid_response", async () => {
+    const f429 = vi.fn(async () => jsonResponse(429, {}));
+    const r429 = await createMapGateway(GOOGLE, { fetchImpl: f429 as unknown as typeof fetch }).geocodeAddress("x");
+    if (!r429.ok) expect(r429.error.code).toBe("rate_limited");
+
+    const fBad = vi.fn(async () => ({ status: 200, ok: true, json: async () => { throw new Error("bad"); } } as unknown as Response));
+    const rBad = await createMapGateway(GOOGLE, { fetchImpl: fBad as unknown as typeof fetch }).geocodeAddress("x");
+    if (!rBad.ok) expect(rBad.error.code).toBe("invalid_response");
+  });
+
+  it("UNKNOWN_ERROR is retried (bounded)", async () => {
+    const f = vi.fn(async () => geo("UNKNOWN_ERROR"));
+    await createMapGateway(GOOGLE, { fetchImpl: f as unknown as typeof fetch, retryCount: 1 }).geocodeAddress("x");
+    expect(f).toHaveBeenCalledTimes(2);
+  });
+
+  it("scoped error surfaces never include the API key", async () => {
+    const f = vi.fn(async () => jsonResponse(200, { status: "REQUEST_DENIED", error_message: "key invalid: SECRET_KEY_123" }));
+    const r = await createMapGateway(GOOGLE, { fetchImpl: f as unknown as typeof fetch }).geocodeAddress("x");
+    if (!r.ok) expect(JSON.stringify(r.error)).not.toContain("SECRET_KEY_123");
+  });
+});
