@@ -1,0 +1,17 @@
+{
+  "cycle": 73,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-28T06:41:48Z",
+  "summary": "Geocoding Cache A (backend-only): authored event location text → SQLite geocode cache with preserved provenance/uncertainty. New geocode_cache table keyed by uniqueIndex (provider, normalized_location) with CHECKs (status∈resolved|ambiguous|zero_results|failed, confidence∈high|medium|low|unknown, coords both-present-or-both-null); additive migration 0010 (CREATE TABLE + unique index only, no existing-table rebuild); schema.integration.test list updated. The cycle-72 map gateway gains `provider` + `geocodeAddress(address)`: parses Google geocoding into provider-neutral GeocodeOutcome — OK&1-result→resolved (lat/lng, displayLabel=formatted_address, providerResultId=place_id, confidence from location_type+partial_match demotion, uncertainty {locationType,partialMatch}); OK&>1→ambiguous (resultCount, candidateLabels, NO coordinate); ZERO_RESULTS→zero_results; INVALID_REQUEST→failed (cacheable — documented intentional divergence from smoke's scoped invalid_request); OVER_QUERY_LIMIT/429→rate_limited, OVER_DAILY_LIMIT/REQUEST_DENIED→denied, UNKNOWN_ERROR/5xx/timeout→unavailable, bad JSON/shape→invalid_response (scoped errors, NOT cached). Static error messages; key/url/error_message never surfaced; smoke unchanged. maps/normalize.ts NFKC→trim→collapse→lowercase. repositories/geocode-cache.ts findGeocodeByKey + idempotent upsertGeocode (onConflict DO UPDATE, no provider calls). services/geocoding.ts: findEventById→404; blank→409 LOCATION_MISSING; disabled provider→503 disabled; single normalize → cache HIT (no provider call, no timestamp refresh) | MISS→geocodeAddress once→upsert ONE row | scoped error NO write; event.location never rewritten. routes/geocoding.ts POST /api/events/:id/geocode (no body/address, id→400; disabled/config_error/unavailable→503, denied/invalid_*→502, rate_limited→429), registered only when db+mapGateway. shared/src/maps.ts geocode schemas (typed uncertainty, response-only cacheStatus, +disabled code). No frontend/Today/feasibility/travel-time/cron. Committed 80ef8ee.",
+  "checks": [
+    "corepack pnpm db:generate (0010 = CREATE TABLE geocode_cache + unique index only)",
+    "corepack pnpm lint (PASS)",
+    "corepack pnpm typecheck (PASS)",
+    "corepack pnpm test (shared 430 / server 507 / web 485; +6 shared geocode, +13 gateway geocode)",
+    "corepack pnpm test:integration (702; +6 geocode-cache repo, +10 geocode route, +geocode_cache in schema table list)",
+    "corepack pnpm build (web + server Done)",
+    "git diff --check (OK); no web/ diff; no existing-table ALTER/rebuild; no key/raw payload/address_components surfaced (error_message only in comments + gateway-internal schema); provider HTTP path/googleapis fetch gateway-only; no travel-time/route-matrix/cron/autocomplete impl"
+  ]
+}
