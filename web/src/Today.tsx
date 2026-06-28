@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ConflictDecision, CreateThreadDraftResponseData, DayFeasibility, DomainFilter, EventDetailData, EventGeocodeData, EventMode, EventRow, FeasibilityParamLimits, FeasibilityParamSettingsData, FeasibilityParams, NeedsReviewPlacement, NotificationDraft, PreferredPeriod, ScheduleBrief, SlotCandidate, SlotSuggestionContribution, ThreadSummary, TodaySurface, UpdateFeasibilityParamsRequest, Weekday } from "@cairn/shared";
+import type { ConflictDecision, CreateThreadDraftResponseData, DayFeasibility, DomainFilter, EventDetailData, EventGeocodeData, EventMode, EventRow, FeasibilityParamLimits, FeasibilityParamSettingsData, FeasibilityParams, NeedsReviewPlacement, NotificationDraft, PreferredPeriod, ScheduleBrief, SlotCandidate, SlotSuggestionContribution, ThreadSummary, TodayEventLocationContext, TodaySurface, UpdateFeasibilityParamsRequest, Weekday } from "@cairn/shared";
 import { EventGeocodeResponseSchema, ResolveConflictResponseDataSchema } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString } from "./dateUtils.js";
 import { apiJson, type AccessSessionError } from "./api.js";
@@ -46,6 +46,43 @@ function mapSearchHref(data: EventGeocodeData): string {
 }
 
 const GEO_CONFIDENCE_LABEL: Record<string, string> = { high: "정확", medium: "보통", low: "대략", unknown: "불확실" };
+
+// Compact Today location context (cycle-75). Cache-only; renders a chip + an
+// optional external map link as a SIBLING of the card's title button (never
+// nested) so the card stays valid HTML and its existing tap target is untouched.
+function mapHrefForContext(c: TodayEventLocationContext): string {
+  const query =
+    c.status === "resolved" && c.latitude != null && c.longitude != null
+      ? `${c.latitude},${c.longitude}`
+      : (c.locationText ?? "");
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
+
+// Quiet status chip copy. `resolved` shows the confidence chip instead; `uncached`
+// is "not checked yet" (no map link — a link would imply a recognition we lack).
+const TODAY_LOC_STATUS_CHIP: Record<string, string> = { ambiguous: "확인 필요", zero_results: "찾지 못함", failed: "찾지 못함", uncached: "확인 안 함" };
+
+function TodayLocationChip({ context }: { context: TodayEventLocationContext | undefined }) {
+  if (!context || context.status === "missing") return null;
+  const c = context;
+  const label = c.status === "resolved" ? (c.displayLabel ?? c.locationText ?? "") : (c.locationText ?? "");
+  if (!label.trim()) return null;
+  const showMap = c.status !== "uncached";
+  return (
+    <div className="today-loc" data-testid={`today-loc-${c.eventId}`} data-status={c.status}>
+      <span className="today-loc-text">{label}</span>
+      {c.status === "resolved" && c.confidence && (
+        <span className="today-loc-chip" data-testid={`today-loc-confidence-${c.eventId}`}>{GEO_CONFIDENCE_LABEL[c.confidence] ?? c.confidence}</span>
+      )}
+      {TODAY_LOC_STATUS_CHIP[c.status] && (
+        <span className={`today-loc-chip today-loc-chip--quiet`}>{TODAY_LOC_STATUS_CHIP[c.status]}</span>
+      )}
+      {showMap && (
+        <a className="today-loc-map" href={mapHrefForContext(c)} target="_blank" rel="noopener noreferrer" aria-label={`${label} 지도에서 열기`}>지도</a>
+      )}
+    </div>
+  );
+}
 type DetailNoteState = { text: string; submitting: boolean; error: string | null };
 type SlotState =
   | { tag: "idle" }
@@ -2034,7 +2071,9 @@ export function Today() {
           onAdjust={() => void handleOpenFeasSettings(surface.feasibility.params)}
         />
         <ul className="today-stack" role="list">
-        {surface.cards.map((card, i) => {
+        {(() => {
+          const locContextById = new Map(surface.locationContexts.map((c) => [c.eventId, c]));
+          return surface.cards.map((card, i) => {
           const delay = { animationDelay: `${i * 55}ms` } as React.CSSProperties;
 
           if (card.kind === "conflict") {
@@ -2055,6 +2094,8 @@ export function Today() {
                     {card.pair.a.start?.slice(11, 16)} — {card.pair.b.end?.slice(11, 16)}
                   </p>
                 </button>
+                <TodayLocationChip context={locContextById.get(card.pair.a.id)} />
+                <TodayLocationChip context={locContextById.get(card.pair.b.id)} />
               </li>
             );
           }
@@ -2114,6 +2155,7 @@ export function Today() {
                     {card.event.start?.slice(11, 16)} — {card.event.end?.slice(11, 16)}
                   </p>
                 </button>
+                <TodayLocationChip context={locContextById.get(card.event.id)} />
               </li>
             );
           }
@@ -2157,6 +2199,7 @@ export function Today() {
                 >
                   {PLACEMENT_TEXT[card.placement.mode]}
                 </p>
+                <TodayLocationChip context={locContextById.get(card.event.id)} />
                 <form
                   className="today-reply-form"
                   onSubmit={(e) => {
@@ -2212,6 +2255,7 @@ export function Today() {
                 >
                   <span className="card-title">날짜 잡을까? — {card.event.title}</span>
                 </button>
+                <TodayLocationChip context={locContextById.get(card.event.id)} />
                 {ss.tag === "idle" && (
                   <button
                     className="today-slot-btn"
@@ -2342,7 +2386,8 @@ export function Today() {
           }
 
           return null;
-        })}
+          });
+        })()}
       </ul>
 
         {surface.dayEvents.length > 0 && (

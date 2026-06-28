@@ -342,6 +342,42 @@ p {
   color: var(--muted);
 }
 
+/* Compact Today card location context (cycle-75). Quiet, semantic tokens only;
+   must not dominate the card or read as an alert. Map link is 44px. */
+.today-loc {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.today-loc-text {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.today-loc-chip {
+  font-size: 0.68rem;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  color: var(--accent);
+}
+.today-loc-chip--quiet {
+  background: color-mix(in srgb, var(--muted) 16%, var(--surface));
+  color: var(--muted);
+}
+.today-loc-map {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 4px 12px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  color: var(--accent);
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+
 .event-brief {
   display: flex;
   flex-direction: column;

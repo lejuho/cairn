@@ -10,6 +10,9 @@ import { findThreadIdsByDomain, findThreadLinksAmong } from "../repositories/thr
 import { findEventDependencyLinks } from "../repositories/links.js";
 import { listNeedsReviewEvents } from "../services/needsReview.js";
 import { buildTodaySurface } from "../services/today.js";
+import { buildTodayLocationContexts } from "../services/today-location-context.js";
+import { findGeocodeByNormalizedSet } from "../repositories/geocode-cache.js";
+import { normalizeLocation } from "../maps/normalize.js";
 import { evaluateWatcherA } from "../services/watchers.js";
 import type { CairnDatabase } from "../db/index.js";
 
@@ -66,7 +69,22 @@ export function registerTodayRoute(app: FastifyInstance, db: CairnDatabase): voi
     const dependencyLinks = findEventDependencyLinks(db, dayEventIds(dayEvents, date));
     const feasibility = computeDayFeasibility(date, now, dayEvents, feasibilityParams, relations, dependencyLinks);
 
-    const surface = buildTodaySurface(date, now, dayEvents, twoMinuteTasks, watcherBubbles, needsReviewEvents, unscheduledEvents, dueTaskSchedulePrompts, feasibility);
+    // Cache-only location context (cycle-75). Read existing geocode_cache rows
+    // for the event-bearing rows (conflict pairs, next_event, schedule prompts all
+    // derive from these three sets) — NO provider call, NO geocode POST, NO write.
+    const contextEvents = [...dayEvents, ...needsReviewEvents, ...unscheduledEvents];
+    const normalizedKeys = [
+      ...new Set(
+        contextEvents
+          .map((e) => e.location)
+          .filter((l): l is string => l != null && l.trim().length > 0)
+          .map((l) => normalizeLocation(l))
+      )
+    ];
+    const cacheRows = findGeocodeByNormalizedSet(db, normalizedKeys);
+    const locationContexts = buildTodayLocationContexts(contextEvents, cacheRows);
+
+    const surface = buildTodaySurface(date, now, dayEvents, twoMinuteTasks, watcherBubbles, needsReviewEvents, unscheduledEvents, dueTaskSchedulePrompts, feasibility, locationContexts);
     return reply.send({ ok: true, data: surface });
   });
 }
