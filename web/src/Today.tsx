@@ -3,6 +3,7 @@ import type { ConflictDecision, CreateThreadDraftResponseData, DayFeasibility, D
 import { EventGeocodeResponseSchema, ResolveConflictResponseDataSchema } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString } from "./dateUtils.js";
 import { apiJson, type AccessSessionError } from "./api.js";
+import { naverSearchUrl, naverTransitDirectionsUrl } from "./naver-map-links.js";
 import { DomainFilterControl } from "./DomainFilter.js";
 import { ResultCard } from "./ResultCard.js";
 import { CreationComposer, type ComposerMode, type ComposerModeConfig } from "./CreationComposer.js";
@@ -34,15 +35,13 @@ async function fetchEventGeocode(id: number): Promise<ReturnType<typeof EventGeo
   return parsed.data;
 }
 
-// External map action — a public Google Maps search URL with ONLY encoded
-// coordinates (resolved) or authored location text. No API key, provider request
-// URL, or raw provider data ever appears here.
+// External map action — a public Naver Map search URL (cycle-77) with ONLY the
+// encoded display label / authored text. No API key, provider request URL, or
+// raw provider data ever appears here. Prefer the label; coordinates are a last
+// resort (Naver search is label-friendly).
 function mapSearchHref(data: EventGeocodeData): string {
-  const query =
-    data.status === "resolved" && data.latitude != null && data.longitude != null
-      ? `${data.latitude},${data.longitude}`
-      : data.locationText;
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+  const query = data.status === "resolved" ? (data.displayLabel ?? data.locationText) : data.locationText;
+  return naverSearchUrl(query);
 }
 
 const GEO_CONFIDENCE_LABEL: Record<string, string> = { high: "정확", medium: "보통", low: "대략", unknown: "불확실" };
@@ -51,11 +50,8 @@ const GEO_CONFIDENCE_LABEL: Record<string, string> = { high: "정확", medium: "
 // optional external map link as a SIBLING of the card's title button (never
 // nested) so the card stays valid HTML and its existing tap target is untouched.
 function mapHrefForContext(c: TodayEventLocationContext): string {
-  const query =
-    c.status === "resolved" && c.latitude != null && c.longitude != null
-      ? `${c.latitude},${c.longitude}`
-      : (c.locationText ?? "");
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+  const query = c.status === "resolved" ? (c.displayLabel ?? c.locationText ?? "") : (c.locationText ?? "");
+  return naverSearchUrl(query);
 }
 
 // Quiet status chip copy. `resolved` shows the confidence chip instead; `uncached`
@@ -306,12 +302,33 @@ function TransitionTravelLine({ travel }: { travel: NonNullable<DayFeasibility["
   );
 }
 
+// Best-effort Naver public-transit directions for an adjacent pair (cycle-77),
+// built ONLY from two already-resolved locationContexts with real coordinates.
+// Returns null (→ no link) for any missing/unresolved/coordinate-less endpoint;
+// it never calls Naver or affects travel/feasibility semantics.
+function transitionDirectionsHref(
+  fromId: number,
+  toId: number,
+  ctxById: Map<number, TodayEventLocationContext>
+): string | null {
+  const o = ctxById.get(fromId);
+  const d = ctxById.get(toId);
+  if (!o || !d || o.status !== "resolved" || d.status !== "resolved") return null;
+  if (o.latitude == null || o.longitude == null || d.latitude == null || d.longitude == null) return null;
+  return naverTransitDirectionsUrl(
+    { lat: o.latitude, lng: o.longitude, label: o.displayLabel ?? o.locationText },
+    { lat: d.latitude, lng: d.longitude, label: d.displayLabel ?? d.locationText }
+  );
+}
+
 function TransitionCostsSection({
   transitions,
-  events
+  events,
+  locationContexts = []
 }: {
   transitions: DayFeasibility["transitionCosts"];
   events: EventRow[];
+  locationContexts?: TodayEventLocationContext[];
 }) {
   // Show low/high/unknown transition rows, AND any pair carrying meaningful travel
   // evidence even when the thread transition cost is `none` (cycle-76 review-v1
@@ -322,6 +339,7 @@ function TransitionCostsSection({
   const shown = (transitions ?? []).filter((t) => t.costLevel !== "none" || hasMeaningfulTravel(t));
   if (shown.length === 0) return null;
   const titleOf = (id: number) => events.find((e) => e.id === id)?.title ?? "이벤트";
+  const ctxById = new Map(locationContexts.map((c) => [c.eventId, c]));
 
   return (
     <div className="feas-transitions" aria-label="맥락 전환">
@@ -340,6 +358,21 @@ function TransitionCostsSection({
             <span className="feas-transition-cost">전환 비용 {TRANSITION_COST_LABEL[t.costLevel]}</span>
             <span className="feas-transition-reason card-meta">{TRANSITION_RELATION_TEXT[t.relation]}</span>
             <TransitionTravelLine travel={t.travel} />
+            {(() => {
+              const href = transitionDirectionsHref(t.fromEventId, t.toEventId, ctxById);
+              return href ? (
+                <a
+                  className="feas-transition-directions"
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-testid="transition-directions"
+                  aria-label={`${titleOf(t.fromEventId)}에서 ${titleOf(t.toEventId)}까지 네이버 길찾기`}
+                >
+                  길찾기
+                </a>
+              ) : null;
+            })()}
           </li>
         ))}
       </ul>
@@ -515,7 +548,7 @@ function ScheduleBriefSection({ brief }: { brief: ScheduleBrief }) {
   );
 }
 
-function FeasibilityPanel({ f, events = [], onAdjust }: { f: DayFeasibility; events?: EventRow[]; onAdjust?: () => void }) {
+function FeasibilityPanel({ f, events = [], onAdjust, locationContexts = [] }: { f: DayFeasibility; events?: EventRow[]; onAdjust?: () => void; locationContexts?: TodayEventLocationContext[] }) {
   const { energy, gaps, continuous, transitionCosts, sequenceEnergy, sequenceOrder } = f;
   const pct = Math.min(100, Math.round((energy.loadUnits / energy.budgetUnits) * 100));
   const warningGaps = gaps.filter((g) => g.status !== "ok");
@@ -544,7 +577,7 @@ function FeasibilityPanel({ f, events = [], onAdjust }: { f: DayFeasibility; eve
           ⚠ 연속 {Math.round(continuous.spanMinutes)}분 — 쉬는 시간 없어
         </div>
       )}
-      <TransitionCostsSection transitions={transitionCosts} events={events} />
+      <TransitionCostsSection transitions={transitionCosts} events={events} locationContexts={locationContexts} />
       <SequenceEnergySection seq={sequenceEnergy} />
       <SequenceOrderSection order={sequenceOrder} events={events} />
       {onAdjust && (
@@ -2058,7 +2091,7 @@ export function Today() {
           {composerEl(true)}
           {composerResultCard}
           {composerError}
-          <FeasibilityPanel f={view.surface.feasibility} events={view.surface.dayEvents} />
+          <FeasibilityPanel f={view.surface.feasibility} events={view.surface.dayEvents} locationContexts={view.surface.locationContexts} />
         </main>
         {sheetEl}
         {eventDetailSheetEl}
@@ -2093,6 +2126,7 @@ export function Today() {
         <FeasibilityPanel
           f={surface.feasibility}
           events={surface.dayEvents}
+          locationContexts={surface.locationContexts}
           onAdjust={() => void handleOpenFeasSettings(surface.feasibility.params)}
         />
         <ul className="today-stack" role="list">

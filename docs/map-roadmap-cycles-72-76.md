@@ -1,6 +1,6 @@
 # Map API Roadmap: Cycles 72-76
 
-Status: Cycle 76 promoted and active; Cycles 72-75 merged
+Status: Cycles 72-76 implemented and merged
 Created: 2026-06-28
 
 This document concatenates the intended map/location integration roadmap for
@@ -189,7 +189,7 @@ quiet and functional.
 
 Branch when promoted: `feature/cycle-76-travel-time-transition-cost-a`
 Skills when promoted: `backend-fastify, frontend-react-pwa`
-Status: promoted + implemented 2026-06-28 (`.review/cycle-76/`). New SQLite
+Status: promoted + implemented + merged 2026-06-28 (`.review/cycle-76/`). New SQLite
 `travel_time_cache` (migration 0011) keyed by (provider, mode, origin, dest); the
 map gateway gains a server-only `travelTime` (Distance Matrix) method. A
 route-level `buildDayTravelFacts` resolves adjacent scheduled pairs to geocode
@@ -248,6 +248,5 @@ Before promoting a roadmap section to a real cycle:
   persistence work;
 - do not implement later map cycles inside an earlier cycle.
 
-Cycle 76 is promoted. No later unpromoted cycle remains in this 72-76 roadmap;
-choose the next roadmap source after Cycle 76 is implemented, verified, and
-merged.
+Cycles 72-76 are complete. The next roadmap source is
+`docs/naver-directions-roadmap-cycles-77-79.md`.
