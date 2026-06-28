@@ -1,6 +1,6 @@
 # Map API Roadmap: Cycles 72-76
 
-Status: Cycle 75 promoted and active; Cycles 72-74 merged; cycle 76 remains a roadmap candidate
+Status: Cycle 76 promoted and active; Cycles 72-75 merged
 Created: 2026-06-28
 
 This document concatenates the intended map/location integration roadmap for
@@ -148,7 +148,7 @@ keeps the authored location visible and honest.
 
 Branch when promoted: `feature/cycle-75-today-location-context-a`
 Skills when promoted: `frontend-react-pwa, backend-fastify`
-Status: promoted + implemented 2026-06-28 (`.review/cycle-75/`). `GET /api/today`
+Status: promoted + implemented + merged 2026-06-28 (`.review/cycle-75/`). `GET /api/today`
 now attaches a cache-only `locationContexts` array (read from the cycle-73
 `geocode_cache`, never a provider/geocode call) keyed by event id, with
 missing/uncached/resolved/ambiguous/zero_results/failed status. Today cards
@@ -189,6 +189,8 @@ quiet and functional.
 
 Branch when promoted: `feature/cycle-76-travel-time-transition-cost-a`
 Skills when promoted: `backend-fastify, frontend-react-pwa`
+Status: promoted 2026-06-28 (`.review/cycle-76/`). Travel-time / transition
+cost planning only; implementation pending.
 
 ### Goal
 
@@ -235,5 +237,6 @@ Before promoting a roadmap section to a real cycle:
   persistence work;
 - do not implement later map cycles inside an earlier cycle.
 
-Cycle 75 is promoted. The next eligible unpromoted cycle is Cycle 76 after
-Cycle 75 is implemented, verified, and merged.
+Cycle 76 is promoted. No later unpromoted cycle remains in this 72-76 roadmap;
+choose the next roadmap source after Cycle 76 is implemented, verified, and
+merged.
