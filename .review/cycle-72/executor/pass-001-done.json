@@ -1,0 +1,16 @@
+{
+  "cycle": 72,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-28T05:40:07Z",
+  "summary": "Map Provider Boundary A (backend-only): server-side map provider gateway (Google Geocoding) behind one boundary + a no-DB diagnostic smoke route. shared/src/maps.ts = provider-neutral diagnostic schema (MapProviderSmokeData {provider, configured, attempted, reachable, status∈disabled|ok|zero_results, resultCount}, MapErrorCode config_error/rate_limited/denied/invalid_request/invalid_response/unavailable) — no coords/raw payload. server/src/maps/config.ts readMapConfig(env) → discriminated result: disabled (default) | google {baseUrl(def https://maps.googleapis.com), apiKey(trim), timeoutMs(clamp 1000-15000)} | config_error (unknown provider id, or google with blank/missing MAP_PROVIDER_API_KEY). server/src/maps/gateway.ts createMapGateway(configResult,{fetchImpl?,retryCount?}) → single boundary {smoke()}: disabled→success no-fetch; config_error→failure; google→server-side fetch GET Geocoding with fixed smoke address + server key, fresh AbortController per attempt, bounded retry ONLY for unavailable. Provider status authoritative over HTTP 200: OK→ok/count, ZERO_RESULTS→zero_results/0, OVER_QUERY_LIMIT/HTTP429→rate_limited, OVER_DAILY_LIMIT/REQUEST_DENIED→denied, INVALID_REQUEST→invalid_request(no retry), UNKNOWN_ERROR/5xx/timeout/conn→unavailable(retry), bad JSON/shape/unknown→invalid_response. Error messages STATIC — API key, full URL, and provider error_message never leak (Fastify logger:false, no logger in gateway). server/src/routes/maps.ts GET /api/maps/provider-smoke (no DB, no body, no address param — fixed smoke query, not the cycle-73 geocoder) → 200 {ok,data} / 500 config_error / 502 others; parsed through MapProviderSmokeDataSchema. app.ts buildServer(db?,gateway?,mapGateway?) registers it OUTSIDE if(db); back-compat (no mapGateway→404). index.ts builds the map gateway from env unconditionally (default disabled). Mirrors the LLM gateway pattern. No DB/migration/schema/repository/frontend/Today/feasibility/travel-time/cache; LLM gateway+env unchanged. Committed 75fca01.",
+  "checks": [
+    "corepack pnpm lint (PASS)",
+    "corepack pnpm typecheck (PASS)",
+    "corepack pnpm test (server 496 incl. +26 maps: config 8 / gateway 13 / route 5; web 485; shared 424)",
+    "corepack pnpm test:integration (686)",
+    "corepack pnpm build (web + server Done)",
+    "git diff --check (OK); no web/drizzle/schema.ts/repositories diff; secret grep empty (no public MAP key env, no key= in committed URLs); cycle-73+ scope matches only in roadmap doc; MAP_PROVIDER/googleapis refs only in server/src/maps/*"
+  ]
+}
