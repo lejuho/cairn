@@ -81,7 +81,12 @@ export const TransitionTravelSchema = z
     mode: z.string().nullable(),
     ageMinutes: z.number().nullable(),
     reasonCodes: z.array(z.string()),
-    source: TravelEvidenceSourceSchema.optional()
+    source: TravelEvidenceSourceSchema.optional(),
+    // Optional user-authored manual transit detail (cycle-80), meaningful only for
+    // a `pinned_user` fact (e.g. "9호선 1정거장"). Explanatory context only — it
+    // never affects gap math. Back-compatible + `.strict` still rejects route-step
+    // / fare / provider raw fields.
+    note: z.string().max(200).nullable().optional()
   })
   .strict();
 

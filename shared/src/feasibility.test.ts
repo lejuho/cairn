@@ -352,3 +352,27 @@ describe("TransitionTravel source provenance (cycle-78)", () => {
     expect(TransitionCostSchema.safeParse({ ...BASE_COST, travel: { ...PINNED, source: "scraped" } }).success).toBe(false);
   });
 });
+
+describe("TransitionTravel manual note (cycle-80)", () => {
+  const BASE_COST = {
+    fromEventId: 1, toEventId: 2, fromThreadId: null, toThreadId: null,
+    relation: "missing_thread" as const, costLevel: "unknown" as const, reasonCodes: ["transition_missing_thread"]
+  };
+  const PINNED = {
+    status: "fresh" as const, durationMinutes: 8, distanceMeters: null, provider: null,
+    providerStatus: null, mode: "public_transit", ageMinutes: null, reasonCodes: ["travel_pinned_transit"], source: "pinned_user" as const
+  };
+  it("accepts a pinned travel fact carrying a manual note", () => {
+    expect(TransitionCostSchema.safeParse({ ...BASE_COST, travel: { ...PINNED, note: "9호선 1정거장" } }).success).toBe(true);
+    expect(TransitionCostSchema.safeParse({ ...BASE_COST, travel: { ...PINNED, note: null } }).success).toBe(true);
+  });
+  it("stays back-compatible with an existing payload that omits note", () => {
+    expect(TransitionCostSchema.safeParse({ ...BASE_COST, travel: PINNED }).success).toBe(true);
+  });
+  it("rejects a too-long note and injected route-step/provider fields (strict)", () => {
+    expect(TransitionCostSchema.safeParse({ ...BASE_COST, travel: { ...PINNED, note: "x".repeat(201) } }).success).toBe(false);
+    for (const inject of [{ subwayLine: "9호선" }, { busRoute: "146" }, { fare: 1250 }, { arrival: "10:00" }, { steps: [] }]) {
+      expect(TransitionCostSchema.safeParse({ ...BASE_COST, travel: { ...PINNED, ...inject } }).success).toBe(false);
+    }
+  });
+});

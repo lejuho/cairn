@@ -1,6 +1,6 @@
 # Naver Directions Roadmap: Cycles 77-80
 
-Status: Cycle 79 promoted and active; Cycles 77-78 merged; Cycle 80 candidate
+Status: Cycle 80 promoted and active; Cycles 77-79 merged
 Created: 2026-06-28
 Note: filename retained for existing references; this roadmap now extends
 through Cycle 80.
@@ -123,7 +123,7 @@ manual travel fact for feasibility while still making the provenance visible.
 
 Branch when promoted: `feature/cycle-79-naver-place-search-a`
 Skills when promoted: `backend-fastify, frontend-react-pwa`
-Status: promoted + implemented 2026-06-28 (`.review/cycle-79/`). New SERVER-side
+Status: promoted + implemented + merged 2026-06-28 (`.review/cycle-79/`). New SERVER-side
 Naver local-search boundary: `server/src/naver/place-search-config.ts` (env,
 disabled default) + `place-search-gateway.ts` (header-auth fetch to
 openapi.naver.com, bounded timeout/retry, sanitizes HTML highlights + entities,
@@ -133,7 +133,7 @@ DB, no write); credentials/raw payload/coordinates never reach shared/frontend.
 Event detail adds a "네이버 후보" action with loading/quiet/live/error states;
 choosing a candidate explicitly PATCHes ONLY `events.location` via the existing
 thread-node route, then re-runs the geocode preview — no geocode-cache/pinned-fact
-write, no auto-save, no LLM. Cycle 80 (manual transit detail) stays candidate.
+write, no auto-save, no LLM. Cycle 80 is promoted next for manual transit detail.
 
 ### Goal
 
@@ -166,32 +166,45 @@ but does not create automatic route decisions.
 
 Branch when promoted: `feature/cycle-80-manual-transit-detail-capture-a`
 Skills when promoted: `frontend-react-pwa, backend-fastify`
-Status: candidate
+Status: promoted + implemented 2026-06-28 (`.review/cycle-80/`). Surfaces the
+EXISTING `pinned_transit_facts.note` (cycle-78) through the travel evidence and UI
+— no new table/route/migration. `TransitionTravelSchema` gains an optional
+`note` (`.strict`, ≤200, back-compat); `travel-time.ts pinnedEvidence` carries
+`p.note` (blank→null) ONLY for pinned facts (provider/cache evidence never sets a
+note key). Today transition rows render "고정 이동 약 N분 · <note>" gated on
+`source==="pinned_user"` + nonblank note, and the "고정 이동시간 수정" form
+pre-fills duration + note from the current pinned evidence (a new pin stays
+blank). The note is explanatory only — gap math/sequence energy/ordering are
+unchanged. No Naver API/scrape/route-step parse, schedule mutation, or LLM. The
+77-80 Naver roadmap is complete.
 
 ### Goal
 
-Let the user record a manually confirmed transit summary from Naver Map without
-scraping or provider-side ingestion.
+Make the existing pinned transit `note` visible and editable as manually
+confirmed transit detail from Naver Map, without scraping or provider-side
+ingestion.
 
 ### Scope
 
-- Add an explicit user-entered transit note or lightweight event transition
-  annotation such as "9호선 1정거장, 약 8분".
-- Keep the note clearly user-authored, separate from provider-fetched travel
-  facts.
-- Show the note next to transition travel evidence when present.
+- Reuse the existing Cycle 78 `pinned_transit_facts.note` storage and
+  `PUT /api/transit-facts/pair` route.
+- Propagate pinned note into `TransitionTravel` only for `source:"pinned_user"`.
+- Show the note next to pinned transition travel evidence when present.
+- Prefill the existing pinned transit edit form with current duration and note.
 
 Out of scope:
 
 - Scraping Naver route pages.
 - Automatic transport-mode inference.
+- New DB table or migration.
 - Schedule mutation or route optimization.
 
 ### Expected Behavior
 
 After opening Naver Map externally, the user can store a short human-confirmed
-summary in Cairn. That summary is provenance-labeled as user-authored and does
-not masquerade as live provider data.
+summary in the existing pinned transit note. That summary appears next to the
+pinned duration, stays provenance-labeled as user-authored, and does not
+masquerade as live provider data.
 
 ## Promotion Rules
 
@@ -204,5 +217,5 @@ Before promoting a roadmap section to a real cycle:
 - keep Naver credentials server-side when a future cycle adds Naver APIs;
 - define static negative checks that prevent scraping, route-result storage, and
   hidden schedule mutation;
-- do not implement the later manual-transit capture cycle inside the place-search
-  cycle.
+- do not introduce route scraping, hidden schedule mutation, or provider route
+  result ingestion inside the manual-transit detail cycle.
