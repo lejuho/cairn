@@ -2036,6 +2036,27 @@ describe("Today — feasibility panel", () => {
     expect(line).toHaveTextContent("8.2km");
   });
 
+  // ── manual transit detail note (cycle-80) ────────────────────────────────────
+  it("renders the pinned duration + manual note for a pinned_user fact", async () => {
+    renderWithTravel({ status: "fresh", durationMinutes: 8, distanceMeters: null, provider: null, providerStatus: null, mode: "public_transit", ageMinutes: null, reasonCodes: ["travel_pinned_transit"], source: "pinned_user", note: "9호선 1정거장" });
+    const line = await screen.findByTestId("travel-line");
+    expect(line).toHaveTextContent("고정 이동 약 8분");
+    expect(screen.getByTestId("travel-detail")).toHaveTextContent("9호선 1정거장");
+  });
+
+  it("renders no detail line for a pinned fact with a blank/absent note", async () => {
+    renderWithTravel({ status: "fresh", durationMinutes: 8, distanceMeters: null, provider: null, providerStatus: null, mode: "public_transit", ageMinutes: null, reasonCodes: ["travel_pinned_transit"], source: "pinned_user", note: "   " });
+    await screen.findByTestId("travel-line");
+    expect(screen.queryByTestId("travel-detail")).not.toBeInTheDocument();
+  });
+
+  it("does NOT render a manual note on provider travel evidence (provenance gate)", async () => {
+    renderWithTravel({ status: "fresh", durationMinutes: 24, distanceMeters: null, provider: "google", providerStatus: "OK", mode: "drive", ageMinutes: 5, reasonCodes: ["travel_fresh"], note: "주입된 메모" });
+    const line = await screen.findByTestId("travel-line");
+    expect(line).toHaveTextContent("이동 약 24분");
+    expect(screen.queryByTestId("travel-detail")).not.toBeInTheDocument();
+  });
+
   it("renders stale / unavailable / missing travel quietly (no alarm role)", async () => {
     const cases: [string, string, number | null][] = [["stale", "오래된 추정", 24], ["unavailable", "이동 시간 미확인", null], ["missing_geocode", "위치 좌표 없음", null]];
     for (const [status, text, dur] of cases) {
@@ -3905,6 +3926,25 @@ describe("Today — pinned transit fact (cycle-78)", () => {
     const line = await screen.findByTestId("travel-line");
     expect(line).toHaveTextContent("고정 이동 약 12분");
     expect(line).toHaveAttribute("data-source", "pinned_user");
+  });
+
+  it("prefills the edit form with the current pinned duration and note (cycle-80)", async () => {
+    const pinned = { status: "fresh", durationMinutes: 12, distanceMeters: null, provider: null, providerStatus: null, mode: "public_transit", ageMinutes: null, reasonCodes: ["travel_pinned_transit"], source: "pinned_user", note: "2호선 3정거장" };
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) =>
+      Promise.resolve({ ok: true, status: 200, redirected: false, url: "", headers: new Headers({ "content-type": "application/json" }), json: () => Promise.resolve({ ok: true, data: typeof url === "string" && url.includes("/api/today") ? surfaceWith(pinned) : [] }) })
+    ));
+    render(<Today />);
+    fireEvent.click(await screen.findByLabelText("회의→운동 고정 이동시간 입력"));
+    expect((await screen.findByLabelText("이동 시간(분)") as HTMLInputElement).value).toBe("12");
+    expect((screen.getByLabelText("메모(선택)") as HTMLInputElement).value).toBe("2호선 3정거장");
+  });
+
+  it("keeps the add form blank when no pinned fact exists (cycle-80)", async () => {
+    mockPin(); // surfaceWith() → no travel → blank add flow
+    render(<Today />);
+    fireEvent.click(await screen.findByLabelText("회의→운동 고정 이동시간 입력"));
+    expect((await screen.findByLabelText("이동 시간(분)") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("메모(선택)") as HTMLInputElement).value).toBe("");
   });
 
   it("opens the form, PUTs event ids + duration (no coordinates), and refreshes Today on success", async () => {

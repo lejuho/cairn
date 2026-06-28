@@ -1921,6 +1921,13 @@ p {
   font-weight: 600;
 }
 
+/* Manual transit detail note (cycle-80). Quiet, provenance-consistent context
+   next to the pinned duration; semantic tokens, no alarm/new palette. */
+.feas-travel-detail {
+  font-weight: 400;
+  color: var(--muted);
+}
+
 /* Travel-time copy (cycle-76). Additive + quiet; no alarm styling for
    unknown/unavailable/missing. `fresh` reads as the active estimate. */
 .feas-travel {

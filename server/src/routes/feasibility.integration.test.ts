@@ -779,8 +779,8 @@ describe("travel-time evidence on /api/feasibility/day + preview", () => {
     expect(travelCount(conn)).toBe(0); // transient failure is never cached
   });
 
-  function seedPinned(conn: SqliteConnection, originNorm: string, destNorm: string, durationMin: number): void {
-    conn.sqlite.prepare("INSERT INTO pinned_transit_facts (origin_normalized, dest_normalized, origin_lat, origin_lng, dest_lat, dest_lng, mode, duration_minutes, source) VALUES (?,?,37.5,127,37.6,127.1,'public_transit',?,'pinned_user')").run(originNorm, destNorm, durationMin);
+  function seedPinned(conn: SqliteConnection, originNorm: string, destNorm: string, durationMin: number, note: string | null = null): void {
+    conn.sqlite.prepare("INSERT INTO pinned_transit_facts (origin_normalized, dest_normalized, origin_lat, origin_lng, dest_lat, dest_lng, mode, duration_minutes, note, source) VALUES (?,?,37.5,127,37.6,127.1,'public_transit',?,?,'pinned_user')").run(originNorm, destNorm, durationMin, note);
   }
   const pinnedCount = (conn: SqliteConnection) => (conn.sqlite.prepare("SELECT count(*) AS n FROM pinned_transit_facts").get() as { n: number }).n;
 
@@ -798,6 +798,19 @@ describe("travel-time evidence on /api/feasibility/day + preview", () => {
     expect(data.transitionCosts[0].travel).toMatchObject({ status: "fresh", source: "pinned_user", durationMinutes: 30, provider: null });
     expect(data.gaps[0].requiredMinutes).toBe(45); // 15 + round(30 * travelMargin 1)
     expect(data.gaps[0].reasonCodes).toContain("gap_travel_pinned_included");
+  });
+
+  it("surfaces a pinned fact's manual note in transition travel while the gap stays duration-only (cycle-80)", async () => {
+    const conn = makeTestDb();
+    insertLocEvent(conn, "2026-06-20T09:00:00+00:00", "2026-06-20T10:00:00+00:00", "Alpha");
+    insertLocEvent(conn, "2026-06-20T11:00:00+00:00", "2026-06-20T12:00:00+00:00", "Beta");
+    seedGeo(conn, "alpha", 37.5, 127.0);
+    seedGeo(conn, "beta", 37.6, 127.1);
+    seedPinned(conn, "alpha", "beta", 30, "9호선 1정거장");
+    const data = (await get(conn, "2026-06-19T23:30:00+00:00")).json().data;
+    expect(data.transitionCosts[0].travel).toMatchObject({ source: "pinned_user", durationMinutes: 30, note: "9호선 1정거장" });
+    // The note is explanatory only — the gap requirement is still duration*margin.
+    expect(data.gaps[0].requiredMinutes).toBe(45);
   });
 
   it("preview reads pinned facts but writes none (cycle-78)", async () => {

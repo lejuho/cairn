@@ -316,9 +316,13 @@ function TransitionTravelLine({ travel }: { travel: NonNullable<DayFeasibility["
   else if (travel.status === "stale" && mins != null) text = `이동 약 ${mins}분 · 오래된 추정`;
   else if (travel.status === "missing_geocode") text = "위치 좌표 없음";
   else text = "이동 시간 미확인";
+  // Manual transit detail (cycle-80) — a quiet, provenance-consistent context line
+  // shown ONLY for a pinned_user fact with a nonblank note (never provider data).
+  const note = pinned && travel.note != null && travel.note.trim().length > 0 ? travel.note.trim() : null;
   return (
     <span className={`feas-travel feas-travel--${travel.status}${pinned ? " feas-travel--pinned" : ""}`} data-testid="travel-line" data-travel={travel.status} data-source={travel.source ?? "provider"}>
       {text}
+      {note && <span className="feas-travel-detail" data-testid="travel-detail"> · {note}</span>}
     </span>
   );
 }
@@ -348,7 +352,7 @@ function transitionDirectionsHref(
 type PinFormState = { fromEventId: number; toEventId: number; duration: string; note: string; submitting: boolean; error: string | null };
 type PinController = {
   form: PinFormState | null;
-  open: (fromEventId: number, toEventId: number) => void;
+  open: (fromEventId: number, toEventId: number, prefill?: { duration: string; note: string }) => void;
   change: (field: "duration" | "note", value: string) => void;
   submit: () => void;
   close: () => void;
@@ -413,7 +417,15 @@ function TransitionCostsSection({
                 <button
                   type="button"
                   className="feas-transition-pin-btn"
-                  onClick={() => pin.open(t.fromEventId, t.toEventId)}
+                  onClick={() => pin.open(
+                    t.fromEventId,
+                    t.toEventId,
+                    // Editing an existing pinned fact pre-fills duration + note from
+                    // the current pinned evidence (cycle-80); a new pin stays blank.
+                    t.travel?.source === "pinned_user"
+                      ? { duration: t.travel.durationMinutes != null ? String(Math.round(t.travel.durationMinutes)) : "", note: t.travel.note ?? "" }
+                      : undefined
+                  )}
                   aria-label={`${titleOf(t.fromEventId)}→${titleOf(t.toEventId)} 고정 이동시간 입력`}
                 >
                   {t.travel?.source === "pinned_user" ? "고정 이동시간 수정" : "고정 이동시간"}
@@ -1595,7 +1607,7 @@ export function Today() {
   // so the pinned duration flows into gap math.
   const pinController = useMemo<PinController>(() => ({
     form: pinForm,
-    open: (fromEventId: number, toEventId: number) => setPinForm({ fromEventId, toEventId, duration: "", note: "", submitting: false, error: null }),
+    open: (fromEventId: number, toEventId: number, prefill?: { duration: string; note: string }) => setPinForm({ fromEventId, toEventId, duration: prefill?.duration ?? "", note: prefill?.note ?? "", submitting: false, error: null }),
     change: (field, value) => setPinForm((p) => (p ? { ...p, [field]: value } : p)),
     close: () => setPinForm(null),
     submit: () => {

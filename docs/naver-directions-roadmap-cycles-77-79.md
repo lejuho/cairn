@@ -166,7 +166,17 @@ but does not create automatic route decisions.
 
 Branch when promoted: `feature/cycle-80-manual-transit-detail-capture-a`
 Skills when promoted: `frontend-react-pwa, backend-fastify`
-Status: promoted + active 2026-06-28 (`.review/cycle-80/`)
+Status: promoted + implemented 2026-06-28 (`.review/cycle-80/`). Surfaces the
+EXISTING `pinned_transit_facts.note` (cycle-78) through the travel evidence and UI
+— no new table/route/migration. `TransitionTravelSchema` gains an optional
+`note` (`.strict`, ≤200, back-compat); `travel-time.ts pinnedEvidence` carries
+`p.note` (blank→null) ONLY for pinned facts (provider/cache evidence never sets a
+note key). Today transition rows render "고정 이동 약 N분 · <note>" gated on
+`source==="pinned_user"` + nonblank note, and the "고정 이동시간 수정" form
+pre-fills duration + note from the current pinned evidence (a new pin stays
+blank). The note is explanatory only — gap math/sequence energy/ordering are
+unchanged. No Naver API/scrape/route-step parse, schedule mutation, or LLM. The
+77-80 Naver roadmap is complete.
 
 ### Goal
 

@@ -149,6 +149,36 @@ describe("buildDayTravelFacts (cycle-76)", () => {
     expect(travelCount()).toBe(0); // and writes no travel cache row
   });
 
+  it("propagates a pinned fact's manual note into the pinned travel evidence (cycle-80)", async () => {
+    const { gw } = fakeGateway();
+    seedGeo("a", 37.50, 127.00);
+    seedGeo("b", 37.60, 127.10);
+    const pinned = new Map([["a|b", {
+      id: 1, originNormalized: "a", destNormalized: "b", originLabel: "A", destLabel: "B",
+      originLat: 37.5, originLng: 127, destLat: 37.6, destLng: 127.1, mode: "public_transit",
+      durationMinutes: 8, note: "  9호선 1정거장  ", source: "pinned_user", active: 1, createdAt: null, updatedAt: null, lastConfirmedAt: null
+    }]]);
+    const facts = await buildDayTravelFacts(conn.db, gw, [ev(1, "a", 9), ev(2, "b", 10)], PARAMS, NOW, { allowProvider: true }, pinned);
+    expect(facts.get(key(1, 2))!.note).toBe("9호선 1정거장"); // trimmed
+  });
+
+  it("treats a blank pinned note as null and gives provider evidence NO note key (cycle-80)", async () => {
+    const { gw } = fakeGateway();
+    seedGeo("a", 37.50, 127.00);
+    seedGeo("b", 37.60, 127.10);
+    const pinned = new Map([["a|b", {
+      id: 1, originNormalized: "a", destNormalized: "b", originLabel: "A", destLabel: "B",
+      originLat: 37.5, originLng: 127, destLat: 37.6, destLng: 127.1, mode: "public_transit",
+      durationMinutes: 8, note: "   ", source: "pinned_user", active: 1, createdAt: null, updatedAt: null, lastConfirmedAt: null
+    }]]);
+    const pinnedFacts = await buildDayTravelFacts(conn.db, gw, [ev(1, "a", 9), ev(2, "b", 10)], PARAMS, NOW, { allowProvider: true }, pinned);
+    expect(pinnedFacts.get(key(1, 2))!.note).toBeNull(); // blank → null
+
+    // Provider (cache-miss) evidence never carries a note key at all.
+    const provider = await buildDayTravelFacts(conn.db, gw, [ev(1, "a", 9), ev(2, "b", 10)], PARAMS, NOW, { allowProvider: true });
+    expect(Object.prototype.hasOwnProperty.call(provider.get(key(1, 2))!, "note")).toBe(false);
+  });
+
   it("dedupes identical location pairs → one provider call for a repeated pair", async () => {
     const { gw, calls } = fakeGateway();
     seedGeo("a", 37.50, 127.00);

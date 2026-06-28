@@ -216,6 +216,9 @@ function fromCachedDuration(status: "fresh" | "stale", row: TravelCacheRow, mode
 // labeled `pinned_user` with provider:null — it feeds the same gap math as a
 // fresh provider fact while the UI/gap reasons keep it distinct.
 function pinnedEvidence(p: PinnedTransitRow): TransitionTravel {
+  // Carry the user-authored manual detail note (cycle-80); blank/whitespace → null.
+  // Only pinned evidence carries a note — provider/cache evidence never sets it.
+  const note = p.note != null && p.note.trim().length > 0 ? p.note.trim() : null;
   return {
     status: "fresh",
     durationMinutes: p.durationMinutes,
@@ -225,7 +228,8 @@ function pinnedEvidence(p: PinnedTransitRow): TransitionTravel {
     mode: p.mode,
     ageMinutes: null,
     reasonCodes: ["travel_pinned_transit"],
-    source: "pinned_user"
+    source: "pinned_user",
+    note
   };
 }
 
