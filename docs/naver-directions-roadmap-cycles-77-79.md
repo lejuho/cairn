@@ -123,7 +123,17 @@ manual travel fact for feasibility while still making the provenance visible.
 
 Branch when promoted: `feature/cycle-79-naver-place-search-a`
 Skills when promoted: `backend-fastify, frontend-react-pwa`
-Status: promoted + active 2026-06-28 (`.review/cycle-79/`)
+Status: promoted + implemented 2026-06-28 (`.review/cycle-79/`). New SERVER-side
+Naver local-search boundary: `server/src/naver/place-search-config.ts` (env,
+disabled default) + `place-search-gateway.ts` (header-auth fetch to
+openapi.naver.com, bounded timeout/retry, sanitizes HTML highlights + entities,
+http(s)-only link with a Naver-search fallback, DROPS mapx/mapy). `GET
+/api/places/naver?query=` returns ≤5 sanitized provider-neutral candidates (no
+DB, no write); credentials/raw payload/coordinates never reach shared/frontend.
+Event detail adds a "네이버 후보" action with loading/quiet/live/error states;
+choosing a candidate explicitly PATCHes ONLY `events.location` via the existing
+thread-node route, then re-runs the geocode preview — no geocode-cache/pinned-fact
+write, no auto-save, no LLM. Cycle 80 (manual transit detail) stays candidate.
 
 ### Goal
 

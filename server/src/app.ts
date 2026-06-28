@@ -4,6 +4,8 @@ import type { CairnDatabase } from "./db/index.js";
 import type { LlmGateway } from "./llm/gateway.js";
 import type { MapGateway } from "./maps/gateway.js";
 import { registerMapRoutes } from "./routes/maps.js";
+import type { PlaceSearchGateway } from "./naver/place-search-gateway.js";
+import { registerPlaceSearchRoutes } from "./routes/place-search.js";
 import { registerGeocodingRoutes } from "./routes/geocoding.js";
 import { registerAnnotationRoutes } from "./routes/annotations.js";
 import { registerCaptureRoutes } from "./routes/capture.js";
@@ -23,7 +25,7 @@ import { registerRelationRoutes } from "./routes/relations.js";
 import { registerTransitFactsRoutes } from "./routes/transit-facts.js";
 import { registerResourceRoutes } from "./routes/resources.js";
 
-export function buildServer(db?: CairnDatabase, gateway?: LlmGateway, mapGateway?: MapGateway): FastifyInstance {
+export function buildServer(db?: CairnDatabase, gateway?: LlmGateway, mapGateway?: MapGateway, placeSearchGateway?: PlaceSearchGateway): FastifyInstance {
   const app = Fastify({
     logger: false
   });
@@ -41,6 +43,11 @@ export function buildServer(db?: CairnDatabase, gateway?: LlmGateway, mapGateway
   // Map provider boundary (cycle-72): registered without a DB — diagnostics only.
   if (mapGateway) {
     registerMapRoutes(app, mapGateway);
+  }
+  // Naver place-search boundary (cycle-79): registered without a DB — a read-only
+  // provider boundary, no persistence.
+  if (placeSearchGateway) {
+    registerPlaceSearchRoutes(app, placeSearchGateway);
   }
 
   if (db) {

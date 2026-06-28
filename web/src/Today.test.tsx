@@ -3947,3 +3947,82 @@ describe("Today — pinned transit fact (cycle-78)", () => {
     expect(screen.getByTestId("pin-transit-1-2")).toBeInTheDocument(); // Today still rendered
   });
 });
+
+describe("Today — Naver place search (cycle-79)", () => {
+  const EVENT = { id: 42, title: "팀 스프린트", start: "2026-06-20T10:00:00+09:00", end: "2026-06-20T11:00:00+09:00", threadId: null, type: null, location: "서울타워", mode: null, source: "cairn" as const, selfImposed: 1, status: "planned" as const, createdAt: null, updatedAt: null };
+  const DETAIL: EventDetailData = { event: EVENT, people: [], annotations: [], thread: null, scheduleBrief: { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], preparations: [], preparationSuggestions: [], reasonCodes: [] } };
+  const SURFACE: TodaySurface = { ...BASE_SURFACE, state: "live", cards: [{ kind: "next_event", event: EVENT }] };
+  const GEO = { eventId: 42, provider: "google", locationText: "서울타워", normalizedLocation: "서울타워", cacheStatus: "miss", status: "resolved", latitude: 37.55, longitude: 126.98, displayLabel: "N Seoul Tower", providerResultId: "p1", confidence: "high", providerStatus: "OK", uncertainty: null, createdAt: "t", updatedAt: null, lastCheckedAt: "t" };
+  const CAND = { title: "스타벅스 강남", category: "카페", address: "서울 강남구 역삼동 1", roadAddress: "서울 강남구 강남대로 390", description: null, naverUrl: "https://place.naver.com/1", locationText: "스타벅스 강남 · 서울 강남구 강남대로 390" };
+
+  type Opts = { detail?: EventDetailData; placeImpl?: () => Promise<{ ok?: boolean; status?: number; json: () => Promise<unknown> }> };
+  function mockPlace(opts: Opts = {}) {
+    const calls = { place: [] as string[], patch: [] as { url: string; body?: unknown }[] };
+    const jsonRes = (data: unknown) => Promise.resolve({ ok: true, status: 200, redirected: false, url: "", headers: new Headers({ "content-type": "application/json" }), json: () => Promise.resolve(data) });
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, init?: { method?: string; body?: unknown }) => {
+      if (typeof url === "string" && url.includes("/api/places/naver")) { calls.place.push(url); return opts.placeImpl ? opts.placeImpl() : jsonRes({ ok: true, data: { provider: "naver", candidates: [CAND] } }); }
+      if (typeof url === "string" && url.includes("/thread-node") && init?.method === "PATCH") { calls.patch.push({ url, body: init?.body }); return jsonRes({ ok: true, data: { event: { ...EVENT, location: CAND.locationText } } }); }
+      if (typeof url === "string" && url.includes("/geocode") && init?.method === "POST") return jsonRes({ ok: true, data: GEO });
+      if (typeof url === "string" && url.match(/\/api\/events\/\d+$/) && !init?.method) return jsonRes({ ok: true, data: opts.detail ?? DETAIL });
+      return jsonRes({ ok: true, data: SURFACE });
+    }));
+    return calls;
+  }
+  const openSheet = async () => {
+    render(<Today />);
+    await waitFor(() => expect(screen.getByLabelText("팀 스프린트 상세 보기")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("팀 스프린트 상세 보기"));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "일정 상세" })).toBeInTheDocument());
+  };
+
+  it("hides the 네이버 후보 action when the event location is blank", async () => {
+    mockPlace({ detail: { ...DETAIL, event: { ...EVENT, location: null } } });
+    await openSheet();
+    expect(screen.queryByRole("button", { name: "네이버 후보" })).not.toBeInTheDocument();
+  });
+
+  it("loads candidates on tap and renders them with a safe external Naver link", async () => {
+    const calls = mockPlace();
+    await openSheet();
+    fireEvent.click(screen.getByRole("button", { name: "네이버 후보" }));
+    const row = await screen.findByTestId("place-candidate");
+    expect(within(row).getByText("스타벅스 강남")).toBeInTheDocument();
+    const link = within(row).getByRole("link", { name: "스타벅스 강남 네이버에서 보기" });
+    expect(link).toHaveAttribute("href", "https://place.naver.com/1");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(calls.place.length).toBe(1);
+    expect(calls.place[0]).toContain(`query=${encodeURIComponent("서울타워")}`);
+  });
+
+  it("does NOT save just from viewing candidates — only the explicit save patches location", async () => {
+    const calls = mockPlace();
+    await openSheet();
+    fireEvent.click(screen.getByRole("button", { name: "네이버 후보" }));
+    await screen.findByTestId("place-candidate");
+    expect(calls.patch.length).toBe(0); // viewing/opening never mutates
+    fireEvent.click(screen.getByRole("button", { name: "이 위치로 저장" }));
+    await waitFor(() => expect(calls.patch.length).toBe(1));
+    expect(calls.patch[0]!.url).toContain("/api/events/42/thread-node");
+    const body = JSON.parse(calls.patch[0]!.body as string);
+    expect(body).toEqual({ location: CAND.locationText }); // ONLY location
+    expect(body).not.toHaveProperty("start");
+    expect(body).not.toHaveProperty("status");
+  });
+
+  it("shows a quiet state when search is disabled / returns no candidates", async () => {
+    mockPlace({ placeImpl: () => Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({ ok: false, error: { code: "disabled", message: "Naver place search is disabled" } }) }) });
+    await openSheet();
+    fireEvent.click(screen.getByRole("button", { name: "네이버 후보" }));
+    expect(await screen.findByTestId("place-quiet")).toBeInTheDocument();
+    expect(screen.queryByTestId("place-error")).not.toBeInTheDocument();
+  });
+
+  it("keeps a provider error scoped to the sheet without breaking event detail", async () => {
+    mockPlace({ placeImpl: () => Promise.resolve({ ok: false, status: 502, json: () => Promise.resolve({ ok: false, error: { code: "denied", message: "Naver place search denied the request" } }) }) });
+    await openSheet();
+    fireEvent.click(screen.getByRole("button", { name: "네이버 후보" }));
+    expect(await screen.findByTestId("place-error")).toHaveTextContent("Naver place search denied the request");
+    expect(screen.getByRole("dialog", { name: "일정 상세" })).toBeInTheDocument(); // sheet still open
+  });
+});
