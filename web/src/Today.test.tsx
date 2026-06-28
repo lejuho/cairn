@@ -3732,4 +3732,29 @@ describe("Today — card location context (cycle-75)", () => {
     await screen.findByLabelText("일정 4 상세 보기");
     expect(screen.queryByTestId("today-loc-4")).not.toBeInTheDocument();
   });
+
+  it("renders location context on a needs_review card and keeps detail + reply actions", async () => {
+    const event = evt(20, "홍대");
+    const placement = { mode: "no_context" as const, anchorEventId: null, ageHours: 1, reasonCodes: ["placement_no_context"] };
+    mockFetch({ ...BASE_SURFACE, state: "live", needsReviewEvents: [event], cards: [{ kind: "needs_review", event, placement }], locationContexts: [ctx({ eventId: 20, locationText: "홍대", displayLabel: "Hongdae" })] });
+    render(<Today />);
+    const loc = await screen.findByTestId("today-loc-20");
+    expect(within(loc).getByText("Hongdae")).toBeInTheDocument();
+    expect(within(loc).getByRole("link")).toBeInTheDocument();
+    // existing needs_review actions still present alongside the chip
+    expect(screen.getByLabelText("일정 20 상세 보기")).toBeInTheDocument();
+    expect(screen.getByLabelText("일정 20 메모")).toBeInTheDocument();
+  });
+
+  it("renders location context on a schedule_prompt card and keeps slot + dismiss actions", async () => {
+    const event = evt(21, "이태원");
+    mockFetch({ ...BASE_SURFACE, state: "live", unscheduledEvents: [event], cards: [{ kind: "schedule_prompt", event }], locationContexts: [ctx({ eventId: 21, locationText: "이태원", displayLabel: "Itaewon" })] });
+    render(<Today />);
+    const loc = await screen.findByTestId("today-loc-21");
+    expect(within(loc).getByText("Itaewon")).toBeInTheDocument();
+    expect(within(loc).getByRole("link")).toBeInTheDocument();
+    // existing schedule_prompt actions still present alongside the chip
+    expect(screen.getByLabelText("일정 21 날짜 잡기")).toBeInTheDocument();
+    expect(screen.getByTestId("dismiss-prompt-21")).toBeInTheDocument();
+  });
 });

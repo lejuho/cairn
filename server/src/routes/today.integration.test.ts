@@ -852,4 +852,24 @@ describe("GET /api/today location context (cycle-75)", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().data.locationContexts.length).toBeGreaterThan(0);
   });
+
+  it("attaches contexts for the needs_review and unscheduled (schedule_prompt) event input paths", async () => {
+    // needs_review: ended in the recent past (within the 36h window before NOW), no annotation.
+    const reviewId = Number(conn.sqlite.prepare("INSERT INTO events (title, start, end, location, source, self_imposed, status) VALUES ('지난 회의', '2026-06-16T07:00:00+00:00', '2026-06-16T08:00:00+00:00', 'Hongdae', 'cairn', 1, 'planned')").run().lastInsertRowid);
+    // unscheduled: no start/end → only in unscheduledEvents (schedule_prompt), never dayEvents.
+    const unschedId = Number(conn.sqlite.prepare("INSERT INTO events (title, start, end, location, source, self_imposed, status) VALUES ('미정 일정', NULL, NULL, 'Itaewon', 'cairn', 1, 'planned')").run().lastInsertRowid);
+    seedGeocode("hongdae", { label: "Hongdae Station" });
+    seedGeocode("itaewon", { label: "Itaewon" });
+    const before = cacheCount();
+
+    const body = (await get()).json();
+    // needsReviewEvents path
+    expect(body.data.needsReviewEvents.some((e: { id: number }) => e.id === reviewId)).toBe(true);
+    expect(ctxFor(body, reviewId)).toMatchObject({ status: "resolved", displayLabel: "Hongdae Station" });
+    // unscheduledEvents path — proven independently of dayEvents
+    expect(body.data.unscheduledEvents.some((e: { id: number }) => e.id === unschedId)).toBe(true);
+    expect(body.data.dayEvents.some((e: { id: number }) => e.id === unschedId)).toBe(false);
+    expect(ctxFor(body, unschedId)).toMatchObject({ status: "resolved", displayLabel: "Itaewon" });
+    expect(cacheCount()).toBe(before); // still no Today cache write
+  });
 });
