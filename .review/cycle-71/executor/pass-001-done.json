@@ -1,0 +1,16 @@
+{
+  "cycle": 71,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-28T03:06:46Z",
+  "summary": "Watcher + Record Composer modes A (frontend-only): added Watcher and 기록 modes to the shared 5-mode Composer (일정|스레드|할 일|Watcher|기록) on BOTH /input and Today, reusing existing endpoints. New web/src/composerModes.tsx = data layer (createWatcher → exact existing POST shapes to /api/watchers, /api/watchers/reverse-plan, /api/watchers/manual-exogenous by explicit subtype; createRecord → POST /api/events/:id/annotations {text} → {parseStatus}) + pure helpers (watcherSubtypeValid, dedupeTargets, types/EMPTY/WATCHER_SUBTYPES) + presentational panels with NO apiJson (WatcherFieldsPanel subtype tabs 날짜 기반/역산 계획/수동 확인, RecordTargetSelect event select, empty→record-no-target). CreationComposer extended: ComposerMode += watcher|record, presentational detail?:ReactNode slot + submitDisabled? (disabled = !text.trim()||submitting||submitDisabled); purity grep clean. Both pages own watcherSubtype/watcherFields/recordTargetId state, render the detail panels by mode, gate submit (watcher subtype-valid / record target required), route handleComposerSubmit watcher+record branches with refresh() on success, and add watcher (kind Watcher → 「지켜볼 것에서 보기」 /watch, watcher-result) + record (kind 기록, title=event, status parsed→기록됐어 / raw_stored→원문 저장됨 without inventing fields, record-result) to the cycle-68 ResultCard. /input record targets from loadData (dayEvents+unscheduled); Today from view.surface.dayEvents. Mode switch clears result+error, keeps text+subtype/fields/target; API failures preserve text/mode/subtype/target. styles.css composer-detail/subtype/field/steps (semantic tokens, 44px). cycle-69/70 three modes + /watch create sheet + Today queue/card-priority untouched. No backend/shared/route/DB/migration/LLM/diary/crawler change. Committed cc308d6.",
+  "checks": [
+    "corepack pnpm lint (PASS)",
+    "corepack pnpm typecheck (PASS)",
+    "corepack pnpm test (web 484 incl. InputHub 63 +9 watcher/record, Today 169 +4 watcher/record; existing Composer/queue/watch tests preserved)",
+    "corepack pnpm test:integration (686)",
+    "corepack pnpm build (web + server Done)",
+    "git diff --check (OK); no server|shared|drizzle diff; CreationComposer purity grep empty (no fetch/apiJson/api//ResultCard/href/window.location); Today card-priority diff empty; only watcher + /api/events/:id/annotations endpoints added; no diary/DDL/n8n/crawler/mirror-write"
+  ]
+}
