@@ -11,7 +11,7 @@ afterEach(() => {
 const QUIET_SURFACE: TodaySurface = {
   date: "2026-06-17", now: "2026-06-17T09:00:00+09:00", state: "quiet",
   nextEvent: null, conflicts: [], twoMinuteTasks: [], watcherBubbles: [],
-  needsReviewEvents: [], unscheduledEvents: [], dueTaskSchedulePrompts: [], dayEvents: [], cards: [],
+  needsReviewEvents: [], unscheduledEvents: [], dueTaskSchedulePrompts: [], dayEvents: [], cards: [], locationContexts: [],
   feasibility: {
     date: "2026-06-17", now: "2026-06-17T09:00:00+09:00",
     params: { energyBudget: 8, meetBufferMinutes: 15, deepBufferMinutes: 30, travelMargin: 1, maxContinuousMinutes: 600 },

@@ -43,7 +43,8 @@ const BASE_SURFACE: TodaySurface = {
   dueTaskSchedulePrompts: [],
   dayEvents: [],
   cards: [],
-  feasibility: BASE_FEASIBILITY
+  feasibility: BASE_FEASIBILITY,
+  locationContexts: []
 };
 
 function mockFetch(surface: TodaySurface) {
@@ -2745,6 +2746,7 @@ describe("Today — conflict sheet people guard", () => {
     twoMinuteTasks: [], watcherBubbles: [], needsReviewEvents: [], unscheduledEvents: [],
     dueTaskSchedulePrompts: [],
     dayEvents: [], cards: [{ kind: "conflict", pair: { a: eventA, b: eventB } }],
+    locationContexts: [],
     feasibility: {
       date: "2026-06-20", now: "2026-06-20T09:00:00+09:00",
       params: { energyBudget: 8, meetBufferMinutes: 15, deepBufferMinutes: 30, travelMargin: 1, maxContinuousMinutes: 600 },
@@ -3660,5 +3662,74 @@ describe("Today — event location preview (cycle-74)", () => {
     await act(async () => { resolveGeo(undefined); });
     expect(screen.queryByTestId("geo-resolved")).not.toBeInTheDocument();
     expect(screen.queryByTestId("event-geo")).not.toBeInTheDocument();
+  });
+});
+
+describe("Today — card location context (cycle-75)", () => {
+  const evt = (id: number, location: string | null) => ({
+    id, title: `일정 ${id}`, start: "2026-06-20T10:00:00+09:00", end: "2026-06-20T11:00:00+09:00",
+    threadId: null, type: null, location, mode: null, source: "cairn" as const, selfImposed: 1, status: "planned" as const, createdAt: null, updatedAt: null
+  });
+  const ctx = (over: Partial<TodaySurface["locationContexts"][number]> & { eventId: number }) => ({
+    locationText: "Seoul Tower", status: "resolved" as const, provider: "google",
+    displayLabel: "N Seoul Tower", latitude: 37.55, longitude: 126.98, confidence: "high" as const,
+    providerStatus: "OK", uncertainty: null, updatedAt: null, lastCheckedAt: null, ...over
+  });
+
+  it("renders a resolved location chip + coordinate map action on next_event", async () => {
+    const event = evt(1, "Seoul Tower");
+    mockFetch({ ...BASE_SURFACE, state: "live", nextEvent: event, cards: [{ kind: "next_event", event }], locationContexts: [ctx({ eventId: 1 })] });
+    render(<Today />);
+    const loc = await screen.findByTestId("today-loc-1");
+    expect(within(loc).getByText("N Seoul Tower")).toBeInTheDocument();
+    expect(screen.getByTestId("today-loc-confidence-1")).toHaveTextContent("정확");
+    const link = within(loc).getByRole("link");
+    expect(link).toHaveAttribute("href", "https://www.google.com/maps/search/?api=1&query=37.55%2C126.98");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(loc).toHaveAttribute("data-status", "resolved");
+    // existing detail-open action preserved
+    expect(screen.getByLabelText("일정 1 상세 보기")).toBeInTheDocument();
+  });
+
+  it("renders uncached as a quiet 'not checked' chip with NO map link and no alert", async () => {
+    const event = evt(2, "강남역");
+    mockFetch({ ...BASE_SURFACE, state: "live", nextEvent: event, cards: [{ kind: "next_event", event }], locationContexts: [ctx({ eventId: 2, status: "uncached", locationText: "강남역", displayLabel: null, latitude: null, longitude: null, confidence: null, providerStatus: null })] });
+    render(<Today />);
+    const loc = await screen.findByTestId("today-loc-2");
+    expect(within(loc).getByText("확인 안 함")).toBeInTheDocument();
+    expect(within(loc).queryByRole("link")).not.toBeInTheDocument();
+    expect(within(loc).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("renders zero_results/failed as quiet unresolved with an authored-text map link", async () => {
+    const event = evt(3, "없는 곳");
+    mockFetch({ ...BASE_SURFACE, state: "live", nextEvent: event, cards: [{ kind: "next_event", event }], locationContexts: [ctx({ eventId: 3, status: "failed", locationText: "없는 곳", displayLabel: null, latitude: null, longitude: null, confidence: null })] });
+    render(<Today />);
+    const loc = await screen.findByTestId("today-loc-3");
+    expect(within(loc).getByText("찾지 못함")).toBeInTheDocument();
+    expect(within(loc).getByRole("link")).toHaveAttribute("href", `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent("없는 곳")}`);
+    expect(screen.queryByTestId("today-loc-confidence-3")).not.toBeInTheDocument();
+  });
+
+  it("renders location context for both conflict pair events", async () => {
+    const a = evt(10, "Seoul Tower");
+    const b = evt(11, "Busan Tower");
+    mockFetch({
+      ...BASE_SURFACE, state: "live", conflicts: [{ a, b }], cards: [{ kind: "conflict", pair: { a, b } }],
+      locationContexts: [ctx({ eventId: 10 }), ctx({ eventId: 11, locationText: "Busan Tower", displayLabel: "Busan Tower" })]
+    });
+    render(<Today />);
+    expect(await screen.findByTestId("today-loc-10")).toBeInTheDocument();
+    expect(screen.getByTestId("today-loc-11")).toBeInTheDocument();
+    // conflict opener preserved
+    expect(screen.getByLabelText(/충돌 해결/)).toBeInTheDocument();
+  });
+
+  it("renders no chip for a missing-location context", async () => {
+    const event = evt(4, null);
+    mockFetch({ ...BASE_SURFACE, state: "live", nextEvent: event, cards: [{ kind: "next_event", event }], locationContexts: [ctx({ eventId: 4, status: "missing", locationText: null, displayLabel: null, latitude: null, longitude: null, confidence: null })] });
+    render(<Today />);
+    await screen.findByLabelText("일정 4 상세 보기");
+    expect(screen.queryByTestId("today-loc-4")).not.toBeInTheDocument();
   });
 });

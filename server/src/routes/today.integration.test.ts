@@ -793,3 +793,63 @@ describe("GET /api/today — domain filter", () => {
     conn.sqlite.close();
   });
 });
+
+describe("GET /api/today location context (cycle-75)", () => {
+  let app: FastifyInstance;
+  let conn: SqliteConnection;
+  beforeEach(() => { conn = makeTestDb(); app = buildServer(conn.db); });
+
+  function insertEvent(title: string, location: string | null): number {
+    const r = conn.sqlite
+      .prepare("INSERT INTO events (title, start, end, location, source, self_imposed, status) VALUES (?, ?, ?, ?, 'cairn', 1, 'planned')")
+      .run(title, EVENT_START, EVENT_END, location);
+    return Number(r.lastInsertRowid);
+  }
+  function seedGeocode(normalized: string, over: Partial<{ status: string; lat: number | null; lng: number | null; label: string | null; confidence: string; uncertainty: string | null }> = {}) {
+    conn.sqlite
+      .prepare("INSERT INTO geocode_cache (provider, normalized_location, location_text, status, latitude, longitude, display_label, confidence, provider_status, uncertainty_json) VALUES ('google', ?, ?, ?, ?, ?, ?, ?, 'OK', ?)")
+      .run(normalized, normalized, over.status ?? "resolved", over.lat ?? 37.55, over.lng ?? 126.98, over.label ?? "N Seoul Tower", over.confidence ?? "high", over.uncertainty ?? '{"locationType":"ROOFTOP","partialMatch":false}');
+  }
+  const get = () => app.inject({ method: "GET", url: `/api/today?date=${DATE}&now=${encodeURIComponent(NOW)}` });
+  const cacheCount = () => (conn.sqlite.prepare("SELECT count(*) AS n FROM geocode_cache").get() as { n: number }).n;
+  const ctxFor = (body: { data: { locationContexts: { eventId: number }[] } }, id: number) => body.data.locationContexts.find((c) => c.eventId === id);
+
+  it("returns a cache-backed resolved context and an uncached context, with NO geocode_cache write", async () => {
+    const resolvedId = insertEvent("타워 회의", "Seoul Tower");
+    const uncachedId = insertEvent("강남 회의", "강남역");
+    seedGeocode("seoul tower");
+    const before = cacheCount();
+
+    const res = await get();
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(ctxFor(body, resolvedId)).toMatchObject({ status: "resolved", latitude: 37.55, longitude: 126.98, displayLabel: "N Seoul Tower", confidence: "high", provider: "google" });
+    expect(ctxFor(body, uncachedId)).toMatchObject({ status: "uncached", latitude: null, longitude: null });
+    expect(cacheCount()).toBe(before); // Today never writes to the cache
+  });
+
+  it("blank location → missing context", async () => {
+    const blankId = insertEvent("장소 없음", null);
+    const res = await get();
+    expect(ctxFor(res.json(), blankId)).toMatchObject({ status: "missing", latitude: null, longitude: null });
+  });
+
+  it("malformed cache uncertainty JSON does not crash Today (fails open to null)", async () => {
+    const id = insertEvent("깨진 데이터", "Seoul Tower");
+    conn.sqlite
+      .prepare("INSERT INTO geocode_cache (provider, normalized_location, location_text, status, latitude, longitude, display_label, confidence, provider_status, uncertainty_json) VALUES ('google', 'seoul tower', 'Seoul Tower', 'resolved', 37.55, 126.98, 'N Seoul Tower', 'high', 'OK', '{bad json')")
+      .run();
+    const res = await get();
+    expect(res.statusCode).toBe(200);
+    expect(ctxFor(res.json(), id)).toMatchObject({ status: "resolved", uncertainty: null });
+  });
+
+  it("serves location context without a map gateway (cache-only, provider-independent)", async () => {
+    // buildServer(conn.db) wires NO mapGateway — Today must still return 200 + contexts.
+    insertEvent("타워", "Seoul Tower");
+    seedGeocode("seoul tower");
+    const res = await get();
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.locationContexts.length).toBeGreaterThan(0);
+  });
+});

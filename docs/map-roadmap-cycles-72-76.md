@@ -148,8 +148,14 @@ keeps the authored location visible and honest.
 
 Branch when promoted: `feature/cycle-75-today-location-context-a`
 Skills when promoted: `frontend-react-pwa, backend-fastify`
-Status: promoted 2026-06-28 (`.review/cycle-75/`). Today location context
-planning only; implementation pending.
+Status: promoted + implemented 2026-06-28 (`.review/cycle-75/`). `GET /api/today`
+now attaches a cache-only `locationContexts` array (read from the cycle-73
+`geocode_cache`, never a provider/geocode call) keyed by event id, with
+missing/uncached/resolved/ambiguous/zero_results/failed status. Today cards
+(next_event, needs_review, schedule_prompt, both conflict pair events) render a
+compact location chip + an external map link (coordinates for resolved, authored
+text otherwise; uncached shows no link). Card order/priority/actions unchanged;
+no migration/travel-time/provider call. Cycle 76 stays roadmap.
 
 ### Goal
 

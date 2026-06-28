@@ -1,4 +1,4 @@
-import type { ConflictPair, DayFeasibility, EventRow, TaskRow, TodaySurface, WatcherABubble } from "@cairn/shared";
+import type { ConflictPair, DayFeasibility, EventRow, TaskRow, TodayEventLocationContext, TodaySurface, WatcherABubble } from "@cairn/shared";
 import { computeNeedsReviewPlacement } from "./needsReviewPlacement.js";
 
 const SCHEDULE_PROMPT_LIMIT = 3;
@@ -12,7 +12,10 @@ export function buildTodaySurface(
   needsReviewEvents: EventRow[],
   unscheduledEvents: EventRow[],
   dueTaskSchedulePrompts: TaskRow[],
-  feasibility: DayFeasibility
+  feasibility: DayFeasibility,
+  // Cache-only location context (cycle-75), computed by the route from existing
+  // geocode_cache rows. Passed in so this builder stays pure/provider-independent.
+  locationContexts: TodayEventLocationContext[]
 ): TodaySurface {
   const nextEvent = findNextEvent(dayEvents, now);
   const conflicts = findConflicts(dayEvents);
@@ -36,7 +39,7 @@ export function buildTodaySurface(
   const state =
     cards.length === 0 && dayEvents.length === 0 ? "quiet" : "live";
 
-  return { date, now, state, nextEvent, conflicts, twoMinuteTasks, watcherBubbles, needsReviewEvents, unscheduledEvents, dueTaskSchedulePrompts, dayEvents, cards, feasibility };
+  return { date, now, state, nextEvent, conflicts, twoMinuteTasks, watcherBubbles, needsReviewEvents, unscheduledEvents, dueTaskSchedulePrompts, dayEvents, cards, feasibility, locationContexts };
 }
 
 function findNextEvent(events: EventRow[], now: string): EventRow | null {

@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { CairnDatabase } from "../db/index.js";
 import { geocodeCache } from "../db/schema.js";
 
@@ -36,6 +36,19 @@ export type GeocodeCacheUpsert = {
   providerStatus: string | null;
   uncertaintyJson: string | null;
 };
+
+// Cache-only batch read (cycle-75 Today location context). Loads every cache row
+// across providers for the given normalized location keys. Read-only — NO
+// provider call, NO write. Empty input → no query.
+export function findGeocodeByNormalizedSet(db: CairnDatabase, normalizedLocations: string[]): GeocodeCacheRow[] {
+  if (normalizedLocations.length === 0) return [];
+  const rows = db
+    .select()
+    .from(geocodeCache)
+    .where(inArray(geocodeCache.normalizedLocation, normalizedLocations))
+    .all();
+  return rows as GeocodeCacheRow[];
+}
 
 export function findGeocodeByKey(db: CairnDatabase, provider: string, normalizedLocation: string): GeocodeCacheRow | null {
   const row = db

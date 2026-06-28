@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { NeedsReviewPlacementSchema, TodayQuerySchema, TodaySurfaceSchema } from "./today.js";
+import { NeedsReviewPlacementSchema, TodayEventLocationContextSchema, TodayQuerySchema, TodaySurfaceSchema } from "./today.js";
 
 describe("TodayQuerySchema domain (cycle-67 FR-DOM-01)", () => {
   const base = { date: "2026-06-27", now: "2026-06-27T09:00:00+09:00" };
@@ -80,7 +80,7 @@ describe("TodaySurfaceSchema needs_review card", () => {
     date: "2026-06-20", now: "2026-06-20T22:00:00+09:00", state: "live" as const,
     nextEvent: null, conflicts: [], twoMinuteTasks: [], watcherBubbles: [],
     needsReviewEvents: [EVENT], unscheduledEvents: [], dueTaskSchedulePrompts: [], dayEvents: [EVENT],
-    feasibility: FEASIBILITY
+    feasibility: FEASIBILITY, locationContexts: []
   };
 
   it("requires placement on needs_review cards", () => {
@@ -121,7 +121,7 @@ describe("TodaySurfaceSchema task_schedule_prompt card (cycle-62)", () => {
     date: "2026-06-20", now: "2026-06-20T22:00:00+09:00", state: "live" as const,
     nextEvent: null, conflicts: [], twoMinuteTasks: [], watcherBubbles: [],
     needsReviewEvents: [], unscheduledEvents: [], dueTaskSchedulePrompts: [TASK], dayEvents: [],
-    feasibility: FEASIBILITY
+    feasibility: FEASIBILITY, locationContexts: []
   };
 
   it("accepts a task_schedule_prompt card and dueTaskSchedulePrompts array", () => {
@@ -143,5 +143,44 @@ describe("TodaySurfaceSchema task_schedule_prompt card (cycle-62)", () => {
   it("accepts a task row carrying schedulePromptDismissedOn", () => {
     const ok = { ...baseSurface, dueTaskSchedulePrompts: [{ ...TASK, schedulePromptDismissedOn: "2026-06-19" }], cards: [] };
     expect(TodaySurfaceSchema.safeParse(ok).success).toBe(true);
+  });
+});
+
+describe("TodayEventLocationContext (cycle-75)", () => {
+  const RESOLVED = {
+    eventId: 1, locationText: "서울타워", status: "resolved", provider: "google",
+    displayLabel: "N Seoul Tower", latitude: 37.55, longitude: 126.98,
+    confidence: "high", providerStatus: "OK", uncertainty: { locationType: "ROOFTOP", partialMatch: false },
+    updatedAt: null, lastCheckedAt: "2026-06-28T00:00:00"
+  };
+
+  it("accepts every context status", () => {
+    expect(TodayEventLocationContextSchema.safeParse(RESOLVED).success).toBe(true);
+    const blank = { ...RESOLVED, status: "missing", locationText: null, provider: null, displayLabel: null, latitude: null, longitude: null, confidence: null, providerStatus: null, uncertainty: null, lastCheckedAt: null };
+    expect(TodayEventLocationContextSchema.safeParse(blank).success).toBe(true);
+    const uncached = { ...blank, status: "uncached", locationText: "어딘가" };
+    expect(TodayEventLocationContextSchema.safeParse(uncached).success).toBe(true);
+    for (const status of ["ambiguous", "zero_results", "failed"]) {
+      const c = { ...RESOLVED, status, latitude: null, longitude: null, displayLabel: null, confidence: "unknown", uncertainty: status === "ambiguous" ? { resultCount: 2, candidateLabels: ["A", "B"] } : null };
+      expect(TodayEventLocationContextSchema.safeParse(c).success).toBe(true);
+    }
+  });
+
+  it("rejects invalid status / injected field (strict)", () => {
+    expect(TodayEventLocationContextSchema.safeParse({ ...RESOLVED, status: "checking" }).success).toBe(false);
+    expect(TodayEventLocationContextSchema.safeParse({ ...RESOLVED, providerResultId: "p1" }).success).toBe(false);
+    expect(TodayEventLocationContextSchema.safeParse({ ...RESOLVED, uncertainty: { error_message: "x" } }).success).toBe(false);
+  });
+
+  it("TodaySurfaceSchema requires the locationContexts field and accepts contexts", () => {
+    const base = {
+      date: "2026-06-20", now: "2026-06-20T22:00:00+09:00", state: "live" as const,
+      nextEvent: null, conflicts: [], twoMinuteTasks: [], watcherBubbles: [],
+      needsReviewEvents: [], unscheduledEvents: [], dueTaskSchedulePrompts: [], dayEvents: [], cards: [],
+      feasibility: FEASIBILITY
+    };
+    const withoutField: Record<string, unknown> = { ...base };
+    expect(TodaySurfaceSchema.safeParse(withoutField).success).toBe(false);
+    expect(TodaySurfaceSchema.safeParse({ ...base, locationContexts: [RESOLVED] }).success).toBe(true);
   });
 });
