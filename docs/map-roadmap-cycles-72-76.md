@@ -1,6 +1,6 @@
 # Map API Roadmap: Cycles 72-76
 
-Status: Cycle 72 promoted and active; cycles 73-76 remain roadmap candidates
+Status: Cycle 73 promoted and active; Cycle 72 merged; cycles 74-76 remain roadmap candidates
 Created: 2026-06-28
 
 This document concatenates the intended map/location integration roadmap for
@@ -34,7 +34,7 @@ server-side gateway contract.
 
 Branch when promoted: `feature/cycle-72-map-provider-boundary-a`
 Skills when promoted: `backend-fastify`
-Status: promoted + implemented 2026-06-28 (`.review/cycle-72/`)
+Status: promoted + implemented + merged 2026-06-28 (`.review/cycle-72/`)
 Selected initial provider: Google Maps Platform (server-side Geocoding behind the
 `server/src/maps/` gateway; default `MAP_PROVIDER=disabled`). Diagnostic-only
 `GET /api/maps/provider-smoke`; no DB/cache/UI/travel-time. Cycles 73-76 stay roadmap.
@@ -72,6 +72,7 @@ error and no fabricated location data. Existing Cairn routes behave unchanged.
 
 Branch when promoted: `feature/cycle-73-geocoding-cache-a`
 Skills when promoted: `backend-fastify`
+Status: promoted 2026-06-28
 
 ### Goal
 
@@ -216,5 +217,5 @@ Before promoting a roadmap section to a real cycle:
   persistence work;
 - do not implement later map cycles inside an earlier cycle.
 
-Cycle 72 is promoted. The next eligible unpromoted cycle is Cycle 73 after
-Cycle 72 is implemented, verified, and merged.
+Cycle 73 is promoted. The next eligible unpromoted cycle is Cycle 74 after
+Cycle 73 is implemented, verified, and merged.
