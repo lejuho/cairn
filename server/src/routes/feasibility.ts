@@ -8,15 +8,17 @@ import { readNumericParam } from "../repositories/params.js";
 import { findPlannedAndConfirmedByDate } from "../repositories/events.js";
 import { findThreadLinksAmong } from "../repositories/threads.js";
 import { findEventDependencyLinks } from "../repositories/links.js";
-import { buildFeasibilityParams, computeDayFeasibility } from "../services/feasibility.js";
+import { buildFeasibilityParams, computeDayFeasibility, dayScheduledEvents } from "../services/feasibility.js";
 import { dayEventIds, dayThreadIds } from "../services/feasibility.js";
+import { buildDayTravelFacts } from "../services/travel-time.js";
 import {
   readFeasibilityParamSettings,
   writeFeasibilityParams
 } from "../services/feasibility-params.js";
 import type { CairnDatabase } from "../db/index.js";
+import type { MapGateway } from "../maps/gateway.js";
 
-export function registerFeasibilityRoutes(app: FastifyInstance, db: CairnDatabase): void {
+export function registerFeasibilityRoutes(app: FastifyInstance, db: CairnDatabase, mapGateway?: MapGateway): void {
   app.get("/api/feasibility/day", async (req, reply) => {
     const parsed = FeasibilityQuerySchema.safeParse(req.query);
     if (!parsed.success) {
@@ -39,7 +41,11 @@ export function registerFeasibilityRoutes(app: FastifyInstance, db: CairnDatabas
     const events = findPlannedAndConfirmedByDate(db, date);
     const relations = findThreadLinksAmong(db, dayThreadIds(events, date));
     const dependencyLinks = findEventDependencyLinks(db, dayEventIds(events, date));
-    const feasibility = computeDayFeasibility(date, now, events, p, relations, dependencyLinks);
+    // Cache/gateway-backed travel evidence (cycle-76). allowProvider=true: a fresh
+    // cache row is reused; an eligible pair may refresh once. Provider failure →
+    // unavailable evidence (fail open), never a non-200.
+    const travelFacts = await buildDayTravelFacts(db, mapGateway, dayScheduledEvents(events, date), p, now, { allowProvider: true });
+    const feasibility = computeDayFeasibility(date, now, events, p, relations, dependencyLinks, travelFacts);
 
     return reply.send({ ok: true, data: feasibility });
   });
@@ -76,7 +82,11 @@ export function registerFeasibilityRoutes(app: FastifyInstance, db: CairnDatabas
     const events = findPlannedAndConfirmedByDate(db, date);
     const relations = findThreadLinksAmong(db, dayThreadIds(events, date));
     const dependencyLinks = findEventDependencyLinks(db, dayEventIds(events, date));
-    const feasibility = computeDayFeasibility(date, now, events, reqParams, relations, dependencyLinks);
+    // Preview is CACHE-READ-ONLY (allowProvider=false): it reads existing travel
+    // cache rows but never calls the provider or writes a row, so exploring
+    // parameters cannot mutate the cache or any event/thread.
+    const travelFacts = await buildDayTravelFacts(db, mapGateway, dayScheduledEvents(events, date), reqParams, now, { allowProvider: false });
+    const feasibility = computeDayFeasibility(date, now, events, reqParams, relations, dependencyLinks, travelFacts);
     return reply.send({ ok: true, data: feasibility });
   });
 }

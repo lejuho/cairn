@@ -2018,6 +2018,78 @@ describe("Today — feasibility panel", () => {
     expect(row).toHaveAttribute("data-cost", "high");
   });
 
+  // ── travel-time copy on transition rows (cycle-76) ───────────────────────────
+  const travelTransition = (travel: unknown) => ({
+    fromEventId: 1, toEventId: 2, fromThreadId: 10, toThreadId: 20,
+    relation: "unrelated" as const, costLevel: "high" as const, reasonCodes: ["transition_unrelated"], travel
+  } as TodaySurface["feasibility"]["transitionCosts"][number]);
+  const renderWithTravel = (travel: unknown) => {
+    mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: { ...FEAS_BASE, transitionCosts: [travelTransition(travel)] }, dayEvents: [tEvent(1, "회의"), tEvent(2, "운동")] });
+    render(<Today />);
+  };
+
+  it("renders a fresh travel estimate (duration + distance) on the transition row", async () => {
+    renderWithTravel({ status: "fresh", durationMinutes: 24, distanceMeters: 8200, provider: "google", providerStatus: "OK", mode: "drive", ageMinutes: 5, reasonCodes: ["travel_fresh"] });
+    const line = await screen.findByTestId("travel-line");
+    expect(line).toHaveAttribute("data-travel", "fresh");
+    expect(line).toHaveTextContent("이동 약 24분");
+    expect(line).toHaveTextContent("8.2km");
+  });
+
+  it("renders stale / unavailable / missing travel quietly (no alarm role)", async () => {
+    const cases: [string, string, number | null][] = [["stale", "오래된 추정", 24], ["unavailable", "이동 시간 미확인", null], ["missing_geocode", "위치 좌표 없음", null]];
+    for (const [status, text, dur] of cases) {
+      cleanup();
+      renderWithTravel({ status, durationMinutes: dur, distanceMeters: null, provider: null, providerStatus: null, mode: "drive", ageMinutes: null, reasonCodes: [`travel_${status}`] });
+      const line = await screen.findByTestId("travel-line");
+      expect(line).toHaveAttribute("data-travel", status);
+      expect(line).toHaveTextContent(text);
+      expect(line).not.toHaveAttribute("role", "alert");
+    }
+  });
+
+  it("renders no travel line for same_location", async () => {
+    renderWithTravel({ status: "same_location", durationMinutes: null, distanceMeters: null, provider: null, providerStatus: null, mode: "drive", ageMinutes: null, reasonCodes: ["travel_same_location"] });
+    await screen.findByTestId("transition-row");
+    expect(screen.queryByTestId("travel-line")).not.toBeInTheDocument();
+  });
+
+  // review-v1 ISSUE-1: a same-thread (costLevel none) pair must still surface
+  // meaningful travel evidence (otherwise gap-affecting travel is invisible).
+  const sameThreadTravel = (travel: unknown) => ({
+    fromEventId: 1, toEventId: 2, fromThreadId: 10, toThreadId: 10,
+    relation: "same_thread" as const, costLevel: "none" as const, reasonCodes: ["transition_same_thread"], travel
+  } as TodaySurface["feasibility"]["transitionCosts"][number]);
+  const renderSameThread = (travel: unknown) => {
+    mockFetch({ ...BASE_SURFACE, state: "quiet", feasibility: { ...FEAS_BASE, transitionCosts: [sameThreadTravel(travel)] }, dayEvents: [tEvent(1, "회의"), tEvent(2, "운동")] });
+    render(<Today />);
+  };
+
+  it("surfaces fresh travel on a same-thread (costLevel none) pair so gap-affecting travel is visible", async () => {
+    renderSameThread({ status: "fresh", durationMinutes: 30, distanceMeters: 9000, provider: "google", providerStatus: "OK", mode: "drive", ageMinutes: 3, reasonCodes: ["travel_fresh"] });
+    const line = await screen.findByTestId("travel-line");
+    expect(line).toHaveAttribute("data-travel", "fresh");
+    expect(line).toHaveTextContent("이동 약 30분");
+    expect(screen.getByTestId("transition-row")).toHaveAttribute("data-cost", "none");
+  });
+
+  it("shows stale / unavailable / missing travel quietly on a same-thread pair", async () => {
+    const cases: [string, number | null][] = [["stale", 30], ["unavailable", null], ["missing_geocode", null]];
+    for (const [status, dur] of cases) {
+      cleanup();
+      renderSameThread({ status, durationMinutes: dur, distanceMeters: null, provider: null, providerStatus: null, mode: "drive", ageMinutes: null, reasonCodes: [`travel_${status}`] });
+      const line = await screen.findByTestId("travel-line");
+      expect(line).toHaveAttribute("data-travel", status);
+      expect(line).not.toHaveAttribute("role", "alert");
+    }
+  });
+
+  it("a same-thread pair with same_location travel still renders no transition row", async () => {
+    renderSameThread({ status: "same_location", durationMinutes: null, distanceMeters: null, provider: null, providerStatus: null, mode: "drive", ageMinutes: null, reasonCodes: ["travel_same_location"] });
+    await waitFor(() => expect(screen.getByLabelText("일정 부하")).toBeInTheDocument());
+    expect(screen.queryByTestId("transition-row")).not.toBeInTheDocument();
+  });
+
   it("does not render 맥락 전환 section when all transitions are none (same thread)", async () => {
     const feas = {
       ...FEAS_BASE,

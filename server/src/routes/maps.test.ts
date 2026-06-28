@@ -8,7 +8,8 @@ function appWith(result: MapSmokeResult) {
   const gateway: MapGateway = {
     provider: "disabled",
     smoke: async () => result,
-    geocodeAddress: async () => ({ ok: false, error: { code: "disabled", message: "n/a" } })
+    geocodeAddress: async () => ({ ok: false, error: { code: "disabled", message: "n/a" } }),
+    travelTime: async () => ({ ok: false, error: { code: "disabled", message: "n/a" } })
   };
   return buildServer(undefined, undefined, gateway);
 }

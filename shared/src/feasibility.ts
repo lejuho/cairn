@@ -54,6 +54,30 @@ export const TransitionRelationKindSchema = z.enum([
 ]);
 export const TransitionFirmnessSchema = z.enum(["hard", "soft"]);
 
+// Provider-neutral travel-time evidence for an adjacent event pair (cycle-76).
+// Additive evidence only — it never mutates schedules or replaces the
+// deterministic thread-based transition cost. `fresh` = usable cached/provider
+// duration within freshness policy; `stale` = cached duration past the window
+// (context only, never a hard requirement); `unavailable` = disabled/failed/
+// timeout/rate-limit/no-route; `missing_geocode` = an endpoint lacks resolved
+// coordinates; `same_location` = endpoints coincide so travel is not meaningful.
+// No raw provider payload/URL/key/error is ever carried here.
+export const TRAVEL_EVIDENCE_STATUSES = ["fresh", "stale", "unavailable", "missing_geocode", "same_location"] as const;
+export const TravelEvidenceStatusSchema = z.enum(TRAVEL_EVIDENCE_STATUSES);
+
+export const TransitionTravelSchema = z
+  .object({
+    status: TravelEvidenceStatusSchema,
+    durationMinutes: z.number().nullable(),
+    distanceMeters: z.number().nullable(),
+    provider: z.string().nullable(),
+    providerStatus: z.string().nullable(),
+    mode: z.string().nullable(),
+    ageMinutes: z.number().nullable(),
+    reasonCodes: z.array(z.string())
+  })
+  .strict();
+
 export const TransitionCostSchema = z
   .object({
     fromEventId: z.number().int().positive(),
@@ -64,7 +88,9 @@ export const TransitionCostSchema = z
     relationKind: TransitionRelationKindSchema.optional(),
     firmness: TransitionFirmnessSchema.optional(),
     costLevel: TransitionCostLevelSchema,
-    reasonCodes: z.array(z.string())
+    reasonCodes: z.array(z.string()),
+    // Optional travel evidence (cycle-76). Absent on existing payloads.
+    travel: TransitionTravelSchema.optional()
   })
   .strict();
 
@@ -154,6 +180,8 @@ export type TransitionRelation = z.infer<typeof TransitionRelationSchema>;
 export type TransitionCostLevel = z.infer<typeof TransitionCostLevelSchema>;
 export type TransitionRelationKind = z.infer<typeof TransitionRelationKindSchema>;
 export type TransitionFirmness = z.infer<typeof TransitionFirmnessSchema>;
+export type TravelEvidenceStatus = z.infer<typeof TravelEvidenceStatusSchema>;
+export type TransitionTravel = z.infer<typeof TransitionTravelSchema>;
 export type TransitionCost = z.infer<typeof TransitionCostSchema>;
 export type SequenceEnergy = z.infer<typeof SequenceEnergySchema>;
 export type SequenceOrderDependencyKind = z.infer<typeof SequenceOrderDependencyKindSchema>;

@@ -47,10 +47,13 @@ export function buildServer(db?: CairnDatabase, gateway?: LlmGateway, mapGateway
     registerPeopleRoutes(app, db);
     registerTaskRoutes(app, db);
     registerWatcherRoutes(app, db);
-    registerTodayRoute(app, db);
+    // Today + feasibility take the optional map gateway for cache-only travel
+    // evidence (cycle-76). Absent gateway / disabled provider → unavailable
+    // evidence; the surfaces still return 200.
+    registerTodayRoute(app, db, mapGateway);
     registerThreadRoutes(app, db);
     registerSlotRoutes(app, db);
-    registerFeasibilityRoutes(app, db);
+    registerFeasibilityRoutes(app, db, mapGateway);
     registerDecisionRoutes(app, db);
     registerMirrorRoutes(app, db);
     registerResourceRoutes(app, db);

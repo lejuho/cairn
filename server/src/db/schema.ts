@@ -321,3 +321,39 @@ export const geocodeCache = sqliteTable(
     check("geocode_cache_coords_check", sql`(${table.latitude} is null) = (${table.longitude} is null)`)
   ]
 );
+
+// Travel-time cache (cycle-76, Travel Time / Transition Cost A). Provider-neutral
+// travel facts for a normalized adjacent location pair, keyed by
+// (provider, mode, origin_normalized, dest_normalized). Only cacheable provider
+// FACTS are stored: `resolved` (carries a duration) or `no_route`. Transient
+// failures (disabled/timeout/rate-limit) are NOT cached. No raw provider
+// payload/key/error is ever stored. Additive — no existing table is touched.
+const TRAVEL_STATUSES = ["resolved", "no_route"] as const;
+export const travelTimeCache = sqliteTable(
+  "travel_time_cache",
+  {
+    id: integer("id").primaryKey(),
+    provider: text("provider").notNull(),
+    mode: text("mode").notNull(),
+    originNormalized: text("origin_normalized").notNull(),
+    destNormalized: text("dest_normalized").notNull(),
+    originLat: real("origin_lat").notNull(),
+    originLng: real("origin_lng").notNull(),
+    destLat: real("dest_lat").notNull(),
+    destLng: real("dest_lng").notNull(),
+    durationSeconds: integer("duration_seconds"),
+    durationMinutes: real("duration_minutes"),
+    distanceMeters: real("distance_meters"),
+    status: text("status").notNull(),
+    providerStatus: text("provider_status"),
+    createdAt: text("created_at").default(sql`(datetime('now'))`),
+    updatedAt: text("updated_at"),
+    lastCheckedAt: text("last_checked_at")
+  },
+  (table) => [
+    uniqueIndex("travel_time_cache_pair_idx").on(table.provider, table.mode, table.originNormalized, table.destNormalized),
+    check("travel_time_cache_status_check", sql`${table.status} in (${enumSqlList(TRAVEL_STATUSES)})`),
+    // A resolved fact carries a duration; a no_route fact does not.
+    check("travel_time_cache_duration_check", sql`(${table.status} = 'no_route') or (${table.durationSeconds} is not null)`)
+  ]
+);

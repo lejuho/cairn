@@ -35,6 +35,7 @@ describe("core SQLite migration", () => {
       "tasks",
       "thread_links",
       "threads",
+      "travel_time_cache",
       "watcher_logs",
       "watchers"
     ]);
