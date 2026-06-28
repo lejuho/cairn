@@ -342,6 +342,82 @@ p {
   color: var(--muted);
 }
 
+/* Naver place candidates (cycle-79). Compact, semantic tokens, 44px tap targets.
+   Candidates only improve the authored text on an explicit "이 위치로 저장" tap. */
+.event-place {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+.event-place-btn {
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 4px 12px;
+  border-radius: 16px;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.event-place-loading,
+.event-place-quiet {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.event-place-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.event-place-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.event-place-title {
+  flex-basis: 100%;
+  font-weight: 600;
+  color: var(--text);
+}
+.event-place-meta {
+  flex-basis: 100%;
+}
+.event-place-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  color: var(--accent);
+  font-size: 0.78rem;
+  text-decoration: none;
+}
+.event-place-save {
+  min-height: 44px;
+  padding: 4px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.event-place-save:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* Compact Today card location context (cycle-75). Quiet, semantic tokens only;
    must not dominate the card or read as an alert. Map link is 44px. */
 .today-loc {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ConflictDecision, CreateThreadDraftResponseData, DayFeasibility, DomainFilter, EventDetailData, EventGeocodeData, EventMode, EventRow, FeasibilityParamLimits, FeasibilityParamSettingsData, FeasibilityParams, NeedsReviewPlacement, NotificationDraft, PreferredPeriod, ScheduleBrief, SlotCandidate, SlotSuggestionContribution, ThreadSummary, TodayEventLocationContext, TodaySurface, UpdateFeasibilityParamsRequest, Weekday } from "@cairn/shared";
-import { EventGeocodeResponseSchema, ResolveConflictResponseDataSchema } from "@cairn/shared";
+import type { ConflictDecision, CreateThreadDraftResponseData, DayFeasibility, DomainFilter, EventDetailData, EventGeocodeData, EventMode, EventRow, FeasibilityParamLimits, FeasibilityParamSettingsData, FeasibilityParams, NeedsReviewPlacement, NotificationDraft, PlaceCandidate, PreferredPeriod, ScheduleBrief, SlotCandidate, SlotSuggestionContribution, ThreadSummary, TodayEventLocationContext, TodaySurface, UpdateFeasibilityParamsRequest, Weekday } from "@cairn/shared";
+import { EventGeocodeResponseSchema, PlaceSearchResponseSchema, ResolveConflictResponseDataSchema } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString } from "./dateUtils.js";
 import { apiJson, type AccessSessionError } from "./api.js";
 import { naverSearchUrl, naverTransitDirectionsUrl } from "./naver-map-links.js";
@@ -32,6 +32,23 @@ async function fetchEventGeocode(id: number): Promise<ReturnType<typeof EventGeo
   const body = await apiJson<unknown>(`/api/events/${id}/geocode`, { method: "POST" });
   const parsed = EventGeocodeResponseSchema.safeParse(body);
   if (!parsed.success) throw new Error("INVALID_GEOCODE_RESPONSE");
+  return parsed.data;
+}
+
+// Naver place candidates (cycle-79) for the visible event location, keyed by
+// eventId so a late response never lands in the wrong sheet. `disabled` and an
+// empty list are quiet (not error) states.
+type PlaceSearchUiState =
+  | { tag: "idle" }
+  | { tag: "loading"; eventId: number }
+  | { tag: "quiet"; eventId: number }
+  | { tag: "live"; eventId: number; candidates: PlaceCandidate[] }
+  | { tag: "error"; eventId: number; message: string };
+
+async function fetchPlaceCandidates(query: string): Promise<ReturnType<typeof PlaceSearchResponseSchema.parse>> {
+  const body = await apiJson<unknown>(`/api/places/naver?query=${encodeURIComponent(query)}`);
+  const parsed = PlaceSearchResponseSchema.safeParse(body);
+  if (!parsed.success) throw new Error("INVALID_PLACE_SEARCH_RESPONSE");
   return parsed.data;
 }
 
@@ -988,6 +1005,10 @@ export function Today() {
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [eventDetail, setEventDetail] = useState<EventDetailState>({ tag: "idle" });
   const [geocodePreview, setGeocodePreview] = useState<GeocodePreviewState>({ tag: "idle" });
+  const [placeSearch, setPlaceSearch] = useState<PlaceSearchUiState>({ tag: "idle" });
+  // Which candidate locationText is currently being saved (cycle-79), so only its
+  // button shows a pending state; null = none in flight.
+  const [placeSaving, setPlaceSaving] = useState<string | null>(null);
   const [pinForm, setPinForm] = useState<PinFormState | null>(null);
   // Latest pin-form snapshot for the submit handler, written each render so the
   // memoized controller's async submit never reads a stale/empty closure.
@@ -1428,6 +1449,8 @@ export function Today() {
     selectedEventIdRef.current = null;
     setEventDetail({ tag: "idle" });
     setGeocodePreview({ tag: "idle" });
+    setPlaceSearch({ tag: "idle" });
+    setPlaceSaving(null);
     setDetailNote({ text: "", submitting: false, error: null });
     setPrepForm({ open: false, text: "", submitting: false, error: null });
     setSuggestAccept({ pending: null, error: null });
@@ -1454,6 +1477,66 @@ export function Today() {
       setGeocodePreview({ tag: "error", eventId, message: msg });
     }
   }, []);
+
+  // Naver place candidates (cycle-79) for the visible event location. Read-only
+  // search; `disabled`/empty → quiet, provider error → scoped error. Guarded by
+  // selectedEventIdRef so a late response is dropped for a closed/switched sheet.
+  const loadPlaceSearch = useCallback(async (eventId: number, location: string) => {
+    const query = location.trim();
+    if (query.length < 2) {
+      setPlaceSearch({ tag: "quiet", eventId });
+      return;
+    }
+    setPlaceSearch({ tag: "loading", eventId });
+    try {
+      const resp = await fetchPlaceCandidates(query);
+      if (selectedEventIdRef.current !== eventId) return;
+      if (resp.ok) {
+        setPlaceSearch(resp.data.candidates.length > 0 ? { tag: "live", eventId, candidates: resp.data.candidates } : { tag: "quiet", eventId });
+      } else {
+        setPlaceSearch(resp.error.code === "disabled" ? { tag: "quiet", eventId } : { tag: "error", eventId, message: resp.error.message });
+      }
+    } catch (e) {
+      if (selectedEventIdRef.current !== eventId) return;
+      const msg = (e as AccessSessionError).kind === "access_session_required"
+        ? "로그인 세션이 만료됐거나 네트워크가 끊겼어"
+        : "후보를 불러오지 못했어";
+      setPlaceSearch({ tag: "error", eventId, message: msg });
+    }
+  }, []);
+
+  // EXPLICIT save (cycle-79): only on a candidate's "이 위치로 저장" tap. PATCHes
+  // ONLY events.location via the existing thread-node edit route, then refetches
+  // detail + reruns the geocode preview for the new authored text and refreshes
+  // Today. Viewing/opening candidates never mutates the event.
+  const handleSaveCandidate = useCallback(async (eventId: number, locationText: string) => {
+    setPlaceSaving(locationText);
+    try {
+      const body = await apiJson<{ ok: boolean; error?: { message: string } }>(`/api/events/${eventId}/thread-node`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ location: locationText })
+      });
+      if (!body.ok) {
+        if (selectedEventIdRef.current === eventId) setPlaceSearch({ tag: "error", eventId, message: body.error?.message ?? "저장 실패" });
+        return;
+      }
+      if (selectedEventIdRef.current === eventId) {
+        const data = await fetchEventDetail(eventId);
+        setEventDetail({ tag: "loaded", data });
+        setPlaceSearch({ tag: "idle" });
+        void loadGeocode(eventId, data.event.location ?? "");
+      }
+      void refresh();
+    } catch (e) {
+      if (selectedEventIdRef.current === eventId) {
+        const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : "저장 실패. 다시 시도해봐.";
+        setPlaceSearch({ tag: "error", eventId, message: msg });
+      }
+    } finally {
+      setPlaceSaving(null);
+    }
+  }, [loadGeocode, refresh]);
 
   // Accept a deterministic preparation suggestion (cycle-47). Reuses the existing
   // page-level manual POST; on success refetch and duplicate-filtering removes the
@@ -1494,6 +1577,7 @@ export function Today() {
     selectedEventIdRef.current = id;
     setEventDetail({ tag: "loading" });
     setGeocodePreview({ tag: "idle" });
+    setPlaceSearch({ tag: "idle" });
     setDetailNote({ text: "", submitting: false, error: null });
     try {
       const data = await fetchEventDetail(id);
@@ -1831,6 +1915,43 @@ export function Today() {
                       지도에서 열기
                     </a>
                     <span className="event-geo-cache" data-testid="geo-cache">{geocodePreview.data.cacheStatus === "hit" ? "캐시" : "방금 조회"}</span>
+                  </div>
+                )}
+                {(eventDetail.data.event.location ?? "").trim().length >= 2 && (
+                  <div className="event-place" data-testid="event-place">
+                    <button
+                      type="button"
+                      className="event-place-btn"
+                      onClick={() => void loadPlaceSearch(eventDetail.data.event.id, eventDetail.data.event.location ?? "")}
+                    >
+                      네이버 후보
+                    </button>
+                    {placeSearch.tag !== "idle" && placeSearch.eventId === eventDetail.data.event.id && (
+                      <>
+                        {placeSearch.tag === "loading" && <p className="event-place-loading" role="status" data-testid="place-loading">후보 찾는 중…</p>}
+                        {placeSearch.tag === "quiet" && <p className="event-place-quiet" data-testid="place-quiet">후보 없음</p>}
+                        {placeSearch.tag === "error" && <p className="sheet-error" role="alert" data-testid="place-error">{placeSearch.message}</p>}
+                        {placeSearch.tag === "live" && (
+                          <ul className="event-place-list" role="list" data-testid="place-list">
+                            {placeSearch.candidates.map((c, i) => (
+                              <li key={i} className="event-place-row" data-testid="place-candidate">
+                                <span className="event-place-title">{c.title}</span>
+                                <span className="event-place-meta card-meta">{[c.category, c.roadAddress || c.address].filter(Boolean).join(" · ")}</span>
+                                <a className="event-place-link" href={c.naverUrl} target="_blank" rel="noopener noreferrer" aria-label={`${c.title} 네이버에서 보기`}>네이버에서 보기</a>
+                                <button
+                                  type="button"
+                                  className="event-place-save"
+                                  disabled={placeSaving === c.locationText}
+                                  onClick={() => void handleSaveCandidate(eventDetail.data.event.id, c.locationText)}
+                                >
+                                  이 위치로 저장
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </>
+                    )}
                   </div>
                 )}
               </section>

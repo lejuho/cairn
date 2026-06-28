@@ -5,6 +5,8 @@ import { createSqliteConnection, runMigrations } from "./db/index.js";
 import { createLlmGateway } from "./llm/gateway.js";
 import { readMapConfig } from "./maps/config.js";
 import { createMapGateway } from "./maps/gateway.js";
+import { readPlaceSearchConfig } from "./naver/place-search-config.js";
+import { createPlaceSearchGateway } from "./naver/place-search-gateway.js";
 import { createTelegramWorkerFromEnv } from "./telegram/worker.js";
 import { createTelegramClient } from "./telegram/client.js";
 import { parseSchedulerConfig, startWatcherDailyPushScheduler } from "./jobs/watcher-push-scheduler.js";
@@ -19,7 +21,9 @@ if (isMain) {
   const gateway = createLlmGateway();
   // Map provider gateway from env (cycle-72); defaults to disabled, needs no DB.
   const mapGateway = createMapGateway(readMapConfig());
-  const app = buildServer(connection.db, gateway, mapGateway);
+  // Naver place-search gateway from env (cycle-79); defaults to disabled, needs no DB.
+  const placeSearchGateway = createPlaceSearchGateway(readPlaceSearchConfig());
+  const app = buildServer(connection.db, gateway, mapGateway, placeSearchGateway);
   const port = Number.parseInt(process.env.PORT ?? "3100", 10);
   const host = process.env.HOST ?? "0.0.0.0";
 

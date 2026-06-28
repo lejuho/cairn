@@ -23,3 +23,4 @@ export * from "./mirror.js";
 export * from "./resources.js";
 export * from "./relations.js";
 export * from "./transitFacts.js";
+export * from "./placeSearch.js";
