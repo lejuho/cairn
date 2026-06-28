@@ -2,6 +2,8 @@ import { HealthResponseSchema } from "@cairn/shared";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { CairnDatabase } from "./db/index.js";
 import type { LlmGateway } from "./llm/gateway.js";
+import type { MapGateway } from "./maps/gateway.js";
+import { registerMapRoutes } from "./routes/maps.js";
 import { registerAnnotationRoutes } from "./routes/annotations.js";
 import { registerCaptureRoutes } from "./routes/capture.js";
 import { registerThreadDraftRoutes } from "./routes/threadDraft.js";
@@ -19,7 +21,7 @@ import { registerWatcherRoutes } from "./routes/watchers.js";
 import { registerRelationRoutes } from "./routes/relations.js";
 import { registerResourceRoutes } from "./routes/resources.js";
 
-export function buildServer(db?: CairnDatabase, gateway?: LlmGateway): FastifyInstance {
+export function buildServer(db?: CairnDatabase, gateway?: LlmGateway, mapGateway?: MapGateway): FastifyInstance {
   const app = Fastify({
     logger: false
   });
@@ -33,6 +35,11 @@ export function buildServer(db?: CairnDatabase, gateway?: LlmGateway): FastifyIn
       }
     })
   );
+
+  // Map provider boundary (cycle-72): registered without a DB — diagnostics only.
+  if (mapGateway) {
+    registerMapRoutes(app, mapGateway);
+  }
 
   if (db) {
     registerEventRoutes(app, db);

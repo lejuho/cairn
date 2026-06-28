@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { buildServer } from "./app.js";
 import { createSqliteConnection, runMigrations } from "./db/index.js";
 import { createLlmGateway } from "./llm/gateway.js";
+import { readMapConfig } from "./maps/config.js";
+import { createMapGateway } from "./maps/gateway.js";
 import { createTelegramWorkerFromEnv } from "./telegram/worker.js";
 import { createTelegramClient } from "./telegram/client.js";
 import { parseSchedulerConfig, startWatcherDailyPushScheduler } from "./jobs/watcher-push-scheduler.js";
@@ -15,7 +17,9 @@ if (isMain) {
   runMigrations(connection);
 
   const gateway = createLlmGateway();
-  const app = buildServer(connection.db, gateway);
+  // Map provider gateway from env (cycle-72); defaults to disabled, needs no DB.
+  const mapGateway = createMapGateway(readMapConfig());
+  const app = buildServer(connection.db, gateway, mapGateway);
   const port = Number.parseInt(process.env.PORT ?? "3100", 10);
   const host = process.env.HOST ?? "0.0.0.0";
 

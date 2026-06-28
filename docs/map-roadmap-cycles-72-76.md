@@ -34,8 +34,10 @@ server-side gateway contract.
 
 Branch when promoted: `feature/cycle-72-map-provider-boundary-a`
 Skills when promoted: `backend-fastify`
-Status: promoted 2026-06-28
-Selected initial provider: Google Maps Platform
+Status: promoted + implemented 2026-06-28 (`.review/cycle-72/`)
+Selected initial provider: Google Maps Platform (server-side Geocoding behind the
+`server/src/maps/` gateway; default `MAP_PROVIDER=disabled`). Diagnostic-only
+`GET /api/maps/provider-smoke`; no DB/cache/UI/travel-time. Cycles 73-76 stay roadmap.
 
 ### Goal
 

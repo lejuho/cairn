@@ -56,12 +56,14 @@ Entry and boot:
 - [server/src/index.ts](/home/pi/cairn/server/src/index.ts)
   - CLI/server boot.
   - Default local port: `3100` unless `PORT` overrides it.
-  - Opens SQLite DB, runs migrations, builds LLM gateway, starts Fastify.
+  - Opens SQLite DB, runs migrations, builds LLM gateway, builds the map gateway from env (`createMapGateway(readMapConfig())`, cycle-72), starts Fastify.
 - [server/src/app.ts](/home/pi/cairn/server/src/app.ts)
-  - Route registration boundary.
+  - Route registration boundary. `buildServer(db?, gateway?, mapGateway?)`.
   - `GET /health` always available.
+  - Map route (cycle-72) registers from `mapGateway` OUTSIDE the `if (db)` block — diagnostics need no DB.
   - DB-backed routes only register when DB exists.
   - Annotation route only registers when LLM gateway exists.
+- [server/src/maps/](/home/pi/cairn/server/src/maps) — map provider boundary (cycle-72, Map Provider Boundary A). `config.ts` `readMapConfig(env)` → discriminated result: `{provider:"disabled"}` (default) | `{provider:"google", baseUrl(def https://maps.googleapis.com), apiKey, timeoutMs(clamp 1000–15000)}` | `{ok:false, code:"config_error"}` (unknown provider id, or google with blank/missing `MAP_PROVIDER_API_KEY`). `gateway.ts` `createMapGateway(configResult, {fetchImpl?,retryCount?})` → single boundary `{ smoke() }`: disabled→success no-fetch; config_error→`config_error`; google→server-side `fetch` GET `${baseUrl}/maps/api/geocode/json` with the fixed smoke address and the server-side API key passed as query params (AbortController timeout, bounded retry only for `unavailable`). Status map: HTTP 429→`rate_limited`, ≥500→`unavailable`; body OK→ok/resultCount, ZERO_RESULTS→zero_results/0, OVER_QUERY_LIMIT→`rate_limited`, OVER_DAILY_LIMIT/REQUEST_DENIED→`denied`, INVALID_REQUEST→`invalid_request`, UNKNOWN_ERROR→`unavailable`, else/bad-JSON/shape→`invalid_response`. Error messages are STATIC — the URL, API key, and Google `error_message` never leave the gateway or get logged (Fastify `logger:false`). Mirrors the LLM gateway shape; provider-neutral output only. Shared contract: `shared/src/maps.ts` (`MapProviderSmokeDataSchema` {provider, configured, attempted, reachable, status∈disabled|ok|zero_results, resultCount}, `MapErrorCodeSchema`).
 
 Data layer:
 
@@ -131,6 +133,8 @@ Route layer:
   - `POST /api/threads/draft` — Thread Draft A (cycle-51 FR-THR-02/03). LLM-backed; registered in `app.ts` only inside `if (gateway)`. Validates `CreateThreadDraftRequestSchema` (.strict() text trim 1..4000, optional now/timeZone) → 400 VALIDATION_ERROR. Calls `createThreadDraft`; maps `llm_unavailable`→503 LLM_UNAVAILABLE, `invalid_draft`→502 LLM_INVALID_DRAFT, `db_error`→400 DB_ERROR, `ok`→201 with `{ thread, events, tasks, nodeLinks, warnings }`. Never fabricates output on failure.
 - [server/src/routes/threadStarDraft.ts](/home/pi/cairn/server/src/routes/threadStarDraft.ts)
   - `POST /api/threads/:id/star-draft` — Thread STAR Draft A (cycle-55 FR-CV-01). LLM-backed; registered in `app.ts` only inside `if (gateway)`. No request body. Validates id (positive int)→400 VALIDATION_ERROR; calls `generateThreadStarDraft`; maps `not_found`→404, `not_done`→409 THREAD_NOT_DONE, `llm_unavailable`→503 LLM_UNAVAILABLE, `invalid_draft`→502 LLM_INVALID_DRAFT, `ok`→200 with `{ draft, evidence }`. No DB write on any path; ephemeral (no STAR persistence/migration).
+- [server/src/routes/maps.ts](/home/pi/cairn/server/src/routes/maps.ts)
+  - `GET /api/maps/provider-smoke` — Map Provider Boundary A (cycle-72). Diagnostic/smoke only: no DB, no request body, no user-supplied address (fixed smoke query inside the gateway, so it cannot become the cycle-73 on-demand geocoder). Thin handler calls `mapGateway.smoke()`, parses success through `MapProviderSmokeDataSchema`, maps failures to `config_error`→500 / others→502 `{ ok:false, error:{ code, message } }`. Registered only when a `mapGateway` is passed to `buildServer` (outside `if (db)`).
 - [server/src/routes/capture.ts](/home/pi/cairn/server/src/routes/capture.ts)
   - `POST /api/capture/flat-event`. Registered only when both DB and LLM gateway exist.
   - Parse → fallback → persist order owned by `server/src/services/flatCapture.ts`.
