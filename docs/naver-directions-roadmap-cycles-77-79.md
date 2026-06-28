@@ -76,7 +76,19 @@ usable.
 
 Branch when promoted: `feature/cycle-78-pinned-transit-facts-a`
 Skills when promoted: `backend-fastify, frontend-react-pwa`
-Status: promoted + active 2026-06-28 (`.review/cycle-78/`)
+Status: promoted + implemented 2026-06-28 (`.review/cycle-78/`). New SQLite
+`pinned_transit_facts` (additive migration 0012) keyed by the DIRECTIONAL
+(origin_normalized, dest_normalized, mode=public_transit); `PUT
+/api/transit-facts/pair` takes only `{fromEventId,toEventId,durationMinutes,note?}`
+and the server derives the pair identity + coordinates from existing geocode_cache
+rows (no browser coordinates, no provider call). The day travel builder prefers a
+matching pinned fact over provider/cache travel; the pure feasibility gap adds the
+pinned duration via the existing `travelMargin` with a distinct
+`gap_travel_pinned_included` reason, provenance-labeled `source:"pinned_user"`
+(never live provider data). Today transition rows show "고정 이동 약 N분" + an
+add/update form; the cycle-77 Naver "길찾기" link remains. Preview is write-free.
+No Naver API/scrape/credential, schedule mutation, or LLM. Cycles 79-80 stay
+candidates.
 
 ### Goal
 

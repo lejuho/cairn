@@ -4,6 +4,29 @@ import type { MapGateway, TravelPoint } from "../maps/gateway.js";
 import { normalizeLocation } from "../maps/normalize.js";
 import { findGeocodeByNormalizedSet } from "../repositories/geocode-cache.js";
 import { findTravelByKey, upsertTravel, type TravelCacheRow } from "../repositories/travel-time-cache.js";
+import { listActivePinned, type PinnedTransitRow } from "../repositories/pinned-transit-facts.js";
+
+// Mode used to match a user-pinned public-transit fact (cycle-78).
+export const PINNED_TRANSIT_MODE = "public_transit";
+// Key for the pinned-fact lookup map: directional normalized origin|dest.
+export function pinnedPairKey(originNorm: string, destNorm: string): string {
+  return `${originNorm}|${destNorm}`;
+}
+
+// Read-only directional lookup of active pinned public-transit facts for the
+// route layer (cycle-78). Fail-open: any read error yields an empty map so a
+// pinned-facts problem can never break Today/feasibility day math.
+export function buildPinnedPairMap(db: CairnDatabase): Map<string, PinnedTransitRow> {
+  const map = new Map<string, PinnedTransitRow>();
+  try {
+    for (const p of listActivePinned(db)) {
+      if (p.mode === PINNED_TRANSIT_MODE) map.set(pinnedPairKey(p.originNormalized, p.destNormalized), p);
+    }
+  } catch {
+    // empty map → existing cycle-76 travel behavior, never an error
+  }
+  return map;
+}
 
 // Travel-time evidence builder (cycle-76). IMPURE (geocode/travel cache reads,
 // gateway calls, idempotent travel-cache writes) — it lives at the route layer so
@@ -27,7 +50,11 @@ export async function buildDayTravelFacts(
   scheduled: EventRow[],
   params: FeasibilityParams,
   now: string,
-  opts: TravelFactsOptions
+  opts: TravelFactsOptions,
+  // User-pinned public-transit facts keyed by `pinnedPairKey(originNorm,destNorm)`
+  // (cycle-78). A match short-circuits BEFORE any cache/provider call. Defaults
+  // to empty so existing callers/tests are byte-identical.
+  pinnedByPair: Map<string, PinnedTransitRow> = new Map()
 ): Promise<Map<string, TransitionTravel>> {
   void params; // travelMargin is applied in the pure feasibility step, not here.
   const facts = new Map<string, TransitionTravel>();
@@ -75,13 +102,20 @@ export async function buildDayTravelFacts(
     } else if (fromNorm === toNorm || isSameLocation(fromCoord, toCoord)) {
       evidence = quiet("same_location", mode, "travel_same_location");
     } else {
-      const pairKey = `${provider}|${mode}|${fromNorm}|${toNorm}`;
-      let pe = pairCache.get(pairKey);
-      if (!pe) {
-        pe = await resolvePair(db, gateway, provider, mode, fromNorm, toNorm, fromCoord, toCoord, now, allowProvider);
-        pairCache.set(pairKey, pe);
+      // A user-pinned fact wins over any provider/cache travel for this pair and
+      // short-circuits BEFORE resolvePair, so no provider/cache call is made.
+      const pinned = pinnedByPair.get(pinnedPairKey(fromNorm, toNorm));
+      if (pinned) {
+        evidence = pinnedEvidence(pinned);
+      } else {
+        const pairKey = `${provider}|${mode}|${fromNorm}|${toNorm}`;
+        let pe = pairCache.get(pairKey);
+        if (!pe) {
+          pe = await resolvePair(db, gateway, provider, mode, fromNorm, toNorm, fromCoord, toCoord, now, allowProvider);
+          pairCache.set(pairKey, pe);
+        }
+        evidence = pe;
       }
-      evidence = pe;
     }
     facts.set(`${from.id}:${to.id}`, evidence);
   }
@@ -175,6 +209,23 @@ function fromCachedDuration(status: "fresh" | "stale", row: TravelCacheRow, mode
     mode,
     ageMinutes: Number.isFinite(ageMs) ? msToMin(ageMs) : null,
     reasonCodes: [status === "fresh" ? "travel_fresh" : "travel_stale"]
+  };
+}
+
+// A user-pinned manual fact is usable travel (status fresh) but provenance-
+// labeled `pinned_user` with provider:null — it feeds the same gap math as a
+// fresh provider fact while the UI/gap reasons keep it distinct.
+function pinnedEvidence(p: PinnedTransitRow): TransitionTravel {
+  return {
+    status: "fresh",
+    durationMinutes: p.durationMinutes,
+    distanceMeters: null,
+    provider: null,
+    providerStatus: null,
+    mode: p.mode,
+    ageMinutes: null,
+    reasonCodes: ["travel_pinned_transit"],
+    source: "pinned_user"
   };
 }
 

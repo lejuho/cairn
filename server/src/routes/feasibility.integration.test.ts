@@ -778,4 +778,44 @@ describe("travel-time evidence on /api/feasibility/day + preview", () => {
     expect(res.json().data.gaps[0].reasonCodes).toContain("gap_travel_unavailable");
     expect(travelCount(conn)).toBe(0); // transient failure is never cached
   });
+
+  function seedPinned(conn: SqliteConnection, originNorm: string, destNorm: string, durationMin: number): void {
+    conn.sqlite.prepare("INSERT INTO pinned_transit_facts (origin_normalized, dest_normalized, origin_lat, origin_lng, dest_lat, dest_lng, mode, duration_minutes, source) VALUES (?,?,37.5,127,37.6,127.1,'public_transit',?,'pinned_user')").run(originNorm, destNorm, durationMin);
+  }
+  const pinnedCount = (conn: SqliteConnection) => (conn.sqlite.prepare("SELECT count(*) AS n FROM pinned_transit_facts").get() as { n: number }).n;
+
+  it("prefers a user-pinned fact (provenance pinned_user) over provider travel and tags the gap (cycle-78)", async () => {
+    const conn = makeTestDb();
+    insertLocEvent(conn, "2026-06-20T09:00:00+00:00", "2026-06-20T10:00:00+00:00", "Alpha");
+    insertLocEvent(conn, "2026-06-20T11:00:00+00:00", "2026-06-20T12:00:00+00:00", "Beta");
+    seedGeo(conn, "alpha", 37.5, 127.0);
+    seedGeo(conn, "beta", 37.6, 127.1);
+    seedPinned(conn, "alpha", "beta", 30);
+    // No map gateway → pinned still applies (it precedes provider/cache entirely).
+    const res = await get(conn, "2026-06-19T23:30:00+00:00");
+    expect(res.statusCode).toBe(200);
+    const data = res.json().data;
+    expect(data.transitionCosts[0].travel).toMatchObject({ status: "fresh", source: "pinned_user", durationMinutes: 30, provider: null });
+    expect(data.gaps[0].requiredMinutes).toBe(45); // 15 + round(30 * travelMargin 1)
+    expect(data.gaps[0].reasonCodes).toContain("gap_travel_pinned_included");
+  });
+
+  it("preview reads pinned facts but writes none (cycle-78)", async () => {
+    const conn = makeTestDb();
+    insertLocEvent(conn, "2026-06-20T09:00:00+00:00", "2026-06-20T10:00:00+00:00", "Alpha");
+    insertLocEvent(conn, "2026-06-20T11:00:00+00:00", "2026-06-20T12:00:00+00:00", "Beta");
+    seedGeo(conn, "alpha", 37.5, 127.0);
+    seedGeo(conn, "beta", 37.6, 127.1);
+    seedPinned(conn, "alpha", "beta", 30);
+    const before = pinnedCount(conn);
+    const res = await buildServer(conn.db).inject({
+      method: "POST",
+      url: "/api/feasibility/day/preview",
+      payload: { date: DATE, now: "2026-06-19T23:30:00+00:00", params: { energyBudget: 8, meetBufferMinutes: 15, deepBufferMinutes: 30, travelMargin: 2, maxContinuousMinutes: 600 } }
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.transitionCosts[0].travel.source).toBe("pinned_user");
+    expect(res.json().data.gaps[0].requiredMinutes).toBe(75); // 15 + round(30*2)
+    expect(pinnedCount(conn)).toBe(before); // preview never writes pinned facts
+  });
 });

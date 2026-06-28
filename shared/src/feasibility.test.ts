@@ -332,3 +332,23 @@ describe("TransitionTravel evidence (cycle-76)", () => {
     expect(TransitionCostSchema.safeParse({ ...BASE_COST, travel: { ...FRESH, rawPayload: {} } }).success).toBe(false);
   });
 });
+
+describe("TransitionTravel source provenance (cycle-78)", () => {
+  const BASE_COST = {
+    fromEventId: 1, toEventId: 2, fromThreadId: null, toThreadId: null,
+    relation: "missing_thread" as const, costLevel: "unknown" as const, reasonCodes: ["transition_missing_thread"]
+  };
+  const PINNED = {
+    status: "fresh" as const, durationMinutes: 12, distanceMeters: null, provider: null,
+    providerStatus: null, mode: "public_transit", ageMinutes: null, reasonCodes: ["travel_pinned_transit"], source: "pinned_user" as const
+  };
+  it("accepts pinned_user travel evidence and stays back-compat without source", () => {
+    expect(TransitionCostSchema.safeParse({ ...BASE_COST, travel: PINNED }).success).toBe(true);
+    const noSource: Record<string, unknown> = { ...PINNED };
+    delete noSource.source;
+    expect(TransitionCostSchema.safeParse({ ...BASE_COST, travel: noSource }).success).toBe(true);
+  });
+  it("rejects an unknown source value (strict enum)", () => {
+    expect(TransitionCostSchema.safeParse({ ...BASE_COST, travel: { ...PINNED, source: "scraped" } }).success).toBe(false);
+  });
+});

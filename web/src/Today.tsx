@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ConflictDecision, CreateThreadDraftResponseData, DayFeasibility, DomainFilter, EventDetailData, EventGeocodeData, EventMode, EventRow, FeasibilityParamLimits, FeasibilityParamSettingsData, FeasibilityParams, NeedsReviewPlacement, NotificationDraft, PreferredPeriod, ScheduleBrief, SlotCandidate, SlotSuggestionContribution, ThreadSummary, TodayEventLocationContext, TodaySurface, UpdateFeasibilityParamsRequest, Weekday } from "@cairn/shared";
 import { EventGeocodeResponseSchema, ResolveConflictResponseDataSchema } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString } from "./dateUtils.js";
@@ -290,13 +290,17 @@ function TransitionTravelLine({ travel }: { travel: NonNullable<DayFeasibility["
   if (!travel || travel.status === "same_location") return null;
   const mins = travel.durationMinutes != null ? Math.round(travel.durationMinutes) : null;
   const km = travel.distanceMeters != null ? (travel.distanceMeters / 1000).toFixed(1) : null;
+  // A user-pinned fact (cycle-78) is provenance-labeled distinctly from a
+  // provider estimate — "고정 이동" makes clear the user entered it manually.
+  const pinned = travel.source === "pinned_user";
   let text: string;
-  if (travel.status === "fresh" && mins != null) text = `이동 약 ${mins}분${km ? ` · ${km}km` : ""}`;
+  if (pinned && mins != null) text = `고정 이동 약 ${mins}분`;
+  else if (travel.status === "fresh" && mins != null) text = `이동 약 ${mins}분${km ? ` · ${km}km` : ""}`;
   else if (travel.status === "stale" && mins != null) text = `이동 약 ${mins}분 · 오래된 추정`;
   else if (travel.status === "missing_geocode") text = "위치 좌표 없음";
   else text = "이동 시간 미확인";
   return (
-    <span className={`feas-travel feas-travel--${travel.status}`} data-testid="travel-line" data-travel={travel.status}>
+    <span className={`feas-travel feas-travel--${travel.status}${pinned ? " feas-travel--pinned" : ""}`} data-testid="travel-line" data-travel={travel.status} data-source={travel.source ?? "provider"}>
       {text}
     </span>
   );
@@ -321,14 +325,28 @@ function transitionDirectionsHref(
   );
 }
 
+// Pinned transit-fact add/update controller (cycle-78). Data-in/callbacks-out:
+// the page owns the form state, submit (PUT /api/transit-facts/pair), and the
+// success refresh; the section only renders the affordance.
+type PinFormState = { fromEventId: number; toEventId: number; duration: string; note: string; submitting: boolean; error: string | null };
+type PinController = {
+  form: PinFormState | null;
+  open: (fromEventId: number, toEventId: number) => void;
+  change: (field: "duration" | "note", value: string) => void;
+  submit: () => void;
+  close: () => void;
+};
+
 function TransitionCostsSection({
   transitions,
   events,
-  locationContexts = []
+  locationContexts = [],
+  pin
 }: {
   transitions: DayFeasibility["transitionCosts"];
   events: EventRow[];
   locationContexts?: TodayEventLocationContext[];
+  pin: PinController | undefined;
 }) {
   // Show low/high/unknown transition rows, AND any pair carrying meaningful travel
   // evidence even when the thread transition cost is `none` (cycle-76 review-v1
@@ -373,6 +391,46 @@ function TransitionCostsSection({
                 </a>
               ) : null;
             })()}
+            {pin && (
+              <div className="feas-transition-pin" data-testid={`pin-transit-${t.fromEventId}-${t.toEventId}`}>
+                <button
+                  type="button"
+                  className="feas-transition-pin-btn"
+                  onClick={() => pin.open(t.fromEventId, t.toEventId)}
+                  aria-label={`${titleOf(t.fromEventId)}→${titleOf(t.toEventId)} 고정 이동시간 입력`}
+                >
+                  {t.travel?.source === "pinned_user" ? "고정 이동시간 수정" : "고정 이동시간"}
+                </button>
+                {pin.form && pin.form.fromEventId === t.fromEventId && pin.form.toEventId === t.toEventId && (
+                  <form
+                    className="feas-pin-form"
+                    onSubmit={(e) => { e.preventDefault(); pin.submit(); }}
+                  >
+                    <input
+                      className="feas-pin-input"
+                      type="number"
+                      inputMode="numeric"
+                      value={pin.form.duration}
+                      onChange={(e) => pin.change("duration", e.target.value)}
+                      aria-label="이동 시간(분)"
+                      placeholder="분"
+                    />
+                    <input
+                      className="feas-pin-note"
+                      type="text"
+                      value={pin.form.note}
+                      onChange={(e) => pin.change("note", e.target.value)}
+                      aria-label="메모(선택)"
+                      placeholder="메모 (선택)"
+                      maxLength={200}
+                    />
+                    <button type="submit" className="feas-pin-save" disabled={pin.form.submitting}>저장</button>
+                    <button type="button" className="feas-pin-cancel" onClick={pin.close}>취소</button>
+                    {pin.form.error && <p className="feas-pin-error" role="alert">{pin.form.error}</p>}
+                  </form>
+                )}
+              </div>
+            )}
           </li>
         ))}
       </ul>
@@ -548,7 +606,7 @@ function ScheduleBriefSection({ brief }: { brief: ScheduleBrief }) {
   );
 }
 
-function FeasibilityPanel({ f, events = [], onAdjust, locationContexts = [] }: { f: DayFeasibility; events?: EventRow[]; onAdjust?: () => void; locationContexts?: TodayEventLocationContext[] }) {
+function FeasibilityPanel({ f, events = [], onAdjust, locationContexts = [], pin }: { f: DayFeasibility; events?: EventRow[]; onAdjust?: () => void; locationContexts?: TodayEventLocationContext[]; pin?: PinController }) {
   const { energy, gaps, continuous, transitionCosts, sequenceEnergy, sequenceOrder } = f;
   const pct = Math.min(100, Math.round((energy.loadUnits / energy.budgetUnits) * 100));
   const warningGaps = gaps.filter((g) => g.status !== "ok");
@@ -577,7 +635,7 @@ function FeasibilityPanel({ f, events = [], onAdjust, locationContexts = [] }: {
           ⚠ 연속 {Math.round(continuous.spanMinutes)}분 — 쉬는 시간 없어
         </div>
       )}
-      <TransitionCostsSection transitions={transitionCosts} events={events} locationContexts={locationContexts} />
+      <TransitionCostsSection transitions={transitionCosts} events={events} locationContexts={locationContexts} pin={pin} />
       <SequenceEnergySection seq={sequenceEnergy} />
       <SequenceOrderSection order={sequenceOrder} events={events} />
       {onAdjust && (
@@ -930,6 +988,11 @@ export function Today() {
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [eventDetail, setEventDetail] = useState<EventDetailState>({ tag: "idle" });
   const [geocodePreview, setGeocodePreview] = useState<GeocodePreviewState>({ tag: "idle" });
+  const [pinForm, setPinForm] = useState<PinFormState | null>(null);
+  // Latest pin-form snapshot for the submit handler, written each render so the
+  // memoized controller's async submit never reads a stale/empty closure.
+  const pinFormRef = useRef<PinFormState | null>(null);
+  pinFormRef.current = pinForm;
   // Mirrors selectedEventId synchronously (set in open/close before any await) so
   // an in-flight geocode for a now-closed/switched sheet is dropped (cycle-74).
   const selectedEventIdRef = useRef<number | null>(null);
@@ -1442,6 +1505,44 @@ export function Today() {
       setEventDetail({ tag: "error", message: e instanceof Error ? e.message : "오류" });
     }
   }, [loadGeocode]);
+
+  // Pinned transit fact controller (cycle-78). Submit PUTs event ids + duration
+  // (the server derives the location pair + coordinates); on success refresh Today
+  // so the pinned duration flows into gap math.
+  const pinController = useMemo<PinController>(() => ({
+    form: pinForm,
+    open: (fromEventId: number, toEventId: number) => setPinForm({ fromEventId, toEventId, duration: "", note: "", submitting: false, error: null }),
+    change: (field, value) => setPinForm((p) => (p ? { ...p, [field]: value } : p)),
+    close: () => setPinForm(null),
+    submit: () => {
+      void (async () => {
+        const current = pinFormRef.current;
+        if (!current) return;
+        const durationMinutes = Number.parseInt(current.duration, 10);
+        if (!Number.isFinite(durationMinutes) || durationMinutes < 1 || durationMinutes > 600) {
+          setPinForm((p) => (p ? { ...p, submitting: false, error: "이동 시간을 1~600분 사이로 입력해줘" } : p));
+          return;
+        }
+        setPinForm((p) => (p ? { ...p, submitting: true, error: null } : p));
+        try {
+          const body = await apiJson<{ ok: boolean; error?: { message: string } }>("/api/transit-facts/pair", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ fromEventId: current.fromEventId, toEventId: current.toEventId, durationMinutes, note: current.note.trim() || undefined })
+          });
+          if (!body.ok) {
+            setPinForm((p) => (p ? { ...p, submitting: false, error: body.error?.message ?? "고정 실패" } : p));
+            return;
+          }
+          setPinForm(null);
+          void refresh();
+        } catch (e) {
+          const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : "고정 실패. 다시 시도해봐.";
+          setPinForm((p) => (p ? { ...p, submitting: false, error: msg } : p));
+        }
+      })();
+    }
+  }), [pinForm, refresh]);
 
   const handlePatchStatus = useCallback(async (status: string) => {
     if (selectedEventId == null) return;
@@ -2128,6 +2229,7 @@ export function Today() {
           events={surface.dayEvents}
           locationContexts={surface.locationContexts}
           onAdjust={() => void handleOpenFeasSettings(surface.feasibility.params)}
+          pin={pinController}
         />
         <ul className="today-stack" role="list">
         {(() => {

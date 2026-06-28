@@ -30,6 +30,7 @@ describe("core SQLite migration", () => {
       "links",
       "params",
       "people",
+      "pinned_transit_facts",
       "resource_links",
       "resources",
       "tasks",

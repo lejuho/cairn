@@ -1776,6 +1776,75 @@ p {
   text-decoration: none;
 }
 
+/* Pinned transit fact add/update affordance (cycle-78). Compact, semantic
+   tokens, 44px tap targets; the inline form is a single column on mobile. */
+.feas-transition-pin {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+}
+.feas-transition-pin-btn {
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 4px 12px;
+  border-radius: 16px;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.feas-pin-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.feas-pin-input {
+  width: 5rem;
+  min-height: 44px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+}
+.feas-pin-note {
+  flex: 1 1 8rem;
+  min-height: 44px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+}
+.feas-pin-save,
+.feas-pin-cancel {
+  min-height: 44px;
+  padding: 4px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.feas-pin-save {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.feas-pin-error {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--conflict);
+}
+.feas-travel--pinned {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 /* Travel-time copy (cycle-76). Additive + quiet; no alarm styling for
    unknown/unavailable/missing. `fresh` reads as the active estimate. */
 .feas-travel {

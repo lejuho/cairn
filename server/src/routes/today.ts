@@ -11,7 +11,7 @@ import { findEventDependencyLinks } from "../repositories/links.js";
 import { listNeedsReviewEvents } from "../services/needsReview.js";
 import { buildTodaySurface } from "../services/today.js";
 import { buildTodayLocationContexts } from "../services/today-location-context.js";
-import { buildDayTravelFacts } from "../services/travel-time.js";
+import { buildDayTravelFacts, buildPinnedPairMap } from "../services/travel-time.js";
 import { dayScheduledEvents } from "../services/feasibility.js";
 import { findGeocodeByNormalizedSet } from "../repositories/geocode-cache.js";
 import { normalizeLocation } from "../maps/normalize.js";
@@ -70,9 +70,10 @@ export function registerTodayRoute(app: FastifyInstance, db: CairnDatabase, mapG
     });
     const relations = findThreadLinksAmong(db, dayThreadIds(dayEvents, date));
     const dependencyLinks = findEventDependencyLinks(db, dayEventIds(dayEvents, date));
-    // Cache/gateway-backed travel evidence for adjacent scheduled pairs (cycle-76).
-    // Provider failure / disabled → unavailable evidence; Today still returns 200.
-    const travelFacts = await buildDayTravelFacts(db, mapGateway, dayScheduledEvents(dayEvents, date), feasibilityParams, now, { allowProvider: true });
+    // Cache/gateway-backed travel evidence for adjacent scheduled pairs (cycle-76)
+    // + user-pinned facts (cycle-78, which win over provider/cache for a matching
+    // pair). Provider failure / disabled → unavailable evidence; Today still 200.
+    const travelFacts = await buildDayTravelFacts(db, mapGateway, dayScheduledEvents(dayEvents, date), feasibilityParams, now, { allowProvider: true }, buildPinnedPairMap(db));
     const feasibility = computeDayFeasibility(date, now, dayEvents, feasibilityParams, relations, dependencyLinks, travelFacts);
 
     // Cache-only location context (cycle-75). Read existing geocode_cache rows

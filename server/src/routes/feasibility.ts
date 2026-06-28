@@ -10,7 +10,7 @@ import { findThreadLinksAmong } from "../repositories/threads.js";
 import { findEventDependencyLinks } from "../repositories/links.js";
 import { buildFeasibilityParams, computeDayFeasibility, dayScheduledEvents } from "../services/feasibility.js";
 import { dayEventIds, dayThreadIds } from "../services/feasibility.js";
-import { buildDayTravelFacts } from "../services/travel-time.js";
+import { buildDayTravelFacts, buildPinnedPairMap } from "../services/travel-time.js";
 import {
   readFeasibilityParamSettings,
   writeFeasibilityParams
@@ -41,10 +41,11 @@ export function registerFeasibilityRoutes(app: FastifyInstance, db: CairnDatabas
     const events = findPlannedAndConfirmedByDate(db, date);
     const relations = findThreadLinksAmong(db, dayThreadIds(events, date));
     const dependencyLinks = findEventDependencyLinks(db, dayEventIds(events, date));
-    // Cache/gateway-backed travel evidence (cycle-76). allowProvider=true: a fresh
-    // cache row is reused; an eligible pair may refresh once. Provider failure →
-    // unavailable evidence (fail open), never a non-200.
-    const travelFacts = await buildDayTravelFacts(db, mapGateway, dayScheduledEvents(events, date), p, now, { allowProvider: true });
+    // Cache/gateway-backed travel evidence (cycle-76) + user-pinned facts (cycle-78,
+    // which win over provider/cache for a matching pair). allowProvider=true: a
+    // fresh cache row is reused; an eligible pair may refresh once. Provider failure
+    // → unavailable evidence (fail open), never a non-200.
+    const travelFacts = await buildDayTravelFacts(db, mapGateway, dayScheduledEvents(events, date), p, now, { allowProvider: true }, buildPinnedPairMap(db));
     const feasibility = computeDayFeasibility(date, now, events, p, relations, dependencyLinks, travelFacts);
 
     return reply.send({ ok: true, data: feasibility });
@@ -82,10 +83,10 @@ export function registerFeasibilityRoutes(app: FastifyInstance, db: CairnDatabas
     const events = findPlannedAndConfirmedByDate(db, date);
     const relations = findThreadLinksAmong(db, dayThreadIds(events, date));
     const dependencyLinks = findEventDependencyLinks(db, dayEventIds(events, date));
-    // Preview is CACHE-READ-ONLY (allowProvider=false): it reads existing travel
-    // cache rows but never calls the provider or writes a row, so exploring
-    // parameters cannot mutate the cache or any event/thread.
-    const travelFacts = await buildDayTravelFacts(db, mapGateway, dayScheduledEvents(events, date), reqParams, now, { allowProvider: false });
+    // Preview is READ-ONLY (allowProvider=false): it reads existing travel cache
+    // rows + pinned facts but never calls the provider or writes a row, so
+    // exploring parameters cannot mutate any cache/fact or event/thread.
+    const travelFacts = await buildDayTravelFacts(db, mapGateway, dayScheduledEvents(events, date), reqParams, now, { allowProvider: false }, buildPinnedPairMap(db));
     const feasibility = computeDayFeasibility(date, now, events, reqParams, relations, dependencyLinks, travelFacts);
     return reply.send({ ok: true, data: feasibility });
   });

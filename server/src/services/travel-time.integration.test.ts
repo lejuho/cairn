@@ -132,6 +132,23 @@ describe("buildDayTravelFacts (cycle-76)", () => {
     expect(travelCount()).toBe(0);
   });
 
+  it("a user-pinned fact wins over provider/cache and makes NO provider call (cycle-78)", async () => {
+    const { gw, calls } = fakeGateway();
+    seedGeo("a", 37.50, 127.00);
+    seedGeo("b", 37.60, 127.10);
+    const pinned = new Map([["a|b", {
+      id: 1, originNormalized: "a", destNormalized: "b", originLabel: "A", destLabel: "B",
+      originLat: 37.5, originLng: 127, destLat: 37.6, destLng: 127.1, mode: "public_transit",
+      durationMinutes: 18, note: null, source: "pinned_user", active: 1, createdAt: null, updatedAt: null, lastConfirmedAt: null
+    }]]);
+    const facts = await buildDayTravelFacts(conn.db, gw, [ev(1, "a", 9), ev(2, "b", 10)], PARAMS, NOW, { allowProvider: true }, pinned);
+    const t = facts.get(key(1, 2))!;
+    expect(t).toMatchObject({ status: "fresh", source: "pinned_user", durationMinutes: 18, provider: null });
+    expect(t.reasonCodes).toContain("travel_pinned_transit");
+    expect(calls()).toBe(0); // pinned short-circuits before any provider/cache call
+    expect(travelCount()).toBe(0); // and writes no travel cache row
+  });
+
   it("dedupes identical location pairs → one provider call for a repeated pair", async () => {
     const { gw, calls } = fakeGateway();
     seedGeo("a", 37.50, 127.00);

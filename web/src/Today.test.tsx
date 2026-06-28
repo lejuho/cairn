@@ -3869,3 +3869,84 @@ describe("Today — card location context (cycle-75)", () => {
     expect(screen.getByTestId("dismiss-prompt-21")).toBeInTheDocument();
   });
 });
+
+describe("Today — pinned transit fact (cycle-78)", () => {
+  const evt = (id: number, title: string) => ({
+    id, title, threadId: null, type: null, start: "2026-06-20T09:00:00+09:00", end: "2026-06-20T10:00:00+09:00",
+    location: id === 1 ? "회의실" : "체육관", mode: null, source: "cairn" as const, selfImposed: 1, status: "planned" as const, createdAt: null, updatedAt: null
+  });
+  const highTransition = (travel?: unknown) => ({ fromEventId: 1, toEventId: 2, fromThreadId: 10, toThreadId: 20, relation: "unrelated" as const, costLevel: "high" as const, reasonCodes: ["transition_unrelated"], travel } as TodaySurface["feasibility"]["transitionCosts"][number]);
+  const surfaceWith = (travel?: unknown): TodaySurface => ({
+    ...BASE_SURFACE, state: "live",
+    feasibility: { ...BASE_SURFACE.feasibility, transitionCosts: [highTransition(travel)] },
+    dayEvents: [evt(1, "회의"), evt(2, "운동")]
+  });
+
+  function mockPin(opts: { putResult?: unknown } = {}) {
+    const calls: { url: string; method?: string; body?: unknown }[] = [];
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, init?: { method?: string; body?: unknown }) => {
+      const jsonRes = (data: unknown) => Promise.resolve({ ok: true, status: 200, redirected: false, url: "", headers: new Headers({ "content-type": "application/json" }), json: () => Promise.resolve(data) });
+      if (typeof url === "string" && url.includes("/api/transit-facts/pair") && init?.method === "PUT") {
+        calls.push({ url, method: init?.method, body: init?.body });
+        return jsonRes(opts.putResult ?? { ok: true, data: { id: 1, durationMinutes: 15 } });
+      }
+      if (typeof url === "string" && url.includes("/api/today")) return jsonRes({ ok: true, data: surfaceWith() });
+      return jsonRes({ ok: true, data: [] }); // threads etc.
+    }));
+    return calls;
+  }
+
+  it("renders pinned travel copy distinctly from a provider estimate", async () => {
+    const pinned = { status: "fresh", durationMinutes: 12, distanceMeters: null, provider: null, providerStatus: null, mode: "public_transit", ageMinutes: null, reasonCodes: ["travel_pinned_transit"], source: "pinned_user" };
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) =>
+      Promise.resolve({ ok: true, status: 200, redirected: false, url: "", headers: new Headers({ "content-type": "application/json" }), json: () => Promise.resolve({ ok: true, data: typeof url === "string" && url.includes("/api/today") ? surfaceWith(pinned) : [] }) })
+    ));
+    render(<Today />);
+    const line = await screen.findByTestId("travel-line");
+    expect(line).toHaveTextContent("고정 이동 약 12분");
+    expect(line).toHaveAttribute("data-source", "pinned_user");
+  });
+
+  it("opens the form, PUTs event ids + duration (no coordinates), and refreshes Today on success", async () => {
+    const calls = mockPin();
+    render(<Today />);
+    await screen.findByTestId("pin-transit-1-2");
+    fireEvent.click(screen.getByLabelText("회의→운동 고정 이동시간 입력"));
+    fireEvent.change(await screen.findByLabelText("이동 시간(분)"), { target: { value: "15" } });
+    fireEvent.change(screen.getByLabelText("메모(선택)"), { target: { value: "2호선" } });
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    const body = JSON.parse(calls[0]!.body as string);
+    expect(body).toEqual({ fromEventId: 1, toEventId: 2, durationMinutes: 15, note: "2호선" });
+    expect(body).not.toHaveProperty("fromLat");
+    expect(body).not.toHaveProperty("originLat");
+    // form closes on success
+    await waitFor(() => expect(screen.queryByLabelText("이동 시간(분)")).not.toBeInTheDocument());
+  });
+
+  it("rejects an invalid duration with a scoped error and makes no PUT", async () => {
+    const calls = mockPin();
+    render(<Today />);
+    await screen.findByTestId("pin-transit-1-2");
+    fireEvent.click(screen.getByLabelText("회의→운동 고정 이동시간 입력"));
+    fireEvent.change(await screen.findByLabelText("이동 시간(분)"), { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await new Promise(r=>setTimeout(r,50));
+    console.log("INPUTVAL=["+ (screen.getByLabelText("이동 시간(분)") as HTMLInputElement).value +"]");
+    screen.debug(screen.getByTestId("pin-transit-1-2"), 20000);
+    expect(await screen.findByText("이동 시간을 1~600분 사이로 입력해줘")).toBeInTheDocument();
+    expect(calls).toHaveLength(0);
+    expect(screen.getByLabelText("이동 시간(분)")).toBeInTheDocument(); // form stays open
+  });
+
+  it("shows a scoped error from the server (e.g. unresolved location) without breaking Today", async () => {
+    mockPin({ putResult: { ok: false, error: { code: "LOCATION_UNRESOLVED", message: "Event location is not geocoded yet" } } });
+    render(<Today />);
+    await screen.findByTestId("pin-transit-1-2");
+    fireEvent.click(screen.getByLabelText("회의→운동 고정 이동시간 입력"));
+    fireEvent.change(await screen.findByLabelText("이동 시간(분)"), { target: { value: "15" } });
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    expect(await screen.findByText("Event location is not geocoded yet")).toBeInTheDocument();
+    expect(screen.getByTestId("pin-transit-1-2")).toBeInTheDocument(); // Today still rendered
+  });
+});

@@ -20,6 +20,7 @@ import { registerThreadRoutes } from "./routes/threads.js";
 import { registerTodayRoute } from "./routes/today.js";
 import { registerWatcherRoutes } from "./routes/watchers.js";
 import { registerRelationRoutes } from "./routes/relations.js";
+import { registerTransitFactsRoutes } from "./routes/transit-facts.js";
 import { registerResourceRoutes } from "./routes/resources.js";
 
 export function buildServer(db?: CairnDatabase, gateway?: LlmGateway, mapGateway?: MapGateway): FastifyInstance {
@@ -58,6 +59,7 @@ export function buildServer(db?: CairnDatabase, gateway?: LlmGateway, mapGateway
     registerMirrorRoutes(app, db);
     registerResourceRoutes(app, db);
     registerRelationRoutes(app, db);
+    registerTransitFactsRoutes(app, db);
     // Event geocoding (cycle-73): needs both DB (cache) and the map gateway.
     if (mapGateway) {
       registerGeocodingRoutes(app, db, mapGateway);
