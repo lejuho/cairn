@@ -7,10 +7,8 @@ This document concatenates the intended Composer cleanup roadmap for cycles
 68-71 so agents can read the whole direction before individual cycles are
 promoted into `.review/cycle-N/plan.md`.
 
-Cycles 68 and 69 have been promoted, implemented, and merged. Cycle 70 is now
-promoted through `.review/cycle-70/plan.md`. Cycle 71 remains a roadmap section
-only and must not be treated as an active cycle plan until it is explicitly
-promoted.
+Cycles 68, 69, and 70 have been promoted, implemented, and merged. Cycle 71 is
+now promoted through `.review/cycle-71/plan.md`.
 
 ## Product Direction
 
@@ -137,9 +135,9 @@ are secondary and collapsed by default.
 
 ## Cycle 70: Today Composer Adoption A
 
-Status: PROMOTED + implemented (`.review/cycle-70/`). Today event-only quick
-capture replaced by the compact shared `CreationComposer` (3 modes); Today
-remains the processing queue. Cycle 71 stays roadmap-only.
+Status: PROMOTED + implemented + merged (`.review/cycle-70/`). Today event-only
+quick capture replaced by the compact shared `CreationComposer` (3 modes);
+Today remains the processing queue.
 Branch: `feature/cycle-70-today-composer-adoption-a`
 Skills: `frontend-react-pwa`
 
@@ -170,9 +168,11 @@ chat history.
 
 ## Cycle 71: Watcher And Record Modes A
 
-Branch when promoted: `feature/cycle-71-watcher-record-modes-a`
-Skills when promoted: `frontend-react-pwa, backend-fastify` only if backend
-changes are actually needed
+Status: PROMOTED (`.review/cycle-71/`). This cycle adds `Watcher` and `기록`
+Composer modes using existing watcher and event-annotation endpoints; backend
+changes are not planned.
+Branch: `feature/cycle-71-watcher-record-modes-a`
+Skills: `frontend-react-pwa`
 
 ### Goal
 
@@ -220,5 +220,4 @@ Before promoting a roadmap section to a real cycle:
 - keep the cycle scope narrow;
 - do not implement future roadmap items inside an earlier cycle.
 
-The active promoted cycle is Cycle 70. Cycle 71 remains roadmap-only until a
-future `.review/cycle-N/plan.md` promotes it.
+The active promoted cycle is Cycle 71.
