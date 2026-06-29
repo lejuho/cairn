@@ -13,6 +13,7 @@ import {
   ThreadMissingNodeSuggestionSchema,
   ThreadResumeDataSchema,
   PatchThreadResumeRequestSchema,
+  PatchThreadStatusRequestSchema,
   ThreadResumeExportFormatSchema,
   ThreadResumeExportDataSchema,
   ThreadResumeExportQuerySchema,
@@ -141,6 +142,18 @@ describe("CreateThreadLinkRequestSchema", () => {
 
   it("rejects an invalid firmness", () => {
     expect(CreateThreadLinkRequestSchema.safeParse({ toThreadId: 2, kind: "contains", firmness: "tentative" }).success).toBe(false);
+  });
+});
+
+describe("PatchThreadStatusRequestSchema", () => {
+  it("accepts a soft operational thread status", () => {
+    expect(PatchThreadStatusRequestSchema.safeParse({ status: "done" }).success).toBe(true);
+    expect(PatchThreadStatusRequestSchema.safeParse({ status: "dropped" }).success).toBe(true);
+  });
+
+  it("rejects unknown statuses and extra fields", () => {
+    expect(PatchThreadStatusRequestSchema.safeParse({ status: "deleted" }).success).toBe(false);
+    expect(PatchThreadStatusRequestSchema.safeParse({ status: "done", cascade: true }).success).toBe(false);
   });
 });
 

@@ -10,6 +10,7 @@ import type {
   ThreadLinkFirmness,
   ThreadLinkRow,
   ThreadLinkView,
+  ThreadStatus,
   ThreadResumeData,
   ThreadRow
 } from "@cairn/shared";
@@ -69,6 +70,16 @@ export function findThreadIdsByDomain(db: CairnDatabase, domain: ThreadDomain): 
 
 export function findThreadById(db: CairnDatabase, id: number): ThreadRow | null {
   const row = db.select(THREAD_ROW_COLUMNS).from(threads).where(eq(threads.id, id)).get();
+  return row ? (row as ThreadRow) : null;
+}
+
+export function updateThreadStatus(db: CairnDatabase, id: number, status: ThreadStatus): ThreadRow | null {
+  const [row] = db
+    .update(threads)
+    .set({ status })
+    .where(eq(threads.id, id))
+    .returning(THREAD_ROW_COLUMNS)
+    .all();
   return row ? (row as ThreadRow) : null;
 }
 

@@ -243,6 +243,52 @@ describe("Thread — live state", () => {
   });
 });
 
+describe("Thread — status controls", () => {
+  it("patches thread status and refreshes the detail", async () => {
+    let patched = false;
+    const fetchMock = vi.fn((url: string, opts?: RequestInit) => {
+      if (url.includes("/status") && opts?.method === "PATCH") {
+        patched = true;
+        return Promise.resolve(makeResponse({ ok: true, data: { thread: { ...BASE_THREAD, status: "done" } } }, url));
+      }
+      if (url.includes("promotion-suggestions")) {
+        return Promise.resolve(makeResponse({ ok: true, data: { suggestions: [] } }, url));
+      }
+      if (url.includes("resource-focus")) {
+        return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
+      }
+      return Promise.resolve(makeResponse({
+        ok: true,
+        data: {
+          thread: { ...BASE_THREAD, status: patched ? "done" : "active" },
+          events: [],
+          tasks: [],
+          progress: { done: 0, total: 0 },
+          relations: EMPTY_RELATIONS,
+          rollup: EMPTY_ROLLUP,
+          nodeLinks: [],
+          unknownBlockers: [],
+          settlement: patched ? { ...EMPTY_SETTLEMENT_T, status: "ready", reasonCodes: ["settlement_ready"] } : EMPTY_SETTLEMENT_T,
+          missingNodeSuggestions: [],
+          resume: EMPTY_RESUME_T,
+          personFocus: EMPTY_PERSON_FOCUS_T
+        }
+      }, url));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByTestId("thread-status-chip")).toHaveTextContent("활성"));
+
+    fireEvent.click(screen.getByRole("button", { name: "완료" }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url, opts]) => String(url).includes("/api/threads/1/status") && opts?.method === "PATCH")).toBe(true));
+    const patchCall = fetchMock.mock.calls.find(([url, opts]) => String(url).includes("/api/threads/1/status") && opts?.method === "PATCH");
+    expect(JSON.parse(patchCall![1]!.body as string)).toEqual({ status: "done" });
+    await waitFor(() => expect(screen.getByTestId("thread-status-chip")).toHaveTextContent("완료"));
+  });
+});
+
 describe("Thread — relations section", () => {
   it("shows empty relation state when no relations", async () => {
     mockFetch({
@@ -1666,7 +1712,7 @@ describe("Thread — task drop soft-remove (cycle-81)", () => {
     expect(JSON.parse(calls[0]!.body as string)).toEqual({ status: "dropped" });
     // after refresh the active drop button is gone; the task shows as dropped history
     await waitFor(() => expect(screen.queryByTestId("task-drop-20")).not.toBeInTheDocument());
-    expect(screen.getByText("드롭")).toBeInTheDocument(); // dropped chip in history group
+    expect(screen.getAllByText("드롭").some((el) => el.classList.contains("card-chip"))).toBe(true); // dropped chip in history group
   });
 
   it("a failed drop keeps the row with a scoped error", async () => {

@@ -1,11 +1,12 @@
 import type { FastifyInstance } from "fastify";
-import { CreateThreadLinkRequestSchema, CreateThreadRequestSchema, PatchThreadResumeRequestSchema, ThreadListQuerySchema, ThreadResumeExportQuerySchema } from "@cairn/shared";
+import { CreateThreadLinkRequestSchema, CreateThreadRequestSchema, PatchThreadResumeRequestSchema, PatchThreadStatusRequestSchema, ThreadListQuerySchema, ThreadResumeExportQuerySchema } from "@cairn/shared";
 import {
   createThread,
   createThreadLink,
   deleteThreadLink,
   getThreadDetail,
-  listThreads
+  listThreads,
+  updateThreadStatus
 } from "../services/threads.js";
 import { confirmThreadNodeLink } from "../repositories/links.js";
 import { findThreadById, updateThreadResume } from "../repositories/threads.js";
@@ -63,6 +64,31 @@ export function registerThreadRoutes(app: FastifyInstance, db: CairnDatabase): v
       });
     }
     return reply.send({ ok: true, data: detail });
+  });
+
+  app.patch("/api/threads/:id/status", async (req, reply) => {
+    const id = parsePositiveIntParam((req.params as { id: string }).id);
+    if (id === null) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "VALIDATION_ERROR", message: "id must be a positive integer" }
+      });
+    }
+    const parsed = PatchThreadStatusRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "VALIDATION_ERROR", message: parsed.error.message }
+      });
+    }
+    const thread = updateThreadStatus(db, id, parsed.data.status);
+    if (!thread) {
+      return reply.code(404).send({
+        ok: false,
+        error: { code: "NOT_FOUND", message: "Thread not found" }
+      });
+    }
+    return reply.send({ ok: true, data: { thread } });
   });
 
   app.post("/api/threads/:id/links", async (req, reply) => {

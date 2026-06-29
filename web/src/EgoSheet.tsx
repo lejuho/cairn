@@ -97,6 +97,11 @@ export function EgoSheet({ graph, onClose }: { graph: EgoGraphData; onClose: () 
       ref={backdropRef}
       className="sheet-backdrop"
       role="presentation"
+      onKeyDown={(e) => {
+        if (e.key !== "Escape") return;
+        e.preventDefault();
+        onClose();
+      }}
       onClick={(e) => {
         if (e.target === backdropRef.current) onClose();
       }}

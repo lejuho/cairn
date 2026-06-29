@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { EventRow, ItemListData, ItemListScope, TaskRow } from "@cairn/shared";
+import type { EventDetailData, EventRow, EventStatus, ItemListData, ItemListScope, TaskRow, TaskStatus } from "@cairn/shared";
 import { apiJson } from "./api.js";
 
 const EVENT_STATUS_LABEL: Record<string, string> = {
@@ -16,6 +16,20 @@ const TASK_STATUS_LABEL: Record<string, string> = {
   doing: "진행",
   done: "완료",
   dropped: "드롭"
+};
+
+const EVENT_STATUS_ACTIONS: EventStatus[] = ["done", "cancelled", "moved", "late"];
+const TASK_STATUS_ACTIONS: TaskStatus[] = ["todo", "doing", "done", "dropped"];
+
+type EventSheetState =
+  | { tag: "loading"; eventId: number }
+  | { tag: "loaded"; eventId: number; data: EventDetailData; saving: EventStatus | null; error: string | null }
+  | { tag: "error"; eventId: number; message: string };
+
+type TaskSheetState = {
+  task: TaskRow;
+  saving: TaskStatus | null;
+  error: string | null;
 };
 
 function formatEventTime(event: EventRow): string {
@@ -37,6 +51,31 @@ function taskMeta(task: TaskRow): string {
   if (task.estMinutes != null) parts.push(`${task.estMinutes}분`);
   if (task.threadId != null) parts.push(`스레드 #${task.threadId}`);
   return parts.join(" · ");
+}
+
+async function fetchEventDetail(id: number): Promise<EventDetailData> {
+  const body = await apiJson<{ ok: boolean; data?: EventDetailData; error?: { message: string } }>(`/api/events/${id}`);
+  if (!body.ok || !body.data) throw new Error(body.error?.message ?? "일정을 불러오지 못했어");
+  return body.data;
+}
+
+async function patchEventStatus(id: number, status: EventStatus): Promise<void> {
+  const body = await apiJson<{ ok: boolean; error?: { message: string } }>(`/api/events/${id}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status })
+  });
+  if (!body.ok) throw new Error(body.error?.message ?? "상태 변경 실패");
+}
+
+async function patchTaskStatus(id: number, status: TaskStatus): Promise<TaskRow> {
+  const body = await apiJson<{ ok: boolean; data?: TaskRow; error?: { message: string } }>(`/api/tasks/${id}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status })
+  });
+  if (!body.ok || !body.data) throw new Error(body.error?.message ?? "상태 변경 실패");
+  return body.data;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -96,6 +135,8 @@ export function ItemIndex() {
   const [state, setState] = useState<"loading" | "live" | "error">("loading");
   const [data, setData] = useState<ItemListData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [eventSheet, setEventSheet] = useState<EventSheetState | null>(null);
+  const [taskSheet, setTaskSheet] = useState<TaskSheetState | null>(null);
 
   const load = useCallback(async (nextScope: ItemListScope) => {
     setState("loading");
@@ -119,6 +160,52 @@ export function ItemIndex() {
   };
 
   const isQuiet = state === "live" && data != null && data.events.length === 0 && data.tasks.length === 0;
+
+  const openEventDetail = async (eventId: number) => {
+    setTaskSheet(null);
+    setEventSheet({ tag: "loading", eventId });
+    try {
+      const detail = await fetchEventDetail(eventId);
+      setEventSheet({ tag: "loaded", eventId, data: detail, saving: null, error: null });
+    } catch (err: unknown) {
+      setEventSheet({ tag: "error", eventId, message: err instanceof Error ? err.message : "일정을 불러오지 못했어" });
+    }
+  };
+
+  const updateEventStatus = async (status: EventStatus) => {
+    if (eventSheet?.tag !== "loaded" || eventSheet.saving != null) return;
+    const eventId = eventSheet.eventId;
+    setEventSheet({ ...eventSheet, saving: status, error: null });
+    try {
+      await patchEventStatus(eventId, status);
+      const detail = await fetchEventDetail(eventId);
+      setEventSheet({ tag: "loaded", eventId, data: detail, saving: null, error: null });
+      await load(scope);
+    } catch (err: unknown) {
+      setEventSheet((sheet) => sheet?.tag === "loaded"
+        ? { ...sheet, saving: null, error: err instanceof Error ? err.message : "상태 변경 실패" }
+        : sheet);
+    }
+  };
+
+  const openTaskDetail = (task: TaskRow) => {
+    setEventSheet(null);
+    setTaskSheet({ task, saving: null, error: null });
+  };
+
+  const updateTaskStatus = async (status: TaskStatus) => {
+    if (!taskSheet || taskSheet.saving != null) return;
+    setTaskSheet({ ...taskSheet, saving: status, error: null });
+    try {
+      const task = await patchTaskStatus(taskSheet.task.id, status);
+      setTaskSheet({ task, saving: null, error: null });
+      await load(scope);
+    } catch (err: unknown) {
+      setTaskSheet((sheet) => sheet
+        ? { ...sheet, saving: null, error: err instanceof Error ? err.message : "상태 변경 실패" }
+        : sheet);
+    }
+  };
 
   return (
     <main className="items-page" aria-labelledby="items-title">
@@ -170,12 +257,16 @@ export function ItemIndex() {
             ) : (
               <ul className="items-list" role="list">
                 {data.events.map((event) => (
-                  <li className="items-card" key={event.id}>
-                    <div>
-                      <span className="items-kind">일정</span>
-                      <h3>{event.title}</h3>
-                      <p>{eventMeta(event)}</p>
-                    </div>
+	                  <li className="items-card" key={event.id}>
+	                    <div>
+	                      <span className="items-kind">일정</span>
+	                      <h3>
+	                        <button type="button" className="items-title-btn" onClick={() => void openEventDetail(event.id)}>
+	                          {event.title}
+	                        </button>
+	                      </h3>
+	                      <p>{eventMeta(event)}</p>
+	                    </div>
                     <div className="items-card-actions">
                       <span className="items-status">{EVENT_STATUS_LABEL[event.status ?? ""] ?? "상태 없음"}</span>
                       {event.threadId != null && <a href={`/threads/${event.threadId}`}>스레드</a>}
@@ -196,12 +287,16 @@ export function ItemIndex() {
             ) : (
               <ul className="items-list" role="list">
                 {data.tasks.map((task) => (
-                  <li className="items-card" key={task.id}>
-                    <div>
-                      <span className="items-kind">할 일</span>
-                      <h3>{task.title}</h3>
-                      <p>{taskMeta(task)}</p>
-                    </div>
+	                  <li className="items-card" key={task.id}>
+	                    <div>
+	                      <span className="items-kind">할 일</span>
+	                      <h3>
+	                        <button type="button" className="items-title-btn" onClick={() => openTaskDetail(task)}>
+	                          {task.title}
+	                        </button>
+	                      </h3>
+	                      <p>{taskMeta(task)}</p>
+	                    </div>
                     <div className="items-card-actions">
                       <span className="items-status">{TASK_STATUS_LABEL[task.status ?? ""] ?? "상태 없음"}</span>
                       {task.threadId != null && <a href={`/threads/${task.threadId}`}>스레드</a>}
@@ -212,6 +307,100 @@ export function ItemIndex() {
             )}
           </section>
         </div>
+      )}
+
+      {eventSheet && (
+        <>
+          <div className="sheet-backdrop" aria-hidden="true" onClick={() => setEventSheet(null)} />
+          <div role="dialog" aria-modal="true" aria-label="일정 상세" className="sheet sheet--entering">
+            <span className="sheet-handle" aria-hidden="true" />
+            <button className="sheet-close-btn" onClick={() => setEventSheet(null)} aria-label="닫기">✕</button>
+            {eventSheet.tag === "loading" && <p className="event-detail-loading">불러오는 중…</p>}
+            {eventSheet.tag === "error" && <p className="sheet-error" role="alert">{eventSheet.message}</p>}
+            {eventSheet.tag === "loaded" && (
+              <div className="item-detail-sheet">
+                <header className="item-detail-header">
+                  <span className="items-kind">일정</span>
+                  <h2>{eventSheet.data.event.title}</h2>
+                  <p>{formatEventTime(eventSheet.data.event)}</p>
+                  {eventSheet.data.event.location && <p>{eventSheet.data.event.location}</p>}
+                  {eventSheet.data.thread && <a href={`/threads/${eventSheet.data.thread.id}`}>{eventSheet.data.thread.name}</a>}
+                </header>
+                <section className="item-detail-actions" aria-labelledby="event-status-title">
+                  <p id="event-status-title" className="event-detail-section-label">결과</p>
+                  <div className="item-detail-status-grid">
+                    {EVENT_STATUS_ACTIONS.map((status) => (
+                      <button
+                        key={status}
+                        type="button"
+                        className="item-detail-status-btn"
+                        aria-pressed={eventSheet.data.event.status === status}
+                        disabled={eventSheet.saving != null || eventSheet.data.event.status === status}
+                        onClick={() => void updateEventStatus(status)}
+                      >
+                        {eventSheet.saving === status ? "…" : EVENT_STATUS_LABEL[status]}
+                      </button>
+                    ))}
+                  </div>
+                  {eventSheet.error && <p className="sheet-error" role="alert">{eventSheet.error}</p>}
+                </section>
+                {eventSheet.data.people.length > 0 && (
+                  <section className="item-detail-section" aria-labelledby="event-people-title">
+                    <p id="event-people-title" className="event-detail-section-label">참석자</p>
+                    <ul className="item-detail-list" role="list">
+                      {eventSheet.data.people.map((p) => <li key={p.id}>{p.name}{p.relation ? ` (${p.relation})` : ""}</li>)}
+                    </ul>
+                  </section>
+                )}
+                {eventSheet.data.annotations.length > 0 && (
+                  <section className="item-detail-section" aria-labelledby="event-notes-title">
+                    <p id="event-notes-title" className="event-detail-section-label">메모</p>
+                    <ul className="item-detail-list" role="list">
+                      {eventSheet.data.annotations.map((a) => <li key={a.id}>{a.reasonText}</li>)}
+                    </ul>
+                  </section>
+                )}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {taskSheet && (
+        <>
+          <div className="sheet-backdrop" aria-hidden="true" onClick={() => setTaskSheet(null)} />
+          <div role="dialog" aria-modal="true" aria-label="할 일 상세" className="sheet sheet--entering">
+            <span className="sheet-handle" aria-hidden="true" />
+            <button className="sheet-close-btn" onClick={() => setTaskSheet(null)} aria-label="닫기">✕</button>
+            <div className="item-detail-sheet">
+              <header className="item-detail-header">
+                <span className="items-kind">할 일</span>
+                <h2>{taskSheet.task.title}</h2>
+                <p>{taskMeta(taskSheet.task)}</p>
+                {taskSheet.task.context && <p>{taskSheet.task.context}</p>}
+                {taskSheet.task.threadId != null && <a href={`/threads/${taskSheet.task.threadId}`}>스레드 #{taskSheet.task.threadId}</a>}
+              </header>
+              <section className="item-detail-actions" aria-labelledby="task-status-title">
+                <p id="task-status-title" className="event-detail-section-label">상태</p>
+                <div className="item-detail-status-grid">
+                  {TASK_STATUS_ACTIONS.map((status) => (
+                    <button
+                      key={status}
+                      type="button"
+                      className="item-detail-status-btn"
+                      aria-pressed={taskSheet.task.status === status}
+                      disabled={taskSheet.saving != null || taskSheet.task.status === status}
+                      onClick={() => void updateTaskStatus(status)}
+                    >
+                      {taskSheet.saving === status ? "…" : TASK_STATUS_LABEL[status]}
+                    </button>
+                  ))}
+                </div>
+                {taskSheet.error && <p className="sheet-error" role="alert">{taskSheet.error}</p>}
+              </section>
+            </div>
+          </div>
+        </>
       )}
     </main>
   );

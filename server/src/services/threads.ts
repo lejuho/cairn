@@ -8,6 +8,7 @@ import type {
   ThreadRelations,
   ThreadRollup,
   ThreadRow,
+  ThreadStatus,
   ThreadSummary
 } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
@@ -32,7 +33,8 @@ import {
   findThreadNamesByIds,
   findThreadsByIds,
   insertLink,
-  listThreads as repoList
+  listThreads as repoList,
+  updateThreadStatus as repoUpdateThreadStatus
 } from "../repositories/threads.js";
 import { findThreadNodeLinks } from "../repositories/links.js";
 import { findEventsWithCostsByThreadId } from "../repositories/events.js";
@@ -46,6 +48,10 @@ import type { CreateThreadRequest, DomainFilter } from "@cairn/shared";
 
 export function createThread(db: CairnDatabase, input: CreateThreadRequest): ThreadRow {
   return repoCreate(db, input);
+}
+
+export function updateThreadStatus(db: CairnDatabase, id: number, status: ThreadStatus): ThreadRow | null {
+  return repoUpdateThreadStatus(db, id, status);
 }
 
 function computeProgress(events: EventRow[], tasks: TaskRow[]): ThreadProgress {

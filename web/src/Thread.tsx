@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ApprovePromotionRequest, EgoGraphData, EventMode, EventRow, PromotionSuggestion, TaskRow, ThreadDetail, ThreadLinkKind, ThreadMissingNodeSuggestion, ThreadNodeLink, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadResumeData, ThreadResumeExportData, ThreadResumeExportFormat, ThreadRollup, ThreadRow, ThreadSettlement, ThreadSettlementPaidCost, ThreadStarDraftResponseData, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
+import type { ApprovePromotionRequest, EgoGraphData, EventMode, EventRow, PromotionSuggestion, TaskRow, ThreadDetail, ThreadLinkKind, ThreadMissingNodeSuggestion, ThreadNodeLink, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadResumeData, ThreadResumeExportData, ThreadResumeExportFormat, ThreadRollup, ThreadRow, ThreadSettlement, ThreadSettlementPaidCost, ThreadStarDraftResponseData, ThreadStatus, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
 import { EgoSheet, loadEgoGraph } from "./EgoSheet.js";
 
@@ -18,6 +18,13 @@ async function patchTaskNode(id: number, body: Record<string, unknown>) {
 async function confirmNodeLink(threadId: number, linkId: number) {
   return apiJson<{ ok: boolean; error?: { code: string; message: string } }>(`/api/threads/${threadId}/node-links/${linkId}/confirm`, {
     method: "PATCH"
+  });
+}
+async function patchThreadStatus(threadId: number, status: ThreadStatus) {
+  return apiJson<{ ok: boolean; error?: { code: string; message: string } }>(`/api/threads/${threadId}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status })
   });
 }
 // STAR draft generation (cycle-55 FR-CV-01). POST only; no body; ephemeral.
@@ -50,6 +57,13 @@ export function resumeExportFile(format: ThreadResumeExportFormat, threadId: num
 
 const LINK_FIRMNESS_LABEL: Record<string, string> = { hard: "확정", soft: "약함", tentative: "잠정" };
 const LINK_SOURCE_LABEL: Record<string, string> = { authored: "직접", given: "주어짐", inferred: "추론" };
+const THREAD_STATUS_LABEL: Record<ThreadStatus, string> = {
+  active: "활성",
+  paused: "중지",
+  done: "완료",
+  dropped: "드롭"
+};
+const THREAD_STATUS_ACTIONS: ThreadStatus[] = ["active", "paused", "done", "dropped"];
 
 type ViewState =
   | { tag: "loading" }
@@ -107,6 +121,8 @@ export function Thread({ id }: { id: number }) {
   const [suggestions, setSuggestions] = useState<PromotionSuggestion[]>([]);
   const [approvingKey, setApprovingKey] = useState<string | null>(null);
   const [approveError, setApproveError] = useState<string | null>(null);
+  const [threadStatusSaving, setThreadStatusSaving] = useState<ThreadStatus | null>(null);
+  const [threadStatusError, setThreadStatusError] = useState<string | null>(null);
   const addBtnRef = useRef<HTMLButtonElement>(null);
   const sheetCloseRef = useRef<HTMLButtonElement>(null);
   const sheetBackdropRef = useRef<HTMLDivElement>(null);
@@ -216,6 +232,25 @@ export function Thread({ id }: { id: number }) {
       refresh();
     } catch {
       // non-critical: refresh still runs if delete succeeds, silent on network error
+    }
+  }
+
+  async function handleThreadStatus(status: ThreadStatus) {
+    if (view.tag !== "live" || view.detail.thread.status === status || threadStatusSaving != null) return;
+    setThreadStatusSaving(status);
+    setThreadStatusError(null);
+    try {
+      const res = await patchThreadStatus(id, status);
+      if (!res.ok) {
+        setThreadStatusError(res.error?.message ?? "상태 변경 실패");
+        return;
+      }
+      refresh();
+    } catch (e: unknown) {
+      const err = e as Partial<AccessSessionError>;
+      setThreadStatusError(err.kind === "access_session_required" ? (err.message ?? "로그인 세션이 만료됐어") : "상태 변경 실패");
+    } finally {
+      setThreadStatusSaving(null);
     }
   }
 
@@ -374,6 +409,9 @@ export function Thread({ id }: { id: number }) {
           )}
           <div className="thread-meta-row">
             <span className="card-chip" data-testid="thread-domain-chip">{detail.thread.domain === "work" ? "업무" : "개인"}</span>
+            {detail.thread.status && (
+              <span className="card-chip" data-testid="thread-status-chip">{THREAD_STATUS_LABEL[detail.thread.status]}</span>
+            )}
             {detail.thread.deadline && (
               <span className="card-chip">마감 {detail.thread.deadline}</span>
             )}
@@ -386,6 +424,23 @@ export function Thread({ id }: { id: number }) {
               </span>
             )}
           </div>
+          <div className="thread-status-actions" role="group" aria-label="스레드 상태">
+            {THREAD_STATUS_ACTIONS.map((status) => (
+              <button
+                key={status}
+                type="button"
+                className="thread-status-btn"
+                aria-pressed={detail.thread.status === status}
+                disabled={detail.thread.status === status || threadStatusSaving != null}
+                onClick={() => void handleThreadStatus(status)}
+              >
+                {threadStatusSaving === status ? "…" : THREAD_STATUS_LABEL[status]}
+              </button>
+            ))}
+          </div>
+          {threadStatusError && (
+            <p className="card-meta" role="alert" style={{ color: "var(--cancelled)", marginTop: "8px" }}>{threadStatusError}</p>
+          )}
         </div>
 
         <ul className="today-stack" role="list" style={{ width: "min(100%, 480px)" }}>

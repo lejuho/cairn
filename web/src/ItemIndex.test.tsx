@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ItemIndex } from "./ItemIndex.js";
 
@@ -31,6 +31,23 @@ const TASK = {
   schedulePromptDismissedOn: null,
   scheduledEventId: null,
   createdAt: "2026-06-29T01:01:00+09:00"
+};
+
+const EVENT_DETAIL = {
+  event: EVENT,
+  people: [],
+  annotations: [],
+  thread: null,
+  scheduleBrief: {
+    mode: null,
+    thread: null,
+    previousEvent: null,
+    previousAnnotation: null,
+    people: [],
+    preparations: [],
+    preparationSuggestions: [],
+    reasonCodes: []
+  }
 };
 
 function response(body: unknown): Response {
@@ -84,5 +101,50 @@ describe("ItemIndex", () => {
 
     await waitFor(() => expect(screen.getByTestId("items-error")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "다시 시도" })).toBeInTheDocument();
+  });
+
+  it("opens event detail and patches event status", async () => {
+    const fetchMock = vi.fn((url: string, opts?: RequestInit) => {
+      if (url === "/api/events/1" && !opts?.method) {
+        return Promise.resolve(response({ ok: true, data: EVENT_DETAIL }));
+      }
+      if (url === "/api/events/1/status" && opts?.method === "PATCH") {
+        return Promise.resolve(response({ ok: true, data: { event: { ...EVENT, status: "cancelled" } } }));
+      }
+      return Promise.resolve(response({ ok: true, data: { scope: "active", events: [EVENT], tasks: [TASK] } }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ItemIndex />);
+    await waitFor(() => expect(screen.getByTestId("items-live")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: EVENT.title }));
+    const dialog = await screen.findByRole("dialog", { name: "일정 상세" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url, opts]) => url === "/api/events/1/status" && opts?.method === "PATCH")).toBe(true));
+    const patchCall = fetchMock.mock.calls.find(([url, opts]) => url === "/api/events/1/status" && opts?.method === "PATCH");
+    expect(JSON.parse(patchCall![1]!.body as string)).toEqual({ status: "cancelled" });
+  });
+
+  it("opens task detail and drops the task", async () => {
+    const fetchMock = vi.fn((url: string, opts?: RequestInit) => {
+      if (url === "/api/tasks/2/status" && opts?.method === "PATCH") {
+        return Promise.resolve(response({ ok: true, data: { ...TASK, status: "dropped" } }));
+      }
+      return Promise.resolve(response({ ok: true, data: { scope: "active", events: [EVENT], tasks: [TASK] } }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ItemIndex />);
+    await waitFor(() => expect(screen.getByTestId("items-live")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: TASK.title }));
+    const dialog = await screen.findByRole("dialog", { name: "할 일 상세" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "드롭" }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url, opts]) => url === "/api/tasks/2/status" && opts?.method === "PATCH")).toBe(true));
+    const patchCall = fetchMock.mock.calls.find(([url, opts]) => url === "/api/tasks/2/status" && opts?.method === "PATCH");
+    expect(JSON.parse(patchCall![1]!.body as string)).toEqual({ status: "dropped" });
   });
 });

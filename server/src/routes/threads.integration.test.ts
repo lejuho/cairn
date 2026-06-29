@@ -206,6 +206,68 @@ describe("GET /api/threads/:id", () => {
   });
 });
 
+describe("PATCH /api/threads/:id/status", () => {
+  let app: FastifyInstance;
+  let conn: ReturnType<typeof makeTestDb>;
+
+  beforeEach(() => {
+    conn = makeTestDb();
+    app = buildServer(conn.db);
+  });
+
+  afterEach(() => conn.sqlite.close());
+
+  it("updates thread status and returns the updated row", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/threads",
+      payload: { name: "Close me" }
+    });
+    const id = created.json().data.id as number;
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/threads/${id}/status`,
+      payload: { status: "done" }
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.thread.status).toBe("done");
+
+    const detail = await app.inject({ method: "GET", url: `/api/threads/${id}` });
+    expect(detail.json().data.thread.status).toBe("done");
+  });
+
+  it("rejects invalid status bodies without changing the thread", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/threads",
+      payload: { name: "Keep me" }
+    });
+    const id = created.json().data.id as number;
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/threads/${id}/status`,
+      payload: { status: "deleted" }
+    });
+
+    expect(res.statusCode).toBe(400);
+    const detail = await app.inject({ method: "GET", url: `/api/threads/${id}` });
+    expect(detail.json().data.thread.status).toBe("active");
+  });
+
+  it("returns 404 for a missing thread", async () => {
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/threads/99999/status",
+      payload: { status: "dropped" }
+    });
+
+    expect(res.statusCode).toBe(404);
+  });
+});
+
 describe("POST /api/threads/:id/links", () => {
   let app: FastifyInstance;
   let conn: ReturnType<typeof makeTestDb>;

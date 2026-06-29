@@ -25,6 +25,14 @@ export const CreateThreadRequestSchema = z.object({
   domain: ThreadDomainSchema.optional()
 });
 
+// Operational thread status change. This is a soft state transition, not a hard
+// delete; dropped threads remain historical graph centers.
+export const PatchThreadStatusRequestSchema = z
+  .object({
+    status: ThreadStatusSchema
+  })
+  .strict();
+
 // Thread-list / Today domain filter (cycle-67 FR-DOM-01). `all` preserves
 // existing behavior; default `all`. Strict — invalid values → 400.
 export const DomainFilterSchema = z.enum(["all", "personal", "work"]);
@@ -420,6 +428,7 @@ export const ThreadDetailSchema = z.object({
 
 export type ThreadRow = z.infer<typeof ThreadRowSchema>;
 export type CreateThreadRequest = z.infer<typeof CreateThreadRequestSchema>;
+export type PatchThreadStatusRequest = z.infer<typeof PatchThreadStatusRequestSchema>;
 export type DomainFilter = z.infer<typeof DomainFilterSchema>;
 export type ThreadListQuery = z.infer<typeof ThreadListQuerySchema>;
 export type ThreadProgress = z.infer<typeof ThreadProgressSchema>;

@@ -13,6 +13,8 @@ status / armed flag so it leaves active surfaces but stays as history.
 
 - Task → `status='dropped'` (reuse `PATCH /api/tasks/:id/status`).
 - Scheduled event → `status='cancelled'` (event detail status button).
+- Thread → `status='done'|'paused'|'dropped'` (reuse
+  `PATCH /api/threads/:id/status`; no cascade).
 - Watcher → `armed=false` (the armed toggle removes it from the active flow).
 - Thread relation link → `DELETE /api/threads/:id/links/:linkId` (an edge only,
   no historical evidence — the one existing hard delete).
@@ -38,7 +40,7 @@ remove on operational surfaces by reusing `PATCH /api/tasks/:id/status`
 
 ## Out of scope (future cycles)
 
-- Thread and person archive/merge (graph centers — need separate specs covering
-  traversal, rollups, person history, resources, mirrors).
+- Person archive/merge and thread merge (graph centers — need separate specs
+  covering traversal, rollups, person history, resources, mirrors).
 - Scheduled-block cleanup when a task with a block event is dropped.
 - Any hard delete of core rows or cascade behavior.
