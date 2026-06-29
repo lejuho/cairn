@@ -20,6 +20,8 @@ const TASK_STATUS_LABEL: Record<string, string> = {
 
 const EVENT_STATUS_ACTIONS: EventStatus[] = ["done", "cancelled", "moved", "late"];
 const TASK_STATUS_ACTIONS: TaskStatus[] = ["todo", "doing", "done", "dropped"];
+const MINUTE_MS = 60_000;
+const DAY_MINUTES = 1_440;
 
 type EventSheetState =
   | { tag: "loading"; eventId: number }
@@ -37,6 +39,57 @@ function formatEventTime(event: EventRow): string {
   const start = event.start.slice(0, 16).replace("T", " ");
   const end = event.end ? event.end.slice(11, 16) : null;
   return end ? `${start}-${end}` : start;
+}
+
+function parseTimeMs(value: string | null): number | null {
+  if (value == null) return null;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+function parseDueBoundaryMs(due: string | null): number | null {
+  if (due == null) return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(due);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const localStart = new Date(year, month - 1, day);
+  if (localStart.getFullYear() !== year || localStart.getMonth() !== month - 1 || localStart.getDate() !== day) {
+    return null;
+  }
+  return new Date(year, month - 1, day + 1).getTime();
+}
+
+function formatDuration(absMs: number): string {
+  if (absMs > 0 && absMs < MINUTE_MS) return "1분 미만";
+  const totalMinutes = Math.floor(absMs / MINUTE_MS);
+  const days = Math.floor(totalMinutes / DAY_MINUTES);
+  const hours = Math.floor((totalMinutes % DAY_MINUTES) / 60);
+  const minutes = totalMinutes % 60;
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days}일`);
+  if (hours > 0) parts.push(`${hours}시간`);
+  if (minutes > 0 || parts.length === 0) parts.push(`${minutes}분`);
+  return parts.join(" ");
+}
+
+function eventCountdown(event: EventRow, nowMs: number): string | null {
+  const startMs = parseTimeMs(event.start);
+  if (startMs == null) return null;
+  const endMs = parseTimeMs(event.end);
+  if (endMs != null && startMs <= nowMs && nowMs < endMs) {
+    return `${formatDuration(endMs - nowMs)} 남음 · 진행 중`;
+  }
+  if (startMs > nowMs) return `${formatDuration(startMs - nowMs)} 남음`;
+  return `${formatDuration(nowMs - (endMs ?? startMs))} 지남`;
+}
+
+function taskCountdown(task: TaskRow, nowMs: number): string | null {
+  const dueMs = parseDueBoundaryMs(task.due);
+  if (dueMs == null) return null;
+  if (dueMs >= nowMs) return `${formatDuration(dueMs - nowMs)} 남음`;
+  return `${formatDuration(nowMs - dueMs)} 지남`;
 }
 
 function eventMeta(event: EventRow): string {
@@ -135,6 +188,7 @@ export function ItemIndex() {
   const [state, setState] = useState<"loading" | "live" | "error">("loading");
   const [data, setData] = useState<ItemListData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [eventSheet, setEventSheet] = useState<EventSheetState | null>(null);
   const [taskSheet, setTaskSheet] = useState<TaskSheetState | null>(null);
 
@@ -154,6 +208,11 @@ export function ItemIndex() {
   useEffect(() => {
     void load(scope);
   }, [load, scope]);
+
+  useEffect(() => {
+    const tick = window.setInterval(() => setNowMs(Date.now()), MINUTE_MS);
+    return () => window.clearInterval(tick);
+  }, []);
 
   const switchScope = (nextScope: ItemListScope) => {
     if (nextScope !== scope) setScope(nextScope);
@@ -256,7 +315,9 @@ export function ItemIndex() {
               <p className="items-empty-line">보이는 일정이 없어.</p>
             ) : (
               <ul className="items-list" role="list">
-                {data.events.map((event) => (
+                {data.events.map((event) => {
+                  const countdown = eventCountdown(event, nowMs);
+                  return (
 	                  <li className="items-card" key={event.id}>
 	                    <div>
 	                      <span className="items-kind">일정</span>
@@ -266,13 +327,15 @@ export function ItemIndex() {
 	                        </button>
 	                      </h3>
 	                      <p>{eventMeta(event)}</p>
+                        {countdown && <p className="items-countdown">{countdown}</p>}
 	                    </div>
                     <div className="items-card-actions">
                       <span className="items-status">{EVENT_STATUS_LABEL[event.status ?? ""] ?? "상태 없음"}</span>
                       {event.threadId != null && <a href={`/threads/${event.threadId}`}>스레드</a>}
                     </div>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
           </section>
@@ -286,7 +349,9 @@ export function ItemIndex() {
               <p className="items-empty-line">보이는 할 일이 없어.</p>
             ) : (
               <ul className="items-list" role="list">
-                {data.tasks.map((task) => (
+                {data.tasks.map((task) => {
+                  const countdown = taskCountdown(task, nowMs);
+                  return (
 	                  <li className="items-card" key={task.id}>
 	                    <div>
 	                      <span className="items-kind">할 일</span>
@@ -296,13 +361,15 @@ export function ItemIndex() {
 	                        </button>
 	                      </h3>
 	                      <p>{taskMeta(task)}</p>
+                        {countdown && <p className="items-countdown">{countdown}</p>}
 	                    </div>
                     <div className="items-card-actions">
                       <span className="items-status">{TASK_STATUS_LABEL[task.status ?? ""] ?? "상태 없음"}</span>
                       {task.threadId != null && <a href={`/threads/${task.threadId}`}>스레드</a>}
                     </div>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
           </section>
@@ -323,6 +390,7 @@ export function ItemIndex() {
                   <span className="items-kind">일정</span>
                   <h2>{eventSheet.data.event.title}</h2>
                   <p>{formatEventTime(eventSheet.data.event)}</p>
+                  {eventCountdown(eventSheet.data.event, nowMs) && <p className="items-countdown">{eventCountdown(eventSheet.data.event, nowMs)}</p>}
                   {eventSheet.data.event.location && <p>{eventSheet.data.event.location}</p>}
                   {eventSheet.data.thread && <a href={`/threads/${eventSheet.data.thread.id}`}>{eventSheet.data.thread.name}</a>}
                 </header>
@@ -377,6 +445,7 @@ export function ItemIndex() {
                 <span className="items-kind">할 일</span>
                 <h2>{taskSheet.task.title}</h2>
                 <p>{taskMeta(taskSheet.task)}</p>
+                {taskCountdown(taskSheet.task, nowMs) && <p className="items-countdown">{taskCountdown(taskSheet.task, nowMs)}</p>}
                 {taskSheet.task.context && <p>{taskSheet.task.context}</p>}
                 {taskSheet.task.threadId != null && <a href={`/threads/${taskSheet.task.threadId}`}>스레드 #{taskSheet.task.threadId}</a>}
               </header>

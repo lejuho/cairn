@@ -2529,6 +2529,17 @@ p {
   color: var(--muted);
   font-size: 0.84rem;
 }
+.items-countdown {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-left: 2px solid var(--accent);
+  color: var(--accent);
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+}
 .items-kind {
   color: var(--faint);
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -2608,6 +2619,10 @@ p {
   color: var(--muted);
   font-size: 0.9rem;
   line-height: 1.45;
+}
+.item-detail-header .items-countdown {
+  color: var(--accent);
+  font-size: 0.78rem;
 }
 .item-detail-header a {
   display: inline-flex;

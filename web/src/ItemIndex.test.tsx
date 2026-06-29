@@ -76,6 +76,24 @@ describe("ItemIndex", () => {
     expect(screen.getByText("어딘가에 안 묶인 할 일")).toBeInTheDocument();
   });
 
+  it("shows time remaining for dated events and tasks", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(new Date("2026-06-29T09:00:00+09:00").getTime());
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(response({
+      ok: true,
+      data: {
+        scope: "active",
+        events: [{ ...EVENT, start: "2026-06-30T10:30:00+09:00", end: "2026-06-30T11:00:00+09:00" }],
+        tasks: [{ ...TASK, due: "2026-06-29" }]
+      }
+    }))));
+
+    render(<ItemIndex />);
+
+    await waitFor(() => expect(screen.getByTestId("items-live")).toBeInTheDocument());
+    expect(screen.getByText("1일 1시간 30분 남음")).toBeInTheDocument();
+    expect(screen.getByText("15시간 남음")).toBeInTheDocument();
+  });
+
   it("switches to all scope", async () => {
     const fetchMock = vi.fn((url: string) => {
       const scope = url.includes("scope=all") ? "all" : "active";
