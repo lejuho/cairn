@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import type { EventDetailData, EventRow, EventStatus, ItemListData, ItemListScope, TaskRow, TaskStatus } from "@cairn/shared";
+import type { EventDetailData, EventRow, EventStatus, ItemListData, ItemListScope, SlotCandidate, TaskRow, TaskStatus } from "@cairn/shared";
 import { apiJson } from "./api.js";
+import { localDateString, localNowRfc3339 } from "./dateUtils.js";
+import { SlotCandidatePicker } from "./SlotCandidatePicker.js";
 
 const EVENT_STATUS_LABEL: Record<string, string> = {
   planned: "계획",
@@ -33,6 +35,20 @@ type TaskSheetState = {
   saving: TaskStatus | null;
   error: string | null;
 };
+
+type EventSlotState =
+  | { tag: "idle" }
+  | { tag: "loading" }
+  | { tag: "loaded"; candidates: SlotCandidate[] }
+  | { tag: "applying"; candidates: SlotCandidate[]; start: string }
+  | { tag: "error"; message: string };
+
+type TaskSlotState =
+  | { tag: "idle" }
+  | { tag: "loading" }
+  | { tag: "loaded"; candidates: SlotCandidate[]; date: string; now: string; days: number }
+  | { tag: "applying"; candidates: SlotCandidate[]; date: string; now: string; days: number; start: string }
+  | { tag: "error"; message: string };
 
 function formatEventTime(event: EventRow): string {
   if (!event.start) return "날짜 없음";
@@ -131,6 +147,50 @@ async function patchTaskStatus(id: number, status: TaskStatus): Promise<TaskRow>
   return body.data;
 }
 
+async function fetchEventSlotCandidates(id: number): Promise<SlotCandidate[]> {
+  const now = localNowRfc3339();
+  const date = localDateString();
+  const body = await apiJson<{ ok: boolean; data?: { candidates: SlotCandidate[] }; error?: { message: string } }>(
+    `/api/events/${id}/slot-candidates?date=${date}&now=${encodeURIComponent(now)}&days=7`
+  );
+  if (!body.ok || !body.data) throw new Error(body.error?.message ?? "후보 로딩 실패");
+  return body.data.candidates;
+}
+
+async function scheduleEvent(id: number, start: string, end: string): Promise<void> {
+  const body = await apiJson<{ ok: boolean; error?: { message: string } }>(`/api/events/${id}/schedule`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ start, end })
+  });
+  if (!body.ok) throw new Error(body.error?.message ?? "일정 저장 실패");
+}
+
+async function fetchTaskSlotCandidates(id: number): Promise<{ candidates: SlotCandidate[]; date: string; now: string; days: number }> {
+  const now = localNowRfc3339();
+  const date = localDateString();
+  const days = 7;
+  const body = await apiJson<{ ok: boolean; data?: { candidates: SlotCandidate[] }; error?: { message: string } }>(
+    `/api/tasks/${id}/slot-candidates?date=${date}&now=${encodeURIComponent(now)}&days=${days}`
+  );
+  if (!body.ok || !body.data) throw new Error(body.error?.message ?? "후보 로딩 실패");
+  return { candidates: body.data.candidates, date, now, days };
+}
+
+async function scheduleTaskBlock(
+  id: number,
+  candidate: SlotCandidate,
+  ctx: { date: string; now: string; days: number }
+): Promise<TaskRow> {
+  const body = await apiJson<{ ok: boolean; data?: { task: TaskRow }; error?: { message: string } }>(`/api/tasks/${id}/schedule-block`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ date: ctx.date, now: ctx.now, days: ctx.days, start: candidate.start, end: candidate.end })
+  });
+  if (!body.ok || !body.data) throw new Error(body.error?.message ?? "일정 만들기 실패");
+  return body.data.task;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -191,6 +251,8 @@ export function ItemIndex() {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [eventSheet, setEventSheet] = useState<EventSheetState | null>(null);
   const [taskSheet, setTaskSheet] = useState<TaskSheetState | null>(null);
+  const [eventSlotState, setEventSlotState] = useState<Record<number, EventSlotState>>({});
+  const [taskSlotState, setTaskSlotState] = useState<Record<number, TaskSlotState>>({});
 
   const load = useCallback(async (nextScope: ItemListScope) => {
     setState("loading");
@@ -223,6 +285,7 @@ export function ItemIndex() {
   const openEventDetail = async (eventId: number) => {
     setTaskSheet(null);
     setEventSheet({ tag: "loading", eventId });
+    setEventSlotState((s) => ({ ...s, [eventId]: { tag: "idle" } }));
     try {
       const detail = await fetchEventDetail(eventId);
       setEventSheet({ tag: "loaded", eventId, data: detail, saving: null, error: null });
@@ -250,6 +313,7 @@ export function ItemIndex() {
   const openTaskDetail = (task: TaskRow) => {
     setEventSheet(null);
     setTaskSheet({ task, saving: null, error: null });
+    setTaskSlotState((s) => ({ ...s, [task.id]: { tag: "idle" } }));
   };
 
   const updateTaskStatus = async (status: TaskStatus) => {
@@ -263,6 +327,59 @@ export function ItemIndex() {
       setTaskSheet((sheet) => sheet
         ? { ...sheet, saving: null, error: err instanceof Error ? err.message : "상태 변경 실패" }
         : sheet);
+    }
+  };
+
+  const loadEventSlots = async (eventId: number) => {
+    setEventSlotState((s) => ({ ...s, [eventId]: { tag: "loading" } }));
+    try {
+      const candidates = await fetchEventSlotCandidates(eventId);
+      setEventSlotState((s) => ({ ...s, [eventId]: { tag: "loaded", candidates } }));
+    } catch (err: unknown) {
+      setEventSlotState((s) => ({ ...s, [eventId]: { tag: "error", message: err instanceof Error ? err.message : "후보 로딩 실패" } }));
+    }
+  };
+
+  const applyEventSlot = async (eventId: number, candidate: SlotCandidate) => {
+    const prior = eventSlotState[eventId];
+    const candidates = prior?.tag === "loaded" || prior?.tag === "applying" ? prior.candidates : [];
+    setEventSlotState((s) => ({ ...s, [eventId]: { tag: "applying", candidates, start: candidate.start } }));
+    try {
+      await scheduleEvent(eventId, candidate.start, candidate.end);
+      const detail = await fetchEventDetail(eventId);
+      setEventSheet({ tag: "loaded", eventId, data: detail, saving: null, error: null });
+      setEventSlotState((s) => ({ ...s, [eventId]: { tag: "idle" } }));
+      await load(scope);
+    } catch (err: unknown) {
+      setEventSlotState((s) => ({ ...s, [eventId]: { tag: "error", message: err instanceof Error ? err.message : "일정 저장 실패" } }));
+    }
+  };
+
+  const loadTaskSlots = async (task: TaskRow) => {
+    if (task.due == null) {
+      setTaskSlotState((s) => ({ ...s, [task.id]: { tag: "error", message: "마감일을 먼저 넣어야 후보를 계산할 수 있어" } }));
+      return;
+    }
+    setTaskSlotState((s) => ({ ...s, [task.id]: { tag: "loading" } }));
+    try {
+      const loaded = await fetchTaskSlotCandidates(task.id);
+      setTaskSlotState((s) => ({ ...s, [task.id]: { tag: "loaded", ...loaded } }));
+    } catch (err: unknown) {
+      setTaskSlotState((s) => ({ ...s, [task.id]: { tag: "error", message: err instanceof Error ? err.message : "후보 로딩 실패" } }));
+    }
+  };
+
+  const applyTaskSlot = async (task: TaskRow, candidate: SlotCandidate) => {
+    const prior = taskSlotState[task.id];
+    if (prior?.tag !== "loaded" && prior?.tag !== "applying") return;
+    setTaskSlotState((s) => ({ ...s, [task.id]: { ...prior, tag: "applying", start: candidate.start } }));
+    try {
+      const updatedTask = await scheduleTaskBlock(task.id, candidate, prior);
+      setTaskSheet({ task: updatedTask, saving: null, error: null });
+      setTaskSlotState((s) => ({ ...s, [task.id]: { tag: "idle" } }));
+      await load(scope);
+    } catch (err: unknown) {
+      setTaskSlotState((s) => ({ ...s, [task.id]: { tag: "error", message: err instanceof Error ? err.message : "일정 만들기 실패" } }));
     }
   };
 
@@ -394,6 +511,20 @@ export function ItemIndex() {
                   {eventSheet.data.event.location && <p>{eventSheet.data.event.location}</p>}
                   {eventSheet.data.thread && <a href={`/threads/${eventSheet.data.thread.id}`}>{eventSheet.data.thread.name}</a>}
                 </header>
+                <section className="item-detail-actions" aria-labelledby="event-slot-title">
+                  <p id="event-slot-title" className="event-detail-section-label">시간 추천</p>
+                  {eventSheet.data.event.source === "gcal" ? (
+                    <p className="card-meta">외부 일정은 Cairn에서 시간을 바꾸지 않아.</p>
+                  ) : eventSheet.data.event.start != null ? (
+                    <p className="card-meta">이미 시간이 있어. 미정 일정만 여기서 배정해.</p>
+                  ) : (
+                    <EventSlotControls
+                      state={eventSlotState[eventSheet.eventId] ?? { tag: "idle" }}
+                      onLoad={() => void loadEventSlots(eventSheet.eventId)}
+                      onPick={(candidate) => void applyEventSlot(eventSheet.eventId, candidate)}
+                    />
+                  )}
+                </section>
                 <section className="item-detail-actions" aria-labelledby="event-status-title">
                   <p id="event-status-title" className="event-detail-section-label">결과</p>
                   <div className="item-detail-status-grid">
@@ -449,6 +580,18 @@ export function ItemIndex() {
                 {taskSheet.task.context && <p>{taskSheet.task.context}</p>}
                 {taskSheet.task.threadId != null && <a href={`/threads/${taskSheet.task.threadId}`}>스레드 #{taskSheet.task.threadId}</a>}
               </header>
+              <section className="item-detail-actions" aria-labelledby="task-slot-title">
+                <p id="task-slot-title" className="event-detail-section-label">시간 추천</p>
+                {taskSheet.task.due == null ? (
+                  <p className="card-meta">마감일을 먼저 넣어야 후보를 계산할 수 있어.</p>
+                ) : (
+                  <TaskSlotControls
+                    state={taskSlotState[taskSheet.task.id] ?? { tag: "idle" }}
+                    onLoad={() => void loadTaskSlots(taskSheet.task)}
+                    onPick={(candidate) => void applyTaskSlot(taskSheet.task, candidate)}
+                  />
+                )}
+              </section>
               <section className="item-detail-actions" aria-labelledby="task-status-title">
                 <p id="task-status-title" className="event-detail-section-label">상태</p>
                 <div className="item-detail-status-grid">
@@ -473,4 +616,59 @@ export function ItemIndex() {
       )}
     </main>
   );
+}
+
+function EventSlotControls({
+  state,
+  onLoad,
+  onPick
+}: {
+  state: EventSlotState;
+  onLoad: () => void;
+  onPick: (candidate: SlotCandidate) => void;
+}) {
+  if (state.tag === "loading") return <p className="today-slot-loading">후보 찾는 중...</p>;
+  if (state.tag === "error") return <p className="today-slot-error" role="alert">{state.message}</p>;
+  if (state.tag === "loaded" || state.tag === "applying") {
+    return (
+      <>
+        {state.tag === "applying" && <p className="today-slot-loading">배정 중...</p>}
+        <SlotCandidatePicker
+          candidates={state.candidates}
+          emptyMessage="빈 시간이 없어. 나중에 다시 해봐."
+          onPick={onPick}
+          testIdPrefix="item-event-slot"
+        />
+      </>
+    );
+  }
+  return <button type="button" className="today-slot-btn" onClick={onLoad}>시간 추천</button>;
+}
+
+function TaskSlotControls({
+  state,
+  onLoad,
+  onPick
+}: {
+  state: TaskSlotState;
+  onLoad: () => void;
+  onPick: (candidate: SlotCandidate) => void;
+}) {
+  if (state.tag === "loading") return <p className="today-slot-loading">후보 찾는 중...</p>;
+  if (state.tag === "error") return <p className="today-slot-error" role="alert">{state.message}</p>;
+  if (state.tag === "loaded" || state.tag === "applying") {
+    return (
+      <>
+        <p className="card-meta">선택하면 작업 블록을 만들어. 완료 처리는 아님.</p>
+        {state.tag === "applying" && <p className="today-slot-loading">만드는 중...</p>}
+        <SlotCandidatePicker
+          candidates={state.candidates}
+          emptyMessage="빈 시간이 없어. 나중에 다시 해봐."
+          onPick={onPick}
+          testIdPrefix="item-task-slot"
+        />
+      </>
+    );
+  }
+  return <button type="button" className="today-slot-btn" onClick={onLoad}>시간 추천</button>;
 }

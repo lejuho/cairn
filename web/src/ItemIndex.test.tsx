@@ -50,6 +50,17 @@ const EVENT_DETAIL = {
   }
 };
 
+const SLOT_CANDIDATE = {
+  start: "2026-06-30T10:00:00+09:00",
+  end: "2026-06-30T10:30:00+09:00",
+  score: 80,
+  rank: 1,
+  scoreLabel: "좋음",
+  reasons: ["빈 시간"],
+  reasonCodes: ["available"],
+  contributions: []
+};
+
 function response(body: unknown): Response {
   return {
     ok: true,
@@ -145,6 +156,37 @@ describe("ItemIndex", () => {
     expect(JSON.parse(patchCall![1]!.body as string)).toEqual({ status: "cancelled" });
   });
 
+  it("opens event detail, loads slot candidates, and schedules the event", async () => {
+    const scheduledEvent = { ...EVENT, start: SLOT_CANDIDATE.start, end: SLOT_CANDIDATE.end };
+    let detailCalls = 0;
+    const fetchMock = vi.fn((url: string, opts?: RequestInit) => {
+      if (url === "/api/events/1" && !opts?.method) {
+        detailCalls += 1;
+        return Promise.resolve(response({ ok: true, data: { ...EVENT_DETAIL, event: detailCalls === 1 ? EVENT : scheduledEvent } }));
+      }
+      if (url.includes("/api/events/1/slot-candidates")) {
+        return Promise.resolve(response({ ok: true, data: { candidates: [SLOT_CANDIDATE] } }));
+      }
+      if (url === "/api/events/1/schedule" && opts?.method === "PATCH") {
+        return Promise.resolve(response({ ok: true, data: { event: scheduledEvent } }));
+      }
+      return Promise.resolve(response({ ok: true, data: { scope: "active", events: [EVENT], tasks: [TASK] } }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ItemIndex />);
+    await waitFor(() => expect(screen.getByTestId("items-live")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: EVENT.title }));
+    const dialog = await screen.findByRole("dialog", { name: "일정 상세" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "시간 추천" }));
+    fireEvent.click(await within(dialog).findByTestId("item-event-slot-1"));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url, opts]) => url === "/api/events/1/schedule" && opts?.method === "PATCH")).toBe(true));
+    const patchCall = fetchMock.mock.calls.find(([url, opts]) => url === "/api/events/1/schedule" && opts?.method === "PATCH");
+    expect(JSON.parse(patchCall![1]!.body as string)).toEqual({ start: SLOT_CANDIDATE.start, end: SLOT_CANDIDATE.end });
+  });
+
   it("opens task detail and drops the task", async () => {
     const fetchMock = vi.fn((url: string, opts?: RequestInit) => {
       if (url === "/api/tasks/2/status" && opts?.method === "PATCH") {
@@ -164,5 +206,31 @@ describe("ItemIndex", () => {
     await waitFor(() => expect(fetchMock.mock.calls.some(([url, opts]) => url === "/api/tasks/2/status" && opts?.method === "PATCH")).toBe(true));
     const patchCall = fetchMock.mock.calls.find(([url, opts]) => url === "/api/tasks/2/status" && opts?.method === "PATCH");
     expect(JSON.parse(patchCall![1]!.body as string)).toEqual({ status: "dropped" });
+  });
+
+  it("opens due task detail, loads candidates, and creates a schedule block", async () => {
+    const dueTask = { ...TASK, due: "2026-06-30" };
+    const fetchMock = vi.fn((url: string, opts?: RequestInit) => {
+      if (url.includes("/api/tasks/2/slot-candidates")) {
+        return Promise.resolve(response({ ok: true, data: { candidates: [SLOT_CANDIDATE] } }));
+      }
+      if (url === "/api/tasks/2/schedule-block" && opts?.method === "POST") {
+        return Promise.resolve(response({ ok: true, data: { task: { ...dueTask, scheduledEventId: 99 }, event: { ...EVENT, id: 99, start: SLOT_CANDIDATE.start, end: SLOT_CANDIDATE.end } } }));
+      }
+      return Promise.resolve(response({ ok: true, data: { scope: "active", events: [EVENT], tasks: [dueTask] } }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ItemIndex />);
+    await waitFor(() => expect(screen.getByTestId("items-live")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: TASK.title }));
+    const dialog = await screen.findByRole("dialog", { name: "할 일 상세" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "시간 추천" }));
+    fireEvent.click(await within(dialog).findByTestId("item-task-slot-1"));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url, opts]) => url === "/api/tasks/2/schedule-block" && opts?.method === "POST")).toBe(true));
+    const postCall = fetchMock.mock.calls.find(([url, opts]) => url === "/api/tasks/2/schedule-block" && opts?.method === "POST");
+    expect(JSON.parse(postCall![1]!.body as string)).toMatchObject({ start: SLOT_CANDIDATE.start, end: SLOT_CANDIDATE.end, days: 7 });
   });
 });

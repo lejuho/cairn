@@ -38,6 +38,17 @@ const BASE_TASK = {
   status: "todo" as const, optional: 0, createdAt: null
 };
 
+const SLOT_CANDIDATE = {
+  start: "2026-06-30T10:00:00+09:00",
+  end: "2026-06-30T10:30:00+09:00",
+  score: 80,
+  rank: 1,
+  scoreLabel: "좋음",
+  reasons: ["빈 시간"],
+  reasonCodes: ["available"],
+  contributions: []
+};
+
 const EMPTY_RELATIONS: ThreadDetail["relations"] = { incoming: [], outgoing: [] };
 
 const EMPTY_SETTLEMENT_T: ThreadSettlement = {
@@ -939,6 +950,70 @@ describe("Thread — node edit + confirm (cycle-50)", () => {
     render(<Thread id={1} />);
     await waitFor(() => expect(screen.getByTestId("thread-relations")).toBeInTheDocument());
     expect(screen.queryByTestId("thread-node-links")).not.toBeInTheDocument();
+  });
+});
+
+describe("Thread — node time suggestions", () => {
+  function detail(over: Partial<ThreadDetail> = {}): ThreadDetail {
+    return {
+      thread: BASE_THREAD,
+      events: [],
+      tasks: [],
+      progress: { done: 0, total: 0 },
+      relations: EMPTY_RELATIONS,
+      rollup: EMPTY_ROLLUP,
+      nodeLinks: [],
+      unknownBlockers: [],
+      settlement: EMPTY_SETTLEMENT_T,
+      missingNodeSuggestions: [],
+      resume: EMPTY_RESUME_T,
+      personFocus: EMPTY_PERSON_FOCUS_T,
+      ...over
+    } as ThreadDetail;
+  }
+
+  it("loads event candidates and schedules an unscheduled event", async () => {
+    const event = { ...BASE_EVENT, start: null, end: null };
+    const calls: { url: string; body?: unknown }[] = [];
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, init?: { method?: string; body?: unknown }) => {
+      if (url.includes("slot-candidates")) return Promise.resolve(makeResponse({ ok: true, data: { candidates: [SLOT_CANDIDATE] } }, url));
+      if (url === "/api/events/10/schedule" && init?.method === "PATCH") {
+        calls.push({ url, body: init.body });
+        return Promise.resolve(makeResponse({ ok: true, data: { event: { ...event, start: SLOT_CANDIDATE.start, end: SLOT_CANDIDATE.end } } }, url));
+      }
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
+      if (url.includes("promotion-suggestions")) return Promise.resolve(makeResponse({ ok: true, data: { suggestions: [] } }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: detail({ events: [event], progress: { done: 0, total: 1 } }) }, url));
+    }));
+
+    render(<Thread id={1} />);
+    fireEvent.click(await screen.findByRole("button", { name: "시간 추천" }));
+    fireEvent.click(await screen.findByTestId("thread-event-slot-10-1"));
+
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(JSON.parse(calls[0]!.body as string)).toEqual({ start: SLOT_CANDIDATE.start, end: SLOT_CANDIDATE.end });
+  });
+
+  it("loads due-task candidates and creates a schedule block", async () => {
+    const task = { ...BASE_TASK, due: "2026-06-30" };
+    const calls: { url: string; body?: unknown }[] = [];
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, init?: { method?: string; body?: unknown }) => {
+      if (url.includes("slot-candidates")) return Promise.resolve(makeResponse({ ok: true, data: { candidates: [SLOT_CANDIDATE] } }, url));
+      if (url === "/api/tasks/20/schedule-block" && init?.method === "POST") {
+        calls.push({ url, body: init.body });
+        return Promise.resolve(makeResponse({ ok: true, data: { task: { ...task, scheduledEventId: 99 }, event: { ...BASE_EVENT, id: 99, start: SLOT_CANDIDATE.start, end: SLOT_CANDIDATE.end } } }, url));
+      }
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
+      if (url.includes("promotion-suggestions")) return Promise.resolve(makeResponse({ ok: true, data: { suggestions: [] } }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: detail({ tasks: [task], progress: { done: 0, total: 1 } }) }, url));
+    }));
+
+    render(<Thread id={1} />);
+    fireEvent.click(await screen.findByRole("button", { name: "시간 추천" }));
+    fireEvent.click(await screen.findByTestId("thread-task-slot-20-1"));
+
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(JSON.parse(calls[0]!.body as string)).toMatchObject({ start: SLOT_CANDIDATE.start, end: SLOT_CANDIDATE.end, days: 7 });
   });
 });
 

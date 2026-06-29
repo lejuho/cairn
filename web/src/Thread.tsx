@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ApprovePromotionRequest, EgoGraphData, EventMode, EventRow, PromotionSuggestion, TaskRow, ThreadDetail, ThreadLinkKind, ThreadMissingNodeSuggestion, ThreadNodeLink, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadResumeData, ThreadResumeExportData, ThreadResumeExportFormat, ThreadRollup, ThreadRow, ThreadSettlement, ThreadSettlementPaidCost, ThreadStarDraftResponseData, ThreadStatus, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
+import type { ApprovePromotionRequest, EgoGraphData, EventMode, EventRow, PromotionSuggestion, SlotCandidate, TaskRow, ThreadDetail, ThreadLinkKind, ThreadMissingNodeSuggestion, ThreadNodeLink, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadResumeData, ThreadResumeExportData, ThreadResumeExportFormat, ThreadRollup, ThreadRow, ThreadSettlement, ThreadSettlementPaidCost, ThreadStarDraftResponseData, ThreadStatus, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
 import { apiJson, type AccessSessionError } from "./api.js";
+import { localDateString, localNowRfc3339 } from "./dateUtils.js";
 import { EgoSheet, loadEgoGraph } from "./EgoSheet.js";
+import { SlotCandidatePicker } from "./SlotCandidatePicker.js";
 
 // Thread node edit/confirm endpoints (cycle-50 FR-THR-05/06). Return ok+optional
 // error; callers refresh thread detail on success.
@@ -26,6 +28,45 @@ async function patchThreadStatus(threadId: number, status: ThreadStatus) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status })
   });
+}
+async function fetchEventSlotCandidates(id: number): Promise<SlotCandidate[]> {
+  const now = localNowRfc3339();
+  const date = localDateString();
+  const body = await apiJson<{ ok: boolean; data?: { candidates: SlotCandidate[] }; error?: { message: string } }>(
+    `/api/events/${id}/slot-candidates?date=${date}&now=${encodeURIComponent(now)}&days=7`
+  );
+  if (!body.ok || !body.data) throw new Error(body.error?.message ?? "후보 로딩 실패");
+  return body.data.candidates;
+}
+async function scheduleEventSlot(id: number, candidate: SlotCandidate): Promise<void> {
+  const body = await apiJson<{ ok: boolean; error?: { message: string } }>(`/api/events/${id}/schedule`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ start: candidate.start, end: candidate.end })
+  });
+  if (!body.ok) throw new Error(body.error?.message ?? "일정 저장 실패");
+}
+async function fetchTaskSlotCandidates(id: number): Promise<{ candidates: SlotCandidate[]; date: string; now: string; days: number }> {
+  const now = localNowRfc3339();
+  const date = localDateString();
+  const days = 7;
+  const body = await apiJson<{ ok: boolean; data?: { candidates: SlotCandidate[] }; error?: { message: string } }>(
+    `/api/tasks/${id}/slot-candidates?date=${date}&now=${encodeURIComponent(now)}&days=${days}`
+  );
+  if (!body.ok || !body.data) throw new Error(body.error?.message ?? "후보 로딩 실패");
+  return { candidates: body.data.candidates, date, now, days };
+}
+async function scheduleTaskSlot(
+  id: number,
+  candidate: SlotCandidate,
+  ctx: { date: string; now: string; days: number }
+): Promise<void> {
+  const body = await apiJson<{ ok: boolean; error?: { message: string } }>(`/api/tasks/${id}/schedule-block`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ date: ctx.date, now: ctx.now, days: ctx.days, start: candidate.start, end: candidate.end })
+  });
+  if (!body.ok) throw new Error(body.error?.message ?? "일정 만들기 실패");
 }
 // STAR draft generation (cycle-55 FR-CV-01). POST only; no body; ephemeral.
 async function postStarDraft(threadId: number) {
@@ -74,6 +115,20 @@ type ViewState =
 type LinkSheetState =
   | { tag: "closed" }
   | { tag: "open"; threads: ThreadRow[] | null; toThreadId: string; kind: ThreadLinkKind; submitting: boolean; error: string | null };
+
+type EventSlotState =
+  | { tag: "idle" }
+  | { tag: "loading" }
+  | { tag: "loaded"; candidates: SlotCandidate[] }
+  | { tag: "applying"; candidates: SlotCandidate[]; start: string }
+  | { tag: "error"; message: string };
+
+type TaskSlotState =
+  | { tag: "idle" }
+  | { tag: "loading" }
+  | { tag: "loaded"; candidates: SlotCandidate[]; date: string; now: string; days: number }
+  | { tag: "applying"; candidates: SlotCandidate[]; date: string; now: string; days: number; start: string }
+  | { tag: "error"; message: string };
 
 const KIND_LABELS: Record<ThreadLinkKind, string> = {
   contains: "포함",
@@ -718,7 +773,31 @@ export function Thread({ id }: { id: number }) {
 // title/type/location/mode. GCal events are read-only (no 수정 button).
 function EventNodeCard({ event, liClassName, chip, onSaved }: { event: EventRow; liClassName: string; chip: string; onSaved: () => void }) {
   const [editing, setEditing] = useState(false);
+  const [slotState, setSlotState] = useState<EventSlotState>({ tag: "idle" });
   const editable = event.source !== "gcal";
+  const canSuggestTime = editable && event.start == null;
+
+  async function loadSlots() {
+    setSlotState({ tag: "loading" });
+    try {
+      const candidates = await fetchEventSlotCandidates(event.id);
+      setSlotState({ tag: "loaded", candidates });
+    } catch (e: unknown) {
+      setSlotState({ tag: "error", message: e instanceof Error ? e.message : "후보 로딩 실패" });
+    }
+  }
+
+  async function applySlot(candidate: SlotCandidate) {
+    const candidates = slotState.tag === "loaded" || slotState.tag === "applying" ? slotState.candidates : [];
+    setSlotState({ tag: "applying", candidates, start: candidate.start });
+    try {
+      await scheduleEventSlot(event.id, candidate);
+      onSaved();
+    } catch (e: unknown) {
+      setSlotState({ tag: "error", message: e instanceof Error ? e.message : "일정 저장 실패" });
+    }
+  }
+
   return (
     <li className={liClassName} data-event-id={event.id}>
       {!editing && (
@@ -734,6 +813,14 @@ function EventNodeCard({ event, liClassName, chip, onSaved }: { event: EventRow;
           )}
           {editable && (
             <button className="thread-node-edit-btn" data-testid={`event-edit-${event.id}`} onClick={() => setEditing(true)}>수정</button>
+          )}
+          {canSuggestTime && (
+            <ThreadEventSlotControls
+              state={slotState}
+              onLoad={() => void loadSlots()}
+              onPick={(candidate) => void applySlot(candidate)}
+              eventId={event.id}
+            />
           )}
         </>
       )}
@@ -803,6 +890,8 @@ function TaskNodeCard({ task, liClassName, chip, onSaved, droppable = false }: {
   const [editing, setEditing] = useState(false);
   const [dropping, setDropping] = useState(false);
   const [dropError, setDropError] = useState<string | null>(null);
+  const [slotState, setSlotState] = useState<TaskSlotState>({ tag: "idle" });
+  const canSuggestTime = task.status !== "done" && task.status !== "dropped";
   // Soft-remove (cycle-81): reuse the existing task status route, sending ONLY
   // {status:"dropped"}. On success refresh moves the task into the dropped/done
   // history group; a failure keeps the row with a scoped error.
@@ -820,6 +909,31 @@ function TaskNodeCard({ task, liClassName, chip, onSaved, droppable = false }: {
       setDropError("드롭 실패"); setDropping(false);
     }
   }
+  async function loadSlots() {
+    if (task.due == null) {
+      setSlotState({ tag: "error", message: "마감일을 먼저 넣어야 후보를 계산할 수 있어" });
+      return;
+    }
+    setSlotState({ tag: "loading" });
+    try {
+      const loaded = await fetchTaskSlotCandidates(task.id);
+      setSlotState({ tag: "loaded", ...loaded });
+    } catch (e: unknown) {
+      setSlotState({ tag: "error", message: e instanceof Error ? e.message : "후보 로딩 실패" });
+    }
+  }
+
+  async function applySlot(candidate: SlotCandidate) {
+    if (slotState.tag !== "loaded" && slotState.tag !== "applying") return;
+    setSlotState({ ...slotState, tag: "applying", start: candidate.start });
+    try {
+      await scheduleTaskSlot(task.id, candidate, slotState);
+      onSaved();
+    } catch (e: unknown) {
+      setSlotState({ tag: "error", message: e instanceof Error ? e.message : "일정 만들기 실패" });
+    }
+  }
+
   return (
     <li className={liClassName} data-task-id={task.id}>
       {!editing && (
@@ -833,6 +947,18 @@ function TaskNodeCard({ task, liClassName, chip, onSaved, droppable = false }: {
               <button className="thread-node-drop-btn" data-testid={`task-drop-${task.id}`} disabled={dropping} onClick={() => void drop()} aria-label={`${task.title} 드롭 (활성에서 제거)`}>드롭</button>
             )}
           </div>
+          {canSuggestTime && (
+            task.due == null ? (
+              <p className="card-meta">시간 추천은 마감일 입력 후 가능해.</p>
+            ) : (
+              <ThreadTaskSlotControls
+                state={slotState}
+                onLoad={() => void loadSlots()}
+                onPick={(candidate) => void applySlot(candidate)}
+                taskId={task.id}
+              />
+            )
+          )}
           {droppable && dropError && <p className="card-meta" role="alert" data-testid={`task-drop-error-${task.id}`} style={{ color: "var(--cancelled)" }}>{dropError}</p>}
         </>
       )}
@@ -841,6 +967,65 @@ function TaskNodeCard({ task, liClassName, chip, onSaved, droppable = false }: {
       )}
     </li>
   );
+}
+
+function ThreadEventSlotControls({
+  state,
+  onLoad,
+  onPick,
+  eventId
+}: {
+  state: EventSlotState;
+  onLoad: () => void;
+  onPick: (candidate: SlotCandidate) => void;
+  eventId: number;
+}) {
+  if (state.tag === "loading") return <p className="today-slot-loading">후보 찾는 중...</p>;
+  if (state.tag === "error") return <p className="today-slot-error" role="alert">{state.message}</p>;
+  if (state.tag === "loaded" || state.tag === "applying") {
+    return (
+      <div className="thread-node-slot">
+        {state.tag === "applying" && <p className="today-slot-loading">배정 중...</p>}
+        <SlotCandidatePicker
+          candidates={state.candidates}
+          emptyMessage="빈 시간이 없어. 나중에 다시 해봐."
+          onPick={onPick}
+          testIdPrefix={`thread-event-slot-${eventId}`}
+        />
+      </div>
+    );
+  }
+  return <button type="button" className="today-slot-btn" onClick={onLoad}>시간 추천</button>;
+}
+
+function ThreadTaskSlotControls({
+  state,
+  onLoad,
+  onPick,
+  taskId
+}: {
+  state: TaskSlotState;
+  onLoad: () => void;
+  onPick: (candidate: SlotCandidate) => void;
+  taskId: number;
+}) {
+  if (state.tag === "loading") return <p className="today-slot-loading">후보 찾는 중...</p>;
+  if (state.tag === "error") return <p className="today-slot-error" role="alert">{state.message}</p>;
+  if (state.tag === "loaded" || state.tag === "applying") {
+    return (
+      <div className="thread-node-slot">
+        <p className="card-meta">선택하면 작업 블록을 만들어. 완료 처리는 아님.</p>
+        {state.tag === "applying" && <p className="today-slot-loading">만드는 중...</p>}
+        <SlotCandidatePicker
+          candidates={state.candidates}
+          emptyMessage="빈 시간이 없어. 나중에 다시 해봐."
+          onPick={onPick}
+          testIdPrefix={`thread-task-slot-${taskId}`}
+        />
+      </div>
+    );
+  }
+  return <button type="button" className="today-slot-btn" onClick={onLoad}>시간 추천</button>;
 }
 
 function TaskNodeForm({ task, onCancel, onSaved }: { task: TaskRow; onCancel: () => void; onSaved: () => void }) {
