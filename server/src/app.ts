@@ -26,6 +26,7 @@ import { registerWatcherRoutes } from "./routes/watchers.js";
 import { registerRelationRoutes } from "./routes/relations.js";
 import { registerTransitFactsRoutes } from "./routes/transit-facts.js";
 import { registerResourceRoutes } from "./routes/resources.js";
+import { registerItemRoutes } from "./routes/items.js";
 
 export function buildServer(db?: CairnDatabase, gateway?: LlmGateway, mapGateway?: MapGateway, placeSearchGateway?: PlaceSearchGateway): FastifyInstance {
   const app = Fastify({
@@ -61,6 +62,7 @@ export function buildServer(db?: CairnDatabase, gateway?: LlmGateway, mapGateway
 
   if (db) {
     registerEventRoutes(app, db);
+    registerItemRoutes(app, db);
     registerPeopleRoutes(app, db);
     registerTaskRoutes(app, db);
     registerWatcherRoutes(app, db);

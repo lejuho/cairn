@@ -1,5 +1,5 @@
-import { eq } from "drizzle-orm";
-import { isCalendarDate, type CreateTaskRequest, type EventRow, type PatchThreadTaskNodeRequest, type TaskRow } from "@cairn/shared";
+import { desc, eq } from "drizzle-orm";
+import { isCalendarDate, type CreateTaskRequest, type EventRow, type ItemListScope, type PatchThreadTaskNodeRequest, type TaskRow } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import { events, tasks } from "../db/schema.js";
 import { addDays } from "../utils/rfc3339.js";
@@ -192,4 +192,22 @@ export function scheduleTaskBlock(
       .all();
     return { task: updated as TaskRow, event: event as EventRow };
   });
+}
+
+export function listTasksForItems(
+  db: CairnDatabase,
+  scope: ItemListScope,
+  limit: number
+): TaskRow[] {
+  const rows = db
+    .select()
+    .from(tasks)
+    .orderBy(desc(tasks.createdAt), desc(tasks.id))
+    .all() as TaskRow[];
+
+  const visible = scope === "active"
+    ? rows.filter((task) => task.status === "todo" || task.status === "doing")
+    : rows;
+
+  return visible.slice(0, limit);
 }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { AppNav } from "./AppNav.js";
 import { InputHub } from "./InputHub.js";
+import { ItemIndex } from "./ItemIndex.js";
 import { MirrorLedger } from "./MirrorLedger.js";
 import { ParameterSettings } from "./ParameterSettings.js";
 import { PeopleDirectory } from "./PeopleDirectory.js";
@@ -28,6 +29,10 @@ export function App() {
 
   if (path === "/input") {
     return <><AppNav path="/input" /><InputHub /></>;
+  }
+
+  if (path === "/items") {
+    return <><AppNav path="/items" /><ItemIndex /></>;
   }
 
   if (path === "/params") {

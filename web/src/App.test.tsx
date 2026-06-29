@@ -43,6 +43,12 @@ const FEAS_SETTINGS = {
   }
 };
 
+const EMPTY_ITEMS = {
+  scope: "active",
+  events: [],
+  tasks: []
+};
+
 const EMPTY_DIRECTORY = { ok: true, data: { people: [] } };
 
 const EMPTY_LEDGER = {
@@ -54,6 +60,9 @@ const EMPTY_LEDGER = {
 
 function stubFetch() {
   vi.stubGlobal("fetch", vi.fn((url: string) => {
+    if (typeof url === "string" && url.includes("/api/items")) {
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: EMPTY_ITEMS }) });
+    }
     if (typeof url === "string" && url.includes("/api/feasibility/params")) {
       return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: FEAS_SETTINGS }) });
     }
@@ -114,6 +123,7 @@ describe("App navigation", () => {
     expect(screen.getByRole("navigation", { name: "주요 메뉴" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Today" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "입력" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "항목" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "파라미터" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "스레드" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "사람" })).toBeInTheDocument();
@@ -132,6 +142,15 @@ describe("App navigation", () => {
     render(<App />);
     expect(screen.getByRole("link", { name: "입력" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Today" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("renders /items and marks the item tab current", async () => {
+    window.history.replaceState(null, "", "/items");
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByTestId("items-quiet")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("link", { name: "항목" })).toHaveAttribute("aria-current", "page");
   });
 
   it("renders /params and marks the parameter tab current", async () => {

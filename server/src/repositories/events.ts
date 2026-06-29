@@ -1,5 +1,5 @@
-import { and, asc, eq, isNotNull, isNull, ne, or } from "drizzle-orm";
-import type { CreateEventRequest, EventRow, PatchThreadEventNodeRequest } from "@cairn/shared";
+import { and, asc, desc, eq, isNotNull, isNull, ne, or } from "drizzle-orm";
+import type { CreateEventRequest, EventRow, ItemListScope, PatchThreadEventNodeRequest } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import { annotations, eventPeople, events } from "../db/schema.js";
 import { rfc3339ToMs } from "../utils/rfc3339.js";
@@ -427,4 +427,22 @@ export function applyGmailCostEvidence(
   }
 
   return { updatedMoney, updatedCutoff };
+}
+
+export function listEventsForItems(
+  db: CairnDatabase,
+  scope: ItemListScope,
+  limit: number
+): EventRow[] {
+  const rows = db
+    .select()
+    .from(events)
+    .orderBy(desc(events.createdAt), desc(events.id))
+    .all() as EventRow[];
+
+  const visible = scope === "active"
+    ? rows.filter((event) => event.status === "planned" || event.status === "confirmed")
+    : rows;
+
+  return visible.slice(0, limit);
 }

@@ -4,6 +4,7 @@ export * from "./api.js";
 export * from "./enums.js";
 export * from "./events.js";
 export * from "./health.js";
+export * from "./items.js";
 export * from "./llm.js";
 export * from "./maps.js";
 export * from "./tasks.js";
