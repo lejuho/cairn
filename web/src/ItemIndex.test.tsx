@@ -208,6 +208,34 @@ describe("ItemIndex", () => {
     expect(JSON.parse(patchCall![1]!.body as string)).toEqual({ status: "dropped" });
   });
 
+  it("edits a due-less task detail so time suggestion becomes available", async () => {
+    const updatedTask = { ...TASK, due: "2026-06-30", estMinutes: 25, context: "집중" };
+    const fetchMock = vi.fn((url: string, opts?: RequestInit) => {
+      if (url === "/api/tasks/2/thread-node" && opts?.method === "PATCH") {
+        return Promise.resolve(response({ ok: true, data: { task: updatedTask } }));
+      }
+      return Promise.resolve(response({ ok: true, data: { scope: "active", events: [EVENT], tasks: [TASK] } }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ItemIndex />);
+    await waitFor(() => expect(screen.getByTestId("items-live")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: TASK.title }));
+    const dialog = await screen.findByRole("dialog", { name: "할 일 상세" });
+    expect(within(dialog).getByText("마감일을 먼저 넣어야 후보를 계산할 수 있어.")).toBeInTheDocument();
+
+    fireEvent.change(within(dialog).getByLabelText("할 일 마감일"), { target: { value: "2026-06-30" } });
+    fireEvent.change(within(dialog).getByLabelText("할 일 예상 분"), { target: { value: "25" } });
+    fireEvent.change(within(dialog).getByLabelText("할 일 맥락"), { target: { value: "집중" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url, opts]) => url === "/api/tasks/2/thread-node" && opts?.method === "PATCH")).toBe(true));
+    const patchCall = fetchMock.mock.calls.find(([url, opts]) => url === "/api/tasks/2/thread-node" && opts?.method === "PATCH");
+    expect(JSON.parse(patchCall![1]!.body as string)).toEqual({ due: "2026-06-30", estMinutes: 25, context: "집중" });
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "시간 추천" })).toBeInTheDocument());
+  });
+
   it("opens due task detail, loads candidates, and creates a schedule block", async () => {
     const dueTask = { ...TASK, due: "2026-06-30" };
     const fetchMock = vi.fn((url: string, opts?: RequestInit) => {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { EventDetailData, EventRow, EventStatus, ItemListData, ItemListScope, SlotCandidate, TaskRow, TaskStatus } from "@cairn/shared";
+import type { EventDetailData, EventRow, EventStatus, ItemListData, ItemListScope, PatchThreadTaskNodeRequest, SlotCandidate, TaskRow, TaskStatus } from "@cairn/shared";
 import { apiJson } from "./api.js";
 import { localDateString, localNowRfc3339 } from "./dateUtils.js";
 import { SlotCandidatePicker } from "./SlotCandidatePicker.js";
@@ -145,6 +145,16 @@ async function patchTaskStatus(id: number, status: TaskStatus): Promise<TaskRow>
   });
   if (!body.ok || !body.data) throw new Error(body.error?.message ?? "상태 변경 실패");
   return body.data;
+}
+
+async function patchTaskDetail(id: number, patch: PatchThreadTaskNodeRequest): Promise<TaskRow> {
+  const body = await apiJson<{ ok: boolean; data?: { task: TaskRow }; error?: { message: string } }>(`/api/tasks/${id}/thread-node`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch)
+  });
+  if (!body.ok || !body.data) throw new Error(body.error?.message ?? "저장 실패");
+  return body.data.task;
 }
 
 async function fetchEventSlotCandidates(id: number): Promise<SlotCandidate[]> {
@@ -327,6 +337,21 @@ export function ItemIndex() {
       setTaskSheet((sheet) => sheet
         ? { ...sheet, saving: null, error: err instanceof Error ? err.message : "상태 변경 실패" }
         : sheet);
+    }
+  };
+
+  const updateTaskDetail = async (patch: PatchThreadTaskNodeRequest) => {
+    if (!taskSheet || taskSheet.saving != null) return;
+    try {
+      const task = await patchTaskDetail(taskSheet.task.id, patch);
+      setTaskSheet({ task, saving: null, error: null });
+      setTaskSlotState((s) => ({ ...s, [task.id]: { tag: "idle" } }));
+      await load(scope);
+    } catch (err: unknown) {
+      setTaskSheet((sheet) => sheet
+        ? { ...sheet, error: err instanceof Error ? err.message : "저장 실패" }
+        : sheet);
+      throw err;
     }
   };
 
@@ -580,6 +605,10 @@ export function ItemIndex() {
                 {taskSheet.task.context && <p>{taskSheet.task.context}</p>}
                 {taskSheet.task.threadId != null && <a href={`/threads/${taskSheet.task.threadId}`}>스레드 #{taskSheet.task.threadId}</a>}
               </header>
+              <section className="item-detail-actions" aria-labelledby="task-detail-edit-title">
+                <p id="task-detail-edit-title" className="event-detail-section-label">세부 정보</p>
+                <TaskDetailEditor task={taskSheet.task} onSave={updateTaskDetail} />
+              </section>
               <section className="item-detail-actions" aria-labelledby="task-slot-title">
                 <p id="task-slot-title" className="event-detail-section-label">시간 추천</p>
                 {taskSheet.task.due == null ? (
@@ -615,6 +644,77 @@ export function ItemIndex() {
         </>
       )}
     </main>
+  );
+}
+
+function TaskDetailEditor({
+  task,
+  onSave
+}: {
+  task: TaskRow;
+  onSave: (patch: PatchThreadTaskNodeRequest) => Promise<void>;
+}) {
+  const [estMinutes, setEstMinutes] = useState(task.estMinutes == null ? "" : String(task.estMinutes));
+  const [due, setDue] = useState(task.due ?? "");
+  const [context, setContext] = useState(task.context ?? "");
+  const [saving, setSaving] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setEstMinutes(task.estMinutes == null ? "" : String(task.estMinutes));
+    setDue(task.due ?? "");
+    setContext(task.context ?? "");
+    setLocalError(null);
+  }, [task.id, task.estMinutes, task.due, task.context]);
+
+  async function save() {
+    const trimmedEst = estMinutes.trim();
+    const trimmedDue = due.trim();
+    const trimmedContext = context.trim();
+    const parsedEst = Number(trimmedEst);
+    if (trimmedEst !== "" && (!Number.isInteger(parsedEst) || parsedEst <= 0)) {
+      setLocalError("예상 시간은 양수 분 단위로 넣어줘");
+      return;
+    }
+    const est = trimmedEst === "" ? null : parsedEst;
+    if (trimmedDue !== "" && !/^\d{4}-\d{2}-\d{2}$/.test(trimmedDue)) {
+      setLocalError("마감일은 YYYY-MM-DD 형식이어야 해");
+      return;
+    }
+    setSaving(true);
+    setLocalError(null);
+    try {
+      await onSave({
+        estMinutes: est,
+        due: trimmedDue === "" ? null : trimmedDue,
+        context: trimmedContext === "" ? null : trimmedContext
+      });
+    } catch (err: unknown) {
+      setLocalError(err instanceof Error ? err.message : "저장 실패");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form className="item-detail-edit-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+      <label className="item-detail-field">
+        <span>마감일</span>
+        <input type="date" value={due} onChange={(event) => setDue(event.target.value)} aria-label="할 일 마감일" />
+      </label>
+      <label className="item-detail-field">
+        <span>예상(분)</span>
+        <input type="number" min="1" step="1" inputMode="numeric" value={estMinutes} onChange={(event) => setEstMinutes(event.target.value)} aria-label="할 일 예상 분" />
+      </label>
+      <label className="item-detail-field">
+        <span>맥락</span>
+        <input value={context} onChange={(event) => setContext(event.target.value)} aria-label="할 일 맥락" />
+      </label>
+      {localError && <p className="sheet-error" role="alert">{localError}</p>}
+      <button type="submit" className="item-detail-save-btn" disabled={saving}>
+        {saving ? "저장 중..." : "저장"}
+      </button>
+    </form>
   );
 }
 

@@ -2637,6 +2637,41 @@ p {
   border-top: 1px solid var(--border);
   padding-top: 12px;
 }
+.item-detail-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.item-detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.item-detail-field input {
+  min-height: 44px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+.item-detail-save-btn {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: inherit;
+  cursor: pointer;
+}
+.item-detail-save-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 .item-detail-status-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
