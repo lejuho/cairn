@@ -15,7 +15,7 @@ Use this file to narrow read scope. Do not treat it as full spec. Product rules 
   - Optional Telegram long-poll worker handles real needs-review push replies.
   - Start here when behavior touches persistence, sync, route wiring, or integration boundaries.
 - `web/`
-  - React + Vite PWA shell. Current user-facing surface centers on `/today`.
+  - React + Vite PWA shell. Current user-facing surfaces center on `/today` and `/params`.
   - Local dev default: Vite on `5173`, backend proxy target on `3100`.
   - Start here when behavior is UI state, fetch flow, or PWA output.
 - `docs/`
@@ -48,6 +48,7 @@ Use this file to narrow read scope. Do not treat it as full spec. Product rules 
 - Web app entry:
   - [web/src/App.tsx](/home/pi/cairn/web/src/App.tsx)
   - [web/src/Today.tsx](/home/pi/cairn/web/src/Today.tsx)
+  - [web/src/ParameterSettings.tsx](/home/pi/cairn/web/src/ParameterSettings.tsx)
 
 ## Server Map
 
@@ -389,9 +390,9 @@ Entry and routing:
   - Redirects `/` to `/today`.
   - Renders `AppNav` on all primary routes.
   - Handles simple not-found surface (nav still visible).
-  - Routes: `/today`, `/input`, `/threads`, `/threads/new`, `/threads/:id`, `/people`, `/people/:id`, `/mirror`, `/watch`.
+  - Routes: `/today`, `/input`, `/params`, `/threads`, `/threads/new`, `/threads/:id`, `/people`, `/people/:id`, `/mirror`, `/watch`.
 - [web/src/AppNav.tsx](/home/pi/cairn/web/src/AppNav.tsx)
-  - Shared top navigation bar. Links: Today (`/today`), 입력 (`/input`), 스레드 (`/threads`), 사람 (`/people`), 거울 (`/mirror`), 여백 (`/watch`).
+  - Shared top navigation bar. Links: Today (`/today`), 입력 (`/input`), 파라미터 (`/params`), 스레드 (`/threads`), 사람 (`/people`), 거울 (`/mirror`), 여백 (`/watch`).
   - `aria-current="page"` on active link (including `/people/:id` matching 사람 link). Touch targets ≥44px. Reduced-motion safe.
   - Provider status badges (cycle-82): renders `ProviderStatusBadges` ([web/src/ProviderStatusBadges.tsx](/home/pi/cairn/web/src/ProviderStatusBadges.tsx)) below the nav links on every route. The component owns its own data + polling lifecycle: `apiJson` GET `/api/providers/status` → `safeParse(ProviderStatusResponseSchema)` (throws on invalid → caught); fetch on mount + `setInterval` every 5 minutes (≥ server TTL) with `clearInterval` cleanup on unmount; a single in-flight guard ignores overlapping fetches. Passive text badges ("Google 연결됨" / "Naver 비활성" / "… 연결 안 됨" by state) with a semantic status dot (`provider-status-badge--{state}`), `data-testid="provider-status-{id}"`, accessible `aria-label`. On a transient fetch/parse failure it PRESERVES the last known rows and marks them stale ("(확인 중)", `--stale`); it returns null (quiet) until the first success so a status outage NEVER breaks navigation. Diagnostic only — no tap action, no app-behavior change. `.provider-status*` styles (semantic tokens, passive chips).
 - [web/src/MirrorLedger.tsx](/home/pi/cairn/web/src/MirrorLedger.tsx)
@@ -403,7 +404,9 @@ Entry and routing:
 - [web/src/api.ts](/home/pi/cairn/web/src/api.ts)
   - Frontend fetch boundary (cycle 20). Wraps `fetch` + JSON parsing; classifies errors as `AccessSessionError` (`kind: "access_session_required"`) or `ApiError`.
   - Detection order: (1) 302/401/403 status → access_session_required; (2) `response.redirected` + cloudflareaccess.com URL → access_session_required; (3) HTML/text body with CF Access markers (`/cdn-cgi/access/login`, `cloudflareaccess.com`) → access_session_required; (4) HTML without markers → api_error; (5) fetch() rejection (network error) → access_session_required with "로그인 세션이 만료됐거나 네트워크가 끊겼어".
-  - Used by Today.tsx, InputHub.tsx, Thread.tsx, ThreadIndex.tsx, ThreadNew.tsx, and MirrorLedger.tsx for all API calls: top-level loads, secondary reads, and mutations.
+  - Used by Today.tsx, ParameterSettings.tsx, InputHub.tsx, Thread.tsx, ThreadIndex.tsx, ThreadNew.tsx, and MirrorLedger.tsx for all API calls: top-level loads, secondary reads, and mutations.
+- [web/src/ParameterSettings.tsx](/home/pi/cairn/web/src/ParameterSettings.tsx)
+  - `/params` A-temperature parameter surface for feasibility tuning. Loads `GET /api/feasibility/params`, renders the same five range controls as the Today sheet (`energyBudget`, `meetBufferMinutes`, `deepBufferMinutes`, `travelMargin`, `maxContinuousMinutes`), computes explicit previews via `POST /api/feasibility/day/preview`, and persists only on `PUT /api/feasibility/params`. Includes loading skeleton, live controls, error/retry, preview error, save error, and saved status states. No event/task mutation.
 - [web/src/InputHub.tsx](/home/pi/cairn/web/src/InputHub.tsx)
   - `/input` pull-surface hub (cycle 14). Five states: loading, quiet, live, error, access_error.
   - Quiet when `unscheduledEvents.length === 0`; live otherwise.

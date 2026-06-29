@@ -31,6 +31,18 @@ const QUIET_SURFACE = {
   }
 };
 
+const FEAS_SETTINGS = {
+  params: { energyBudget: 8, meetBufferMinutes: 15, deepBufferMinutes: 30, travelMargin: 1, maxContinuousMinutes: 600 },
+  defaults: { energyBudget: 8, meetBufferMinutes: 15, deepBufferMinutes: 30, travelMargin: 1, maxContinuousMinutes: 600 },
+  limits: {
+    energyBudget:        { min: 1,   max: 16,  step: 0.5, unit: "h" },
+    meetBufferMinutes:   { min: 0,   max: 120, step: 5,   unit: "min" },
+    deepBufferMinutes:   { min: 0,   max: 180, step: 5,   unit: "min" },
+    travelMargin:        { min: 0.5, max: 3,   step: 0.1, unit: "x" },
+    maxContinuousMinutes:{ min: 60,  max: 960, step: 30,  unit: "min" }
+  }
+};
+
 const EMPTY_DIRECTORY = { ok: true, data: { people: [] } };
 
 const EMPTY_LEDGER = {
@@ -42,6 +54,9 @@ const EMPTY_LEDGER = {
 
 function stubFetch() {
   vi.stubGlobal("fetch", vi.fn((url: string) => {
+    if (typeof url === "string" && url.includes("/api/feasibility/params")) {
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: FEAS_SETTINGS }) });
+    }
     if (typeof url === "string" && url.includes("/api/threads")) {
       return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: [] }) });
     }
@@ -93,12 +108,13 @@ describe("App shell", () => {
 });
 
 describe("App navigation", () => {
-  it("renders all 5 nav links on /today", async () => {
+  it("renders nav links on /today", async () => {
     window.history.replaceState(null, "", "/today");
     render(<App />);
     expect(screen.getByRole("navigation", { name: "주요 메뉴" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Today" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "입력" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "파라미터" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "스레드" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "사람" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "거울" })).toBeInTheDocument();
@@ -116,6 +132,15 @@ describe("App navigation", () => {
     render(<App />);
     expect(screen.getByRole("link", { name: "입력" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Today" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("renders /params and marks the parameter tab current", async () => {
+    window.history.replaceState(null, "", "/params");
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByTestId("params-live")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("link", { name: "파라미터" })).toHaveAttribute("aria-current", "page");
   });
 
   it("renders nav on /threads", async () => {

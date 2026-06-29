@@ -2243,6 +2243,148 @@ p {
   .feas-slider::-moz-range-thumb { transition: none; }
 }
 
+/* Parameter settings tab */
+.params-page {
+  width: min(100%, 680px);
+  margin: 0 auto;
+  padding: 24px 20px 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.params-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+.params-header h1 {
+  margin: 0;
+  font-size: 1.55rem;
+  line-height: 1.1;
+}
+.params-date {
+  color: var(--muted);
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+}
+.params-card,
+.params-error {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+.params-error {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.params-error h2,
+.params-error p {
+  margin: 0;
+}
+.params-error h2 {
+  font-size: 1rem;
+}
+.params-error p {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.params-error button {
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.params-skeleton-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+}
+.params-skeleton-row span,
+.params-skeleton-row strong {
+  display: block;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--skel);
+  animation: pulse 1.3s ease-in-out infinite;
+}
+.params-skeleton-row span {
+  width: 40%;
+}
+.params-skeleton-row strong {
+  width: 26%;
+}
+.params-preview {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--raised);
+  font-size: 0.85rem;
+}
+.params-preview-label {
+  color: var(--muted);
+}
+.params-preview-value,
+.params-preview-error {
+  text-align: right;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text);
+}
+.params-preview-error,
+.params-inline-error {
+  color: var(--cancelled);
+}
+.params-inline-error,
+.params-saved {
+  margin: 12px 0 0;
+  font-size: 0.85rem;
+}
+.params-saved {
+  color: var(--done);
+}
+.params-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+.params-secondary-btn,
+.params-primary-btn {
+  min-height: 44px;
+  border-radius: 8px;
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+.params-secondary-btn {
+  flex: 1;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+}
+.params-primary-btn {
+  flex: 2;
+  border: none;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.params-secondary-btn:disabled,
+.params-primary-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 /* Conflict decision sheet */
 .conflict-overlap {
   font-size: 0.82rem;

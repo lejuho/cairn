@@ -3,6 +3,7 @@ import { ProviderStatusBadges } from "./ProviderStatusBadges.js";
 const NAV_LINKS = [
   { href: "/today", label: "Today" },
   { href: "/input", label: "입력" },
+  { href: "/params", label: "파라미터" },
   { href: "/threads", label: "스레드" },
   { href: "/people", label: "사람" },
   { href: "/mirror", label: "거울" },
