@@ -18,6 +18,12 @@ Use this file to narrow read scope. Do not treat it as full spec. Product rules 
   - React + Vite PWA shell. Current user-facing surfaces center on `/today`, `/items`, and `/params`.
   - Local dev default: Vite on `5173`, backend proxy target on `3100`.
   - Start here when behavior is UI state, fetch flow, or PWA output.
+- `mcp/`
+  - Local stdio MCP server for agent access to Cairn's HTTP API.
+  - `src/server.ts` implements minimal JSON-RPC/MCP handling; `src/tools.ts`
+    defines specific Cairn tools plus the generic `cairn_api_request` route
+    wrapper; `src/api.ts` owns the API client and path guard.
+  - Default API target: `CAIRN_API_BASE_URL` or `http://127.0.0.1:3100`.
 - `docs/`
   - Product spec and design docs.
 - `.review/`
@@ -50,6 +56,10 @@ Use this file to narrow read scope. Do not treat it as full spec. Product rules 
   - [web/src/Today.tsx](/home/pi/cairn/web/src/Today.tsx)
   - [web/src/ItemIndex.tsx](/home/pi/cairn/web/src/ItemIndex.tsx)
   - [web/src/ParameterSettings.tsx](/home/pi/cairn/web/src/ParameterSettings.tsx)
+- Agent/MCP access:
+  - [mcp/src/index.ts](/home/pi/cairn/mcp/src/index.ts)
+  - [mcp/src/server.ts](/home/pi/cairn/mcp/src/server.ts)
+  - [mcp/src/tools.ts](/home/pi/cairn/mcp/src/tools.ts)
 
 ## Server Map
 

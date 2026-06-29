@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "cairn": {
+      "command": "node",
+      "args": ["/home/pi/cairn/mcp/dist/index.js"],
+      "env": {
+        "CAIRN_API_BASE_URL": "http://127.0.0.1:3100"
+      }
+    }
+  }
+}

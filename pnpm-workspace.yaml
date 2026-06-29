@@ -2,6 +2,7 @@ packages:
   - "shared"
   - "server"
   - "web"
+  - "mcp"
 
 onlyBuiltDependencies:
   - better-sqlite3
