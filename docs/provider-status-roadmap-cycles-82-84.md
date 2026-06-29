@@ -14,7 +14,18 @@ non-mutating, and low quota.
 
 ## Cycle 82 — Provider Status Badges A
 
-Status: active plan in `.review/cycle-82/`.
+Status: implemented 2026-06-29 (`.review/cycle-82/`). New `GET /api/providers/status`
+returns exactly two rows (Google, Naver). `server/src/services/provider-status.ts`
+aggregates the existing `mapGateway.smoke()` + `placeSearchGateway.search("강남역")`
+behind a per-provider TTL cache (default 300s, lazily refreshed on request — no
+cron) and maps each result/error to a provider-neutral `{state, code, message}`
+(connected/disabled/degraded; STATIC Korean copy; the gateway's own error text is
+dropped, default-deny unknown→degraded/unavailable). `web/src/ProviderStatusBadges.tsx`
+(in AppNav, every route) fetches on mount, polls every 5 minutes, clears its
+interval on unmount, and preserves the last known rows marked stale on a transient
+fetch failure — never breaking navigation. Text badges only ("Google 연결됨" /
+"Naver 비활성" / "… 연결 안 됨") with semantic status dots; no logo assets, no
+DB/migration, no LLM.
 
 Add server-owned provider status aggregation with TTL and compact AppNav badges.
 

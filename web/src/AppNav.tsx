@@ -1,3 +1,5 @@
+import { ProviderStatusBadges } from "./ProviderStatusBadges.js";
+
 const NAV_LINKS = [
   { href: "/today", label: "Today" },
   { href: "/input", label: "입력" },
@@ -29,6 +31,7 @@ export function AppNav({ path }: { path: string }) {
           </li>
         ))}
       </ul>
+      <ProviderStatusBadges />
     </nav>
   );
 }

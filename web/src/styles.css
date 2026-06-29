@@ -1325,6 +1325,44 @@ p {
   border-bottom: 1px solid var(--border-subtle, #e5e5e5);
 }
 
+/* Provider status badges (cycle-82). Passive, quiet chips — diagnostic only, no
+   tap target/action. Semantic tokens; the dot color carries the state. */
+.provider-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 0;
+  padding: 4px 12px 8px;
+  list-style: none;
+}
+.provider-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.provider-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: 0 0 auto;
+}
+.provider-status-badge--connected .provider-status-dot {
+  background: var(--accent);
+}
+.provider-status-badge--degraded .provider-status-dot {
+  background: var(--moved, var(--cancelled));
+}
+.provider-status-badge--disabled .provider-status-dot {
+  background: var(--border);
+}
+.provider-status-badge--stale {
+  opacity: 0.6;
+}
+
 .app-nav-list {
   display: flex;
   gap: 0;
