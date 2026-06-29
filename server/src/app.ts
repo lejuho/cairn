@@ -6,6 +6,8 @@ import type { MapGateway } from "./maps/gateway.js";
 import { registerMapRoutes } from "./routes/maps.js";
 import type { PlaceSearchGateway } from "./naver/place-search-gateway.js";
 import { registerPlaceSearchRoutes } from "./routes/place-search.js";
+import { createProviderStatusService } from "./services/provider-status.js";
+import { registerProviderStatusRoutes } from "./routes/provider-status.js";
 import { registerGeocodingRoutes } from "./routes/geocoding.js";
 import { registerAnnotationRoutes } from "./routes/annotations.js";
 import { registerCaptureRoutes } from "./routes/capture.js";
@@ -48,6 +50,13 @@ export function buildServer(db?: CairnDatabase, gateway?: LlmGateway, mapGateway
   // provider boundary, no persistence.
   if (placeSearchGateway) {
     registerPlaceSearchRoutes(app, placeSearchGateway);
+  }
+  // Provider status badges (cycle-82): one TTL-cached diagnostic endpoint over the
+  // existing map + place-search gateways. No DB — registered when both boundaries
+  // exist so the badge row always reports both providers.
+  if (mapGateway && placeSearchGateway) {
+    const providerStatusService = createProviderStatusService({ mapGateway, placeSearchGateway });
+    registerProviderStatusRoutes(app, providerStatusService);
   }
 
   if (db) {
