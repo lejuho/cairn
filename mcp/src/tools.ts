@@ -62,6 +62,8 @@ export const API_ROUTE_CATALOG: JsonValue[] = [
   { method: "GET", path: "/api/places/naver", purpose: "Naver place candidate search" },
   { method: "GET", path: "/api/maps/provider-smoke", purpose: "Map provider smoke status" },
   { method: "GET", path: "/api/providers/status", purpose: "Provider status badges" },
+  { method: "GET", path: "/api/sync/gcal/status", purpose: "Google Calendar sync status" },
+  { method: "POST", path: "/api/sync/gcal/run", purpose: "Run Google Calendar sync now" },
   { method: "PUT", path: "/api/transit-facts/pair", purpose: "Pin public-transit duration between two events" },
   { method: "GET", path: "/api/feasibility/day", purpose: "Day feasibility" },
   { method: "GET", path: "/api/feasibility/params", purpose: "Feasibility parameters" },
@@ -388,6 +390,16 @@ export const TOOLS: McpTool[] = [
     name: "cairn_provider_status",
     description: "Read map/place provider status diagnostics.",
     inputSchema: EMPTY_SCHEMA
+  },
+  {
+    name: "cairn_gcal_sync_status",
+    description: "Read Google Calendar OAuth/token/sync status.",
+    inputSchema: EMPTY_SCHEMA
+  },
+  {
+    name: "cairn_gcal_sync_run",
+    description: "Run Google Calendar inbound sync now. Requires configured OAuth credentials and token.",
+    inputSchema: EMPTY_SCHEMA
   }
 ];
 
@@ -450,6 +462,10 @@ async function dispatchTool(config: CairnApiClientConfig, name: string, args: Js
       return request(config, { method: "POST", path: "/api/watchers", body: pickBody(args, ["label", "threshold", "category"]) });
     case "cairn_provider_status":
       return request(config, { method: "GET", path: "/api/providers/status" });
+    case "cairn_gcal_sync_status":
+      return request(config, { method: "GET", path: "/api/sync/gcal/status" });
+    case "cairn_gcal_sync_run":
+      return request(config, { method: "POST", path: "/api/sync/gcal/run" });
     default:
       throw new ToolInputError(`unknown tool: ${name}`);
   }

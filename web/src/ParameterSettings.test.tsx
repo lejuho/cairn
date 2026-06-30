@@ -44,6 +44,21 @@ const PREVIEW = {
   sequenceOrder: { violations: [], softEdges: [], recommendedOrder: [], reasonCodes: [] }
 };
 
+const GCAL_STATUS = {
+  state: "connected",
+  configured: true,
+  tokenPresent: true,
+  syncTokenPresent: true,
+  lastSyncAt: "2026-06-29T10:00:00.000Z",
+  tokenPath: "/home/pi/cairn/.cairn/gcal-token.json",
+  message: "Google Calendar가 연결되어 있어."
+};
+
+const GCAL_RUN = {
+  status: { ...GCAL_STATUS, lastSyncAt: "2026-06-29T10:15:00.000Z" },
+  result: { upserted: 2, cancelled: 1, skipped: 0 }
+};
+
 function jsonResponse(body: unknown): Response {
   return {
     ok: true,
@@ -60,7 +75,10 @@ afterEach(() => {
 
 describe("ParameterSettings", () => {
   it("loads and renders all feasibility controls", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse({ ok: true, data: BASE_SETTINGS }))));
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      if (url.includes("/api/sync/gcal/status")) return Promise.resolve(jsonResponse({ ok: true, data: GCAL_STATUS }));
+      return Promise.resolve(jsonResponse({ ok: true, data: BASE_SETTINGS }));
+    }));
 
     render(<ParameterSettings />);
 
@@ -73,6 +91,9 @@ describe("ParameterSettings", () => {
 
   it("previews changed params and saves them explicitly", async () => {
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes("/api/sync/gcal/status")) {
+        return Promise.resolve(jsonResponse({ ok: true, data: GCAL_STATUS }));
+      }
       if (url.includes("/api/feasibility/day/preview")) {
         return Promise.resolve(jsonResponse({ ok: true, data: PREVIEW }));
       }
@@ -100,6 +121,29 @@ describe("ParameterSettings", () => {
       expect(payload.energyBudget).toBe(10);
     });
     expect(screen.getByRole("status")).toHaveTextContent("저장됐어");
+  });
+
+  it("shows Google Calendar status and runs manual sync", async () => {
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes("/api/sync/gcal/run") && init?.method === "POST") {
+        return Promise.resolve(jsonResponse({ ok: true, data: GCAL_RUN }));
+      }
+      if (url.includes("/api/sync/gcal/status")) {
+        return Promise.resolve(jsonResponse({ ok: true, data: GCAL_STATUS }));
+      }
+      return Promise.resolve(jsonResponse({ ok: true, data: BASE_SETTINGS }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ParameterSettings />);
+    await waitFor(() => expect(screen.getByTestId("gcal-sync-card")).toHaveTextContent("연결됨"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Google Calendar 지금 동기화" }));
+
+    await waitFor(() => expect(screen.getByText("가져옴 2 · 취소 1 · 건너뜀 0")).toBeInTheDocument());
+    expect(fetchMock.mock.calls.some(([url, init]) =>
+      String(url).includes("/api/sync/gcal/run") && (init as RequestInit | undefined)?.method === "POST"
+    )).toBe(true);
   });
 
   it("shows a recoverable error state when params fail to load", async () => {

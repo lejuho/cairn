@@ -3,12 +3,19 @@ import type {
   DayFeasibility,
   FeasibilityParamLimits,
   FeasibilityParamSettingsData,
+  GcalSyncResult,
+  GcalSyncStatusData,
   UpdateFeasibilityParamsRequest
 } from "@cairn/shared";
+import { GcalSyncRunResponseSchema, GcalSyncStatusResponseSchema } from "@cairn/shared";
 import { apiJson } from "./api.js";
 import { localDateString, localNowRfc3339 } from "./dateUtils.js";
 
 type LoadState = "loading" | "live" | "error";
+type GcalPanelState =
+  | { tag: "loading" }
+  | { tag: "error"; message: string }
+  | { tag: "live"; data: GcalSyncStatusData; running: boolean; result: GcalSyncResult | null; error: string | null };
 
 const FALLBACK_LIMITS: FeasibilityParamLimits = {
   energyBudget:        { min: 1,    max: 16,  step: 0.5, unit: "h" },
@@ -41,6 +48,16 @@ function previewLabel(preview: DayFeasibility): string {
   return `${preview.energy.loadUnits.toFixed(1)}h / ${preview.energy.budgetUnits}h${suffix}`;
 }
 
+function gcalStateLabel(data: GcalSyncStatusData): string {
+  if (data.state === "connected") return "연결됨";
+  if (data.state === "needs_auth") return "인증 필요";
+  return "설정 필요";
+}
+
+function gcalResultLabel(result: GcalSyncResult): string {
+  return `가져옴 ${result.upserted} · 취소 ${result.cancelled} · 건너뜀 ${result.skipped}`;
+}
+
 export function ParameterSettings() {
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [settings, setSettings] = useState<FeasibilityParamSettingsData | null>(null);
@@ -51,8 +68,21 @@ export function ParameterSettings() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [gcal, setGcal] = useState<GcalPanelState>({ tag: "loading" });
 
   const date = useMemo(() => localDateString(), []);
+
+  const loadGcalStatus = useCallback(async () => {
+    setGcal((cur) => cur.tag === "live" ? { ...cur, running: false, error: null } : { tag: "loading" });
+    try {
+      const body = await apiJson<unknown>("/api/sync/gcal/status");
+      const parsed = GcalSyncStatusResponseSchema.safeParse(body);
+      if (!parsed.success) throw new Error("Google Calendar 상태 응답이 맞지 않아");
+      setGcal({ tag: "live", data: parsed.data.data, running: false, result: null, error: null });
+    } catch (err: unknown) {
+      setGcal({ tag: "error", message: errorMessage(err, "Google Calendar 상태를 불러오지 못했어") });
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoadState("loading");
@@ -76,6 +106,10 @@ export function ParameterSettings() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    void loadGcalStatus();
+  }, [loadGcalStatus]);
 
   const requestPreview = useCallback(async (next: UpdateFeasibilityParamsRequest) => {
     setPreviewState("loading");
@@ -132,6 +166,27 @@ export function ParameterSettings() {
       setSaving(false);
     }
   }, [draft, settings]);
+
+  const handleRunGcalSync = useCallback(async () => {
+    if (gcal.tag !== "live" || gcal.running || gcal.data.state !== "connected") return;
+    setGcal({ ...gcal, running: true, error: null, result: null });
+    try {
+      const body = await apiJson<unknown>("/api/sync/gcal/run", { method: "POST" });
+      const parsed = GcalSyncRunResponseSchema.safeParse(body);
+      if (!parsed.success) throw new Error("Google Calendar 동기화 응답이 맞지 않아");
+      setGcal({
+        tag: "live",
+        data: parsed.data.data.status,
+        running: false,
+        result: parsed.data.data.result,
+        error: null
+      });
+    } catch (err: unknown) {
+      setGcal((cur) => cur.tag === "live"
+        ? { ...cur, running: false, error: errorMessage(err, "Google Calendar 동기화에 실패했어") }
+        : cur);
+    }
+  }, [gcal]);
 
   if (loadState === "loading") {
     return (
@@ -243,6 +298,77 @@ export function ParameterSettings() {
           </button>
         </div>
       </section>
+
+      <GcalSyncCard state={gcal} onRefresh={() => void loadGcalStatus()} onRun={() => void handleRunGcalSync()} />
     </main>
+  );
+}
+
+function GcalSyncCard({ state, onRefresh, onRun }: {
+  state: GcalPanelState;
+  onRefresh: () => void;
+  onRun: () => void;
+}) {
+  return (
+    <section className="params-card gcal-sync-card" aria-labelledby="gcal-sync-title" data-testid="gcal-sync-card">
+      <div className="gcal-sync-head">
+        <div>
+          <p className="eyebrow">sync</p>
+          <h2 id="gcal-sync-title">Google Calendar</h2>
+        </div>
+        {state.tag === "live" && (
+          <span className={`gcal-sync-pill gcal-sync-pill--${state.data.state}`}>{gcalStateLabel(state.data)}</span>
+        )}
+      </div>
+
+      {state.tag === "loading" && (
+        <div className="gcal-sync-loading" data-testid="gcal-sync-loading">
+          <span />
+          <strong />
+        </div>
+      )}
+
+      {state.tag === "error" && (
+        <div className="gcal-sync-error" role="alert" data-testid="gcal-sync-error">
+          <p>{state.message}</p>
+          <button type="button" className="params-secondary-btn" onClick={onRefresh}>다시 확인</button>
+        </div>
+      )}
+
+      {state.tag === "live" && (
+        <>
+          <dl className="gcal-sync-facts">
+            <div>
+              <dt>상태</dt>
+              <dd>{state.data.message}</dd>
+            </div>
+            <div>
+              <dt>마지막 동기화</dt>
+              <dd>{state.data.lastSyncAt ?? "아직 없음"}</dd>
+            </div>
+            <div>
+              <dt>토큰</dt>
+              <dd>{state.data.tokenPresent ? "있음" : "없음"}</dd>
+            </div>
+          </dl>
+
+          {state.result && <p className="params-saved" role="status">{gcalResultLabel(state.result)}</p>}
+          {state.error && <p className="params-inline-error" role="alert">{state.error}</p>}
+
+          <div className="params-actions">
+            <button type="button" className="params-secondary-btn" onClick={onRefresh} disabled={state.running}>상태 확인</button>
+            <button
+              type="button"
+              className="params-primary-btn"
+              onClick={onRun}
+              disabled={state.running || state.data.state !== "connected"}
+              aria-label="Google Calendar 지금 동기화"
+            >
+              {state.running ? "동기화 중..." : "지금 동기화"}
+            </button>
+          </div>
+        </>
+      )}
+    </section>
   );
 }

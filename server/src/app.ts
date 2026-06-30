@@ -8,6 +8,7 @@ import type { PlaceSearchGateway } from "./naver/place-search-gateway.js";
 import { registerPlaceSearchRoutes } from "./routes/place-search.js";
 import { createProviderStatusService } from "./services/provider-status.js";
 import { registerProviderStatusRoutes } from "./routes/provider-status.js";
+import { registerGcalSyncRoutes } from "./routes/gcal-sync.js";
 import { registerGeocodingRoutes } from "./routes/geocoding.js";
 import { registerAnnotationRoutes } from "./routes/annotations.js";
 import { registerCaptureRoutes } from "./routes/capture.js";
@@ -27,8 +28,19 @@ import { registerRelationRoutes } from "./routes/relations.js";
 import { registerTransitFactsRoutes } from "./routes/transit-facts.js";
 import { registerResourceRoutes } from "./routes/resources.js";
 import { registerItemRoutes } from "./routes/items.js";
+import type { GcalSyncControlOptions } from "./services/gcal-sync-control.js";
 
-export function buildServer(db?: CairnDatabase, gateway?: LlmGateway, mapGateway?: MapGateway, placeSearchGateway?: PlaceSearchGateway): FastifyInstance {
+export type BuildServerOptions = {
+  gcalSync?: GcalSyncControlOptions;
+};
+
+export function buildServer(
+  db?: CairnDatabase,
+  gateway?: LlmGateway,
+  mapGateway?: MapGateway,
+  placeSearchGateway?: PlaceSearchGateway,
+  opts: BuildServerOptions = {}
+): FastifyInstance {
   const app = Fastify({
     logger: false
   });
@@ -78,6 +90,9 @@ export function buildServer(db?: CairnDatabase, gateway?: LlmGateway, mapGateway
     registerResourceRoutes(app, db);
     registerRelationRoutes(app, db);
     registerTransitFactsRoutes(app, db);
+    if (opts.gcalSync) {
+      registerGcalSyncRoutes(app, opts.gcalSync);
+    }
     // Event geocoding (cycle-73): needs both DB (cache) and the map gateway.
     if (mapGateway) {
       registerGeocodingRoutes(app, db, mapGateway);

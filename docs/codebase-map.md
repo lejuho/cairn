@@ -23,6 +23,8 @@ Use this file to narrow read scope. Do not treat it as full spec. Product rules 
   - `src/server.ts` implements minimal JSON-RPC/MCP handling; `src/tools.ts`
     defines specific Cairn tools plus the generic `cairn_api_request` route
     wrapper; `src/api.ts` owns the API client and path guard.
+  - GCal sync controls are available as `cairn_gcal_sync_status` and
+    `cairn_gcal_sync_run`, backed by the Cairn HTTP sync endpoints.
   - Default API target: `CAIRN_API_BASE_URL` or `http://127.0.0.1:3100`.
 - `docs/`
   - Product spec and design docs.
@@ -299,6 +301,10 @@ External boundaries:
 - `server/src/gcal/`
   - Google Calendar inbound-only sync.
   - Auth, client, event mapping, sync token behavior.
+- `server/src/services/gcal-sync-control.ts`
+  - UI/MCP control surface for Google Calendar sync readiness and explicit
+    one-shot inbound sync. Reads OAuth config/token presence, last sync params,
+    and calls `syncGcalPrimary` only after user action.
 - `server/src/gmail/`
   - Gmail cancellation-cost sync boundary (cycle-59 FR-SYNC-05 A). READ-ONLY:
     `gmail.readonly` scope only; no send/webhook/history-watch.
@@ -316,6 +322,7 @@ External boundaries:
     and error backoff/log-throttle knobs.
 - `server/scripts/`
   - One-shot operational entrypoints: `gcal:auth`, `gcal:sync`, `gmail:auth`, `gmail:cost-sync`, `watcher:push`.
+  - `gcal:sync` can be run periodically by `deploy/systemd/cairn-gcal-sync.timer` through `deploy/scripts/run-gcal-sync-if-ready.sh`; the wrapper skips with exit 0 until `GCAL_CLIENT_ID`, `GCAL_CLIENT_SECRET`, and the token file exist.
   - `watcher-daily-push.ts` — requires `CAIRN_DB_PATH`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`. Opens DB, runs `runWatcherDailyPush`, exits 0 on success/no-due, exits 1 on delivery failure or missing config.
   - `gmail-auth.ts` — `resolveGmailAuthConfig(process.env)` then `runAuth`; exits 1 (before any network/file work) on missing `GMAIL_CLIENT_ID`/`GMAIL_CLIENT_SECRET`.
   - `gmail-cost-sync.ts` — `resolveGmailCostSyncConfig(process.env)` then opens DB, loads token, runs `runGmailCostSync`; exits 1 (before DB access) on missing `CAIRN_DB_PATH` or Gmail OAuth env. Optional env `CAIRN_GMAIL_LOOKAHEAD_DAYS` (default 14), `CAIRN_GMAIL_TOKEN_PATH`, `CAIRN_GMAIL_NOW` (deterministic clock).
@@ -424,7 +431,7 @@ Entry and routing:
 - [web/src/ItemIndex.tsx](/home/pi/cairn/web/src/ItemIndex.tsx)
   - `/items` A-temperature inventory surface. Loads `GET /api/items?scope=active|all&limit=100`, with a two-option segment (`진행 중`/`전체`). Renders separate recent-created-first sections for events and tasks so unthreaded, unscheduled, future, or otherwise not-Today-visible rows remain findable. Four states: skeleton loading, quiet empty state with `/input` CTA, live lists, error retry. Event cards open a bottom-sheet detail via `GET /api/events/:id`, expose explicit outcome buttons (`PATCH /api/events/:id/status`), and now expose time recommendation/assignment through the existing slot APIs (`GET /api/events/:id/slot-candidates`, `PATCH /api/events/:id/schedule`) except for GCal events. Task cards open a lightweight task detail sheet with status buttons (`PATCH /api/tasks/:id/status`, including `dropped`) plus a detail edit form (`PATCH /api/tasks/:id/thread-node`) for due/estimate/context; saving a due date immediately enables time recommendation via `GET /api/tasks/:id/slot-candidates` + `POST /api/tasks/:id/schedule-block` (creates a scheduled block, never marks done). Due-less tasks show scoped copy that a due date is needed first. The `/api/items` inventory route remains read-only; writes reuse existing item status/thread-node/schedule endpoints and refresh the list.
 - [web/src/ParameterSettings.tsx](/home/pi/cairn/web/src/ParameterSettings.tsx)
-  - `/params` A-temperature parameter surface for feasibility tuning. Loads `GET /api/feasibility/params`, renders the same five range controls as the Today sheet (`energyBudget`, `meetBufferMinutes`, `deepBufferMinutes`, `travelMargin`, `maxContinuousMinutes`), computes explicit previews via `POST /api/feasibility/day/preview`, and persists only on `PUT /api/feasibility/params`. Includes loading skeleton, live controls, error/retry, preview error, save error, and saved status states. No event/task mutation.
+  - `/params` A-temperature parameter surface for feasibility tuning. Loads `GET /api/feasibility/params`, renders the same five range controls as the Today sheet (`energyBudget`, `meetBufferMinutes`, `deepBufferMinutes`, `travelMargin`, `maxContinuousMinutes`), computes explicit previews via `POST /api/feasibility/day/preview`, and persists only on `PUT /api/feasibility/params`. Also renders a scoped Google Calendar card using `GET /api/sync/gcal/status` and explicit `POST /api/sync/gcal/run` for manual sync. Includes loading skeleton, live controls, error/retry, preview error, save error, and saved status states. No event/task mutation.
 - [web/src/InputHub.tsx](/home/pi/cairn/web/src/InputHub.tsx)
   - `/input` pull-surface hub (cycle 14). Five states: loading, quiet, live, error, access_error.
   - Quiet when `unscheduledEvents.length === 0`; live otherwise.

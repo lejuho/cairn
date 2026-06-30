@@ -1,0 +1,11 @@
+[Unit]
+Description=Cairn Google Calendar inbound sync
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=/home/pi/cairn
+EnvironmentFile=-/home/pi/cairn-data/cairn-server.env
+ExecStart=/home/pi/cairn/deploy/scripts/run-gcal-sync-if-ready.sh

@@ -4,8 +4,8 @@ import { params } from "../db/schema.js";
 import type { GcalClient } from "./client.js";
 import { mapGcalEvent } from "./mapping.js";
 
-const SYNC_TOKEN_KEY = "gcal.primary.syncToken";
-const LAST_SYNC_AT_KEY = "gcal.primary.lastSyncAt";
+export const GCAL_SYNC_TOKEN_KEY = "gcal.primary.syncToken";
+export const GCAL_LAST_SYNC_AT_KEY = "gcal.primary.lastSyncAt";
 const CALENDAR_ID = "primary";
 
 export type SyncOptions = {
@@ -23,13 +23,13 @@ export type SyncResult = {
 export async function syncGcalPrimary(opts: SyncOptions): Promise<SyncResult> {
   const { connection, client, timeZone = process.env.CAIRN_TIME_ZONE ?? "Asia/Seoul" } = opts;
 
-  const existingToken = readParam(connection, SYNC_TOKEN_KEY);
+  const existingToken = readParam(connection, GCAL_SYNC_TOKEN_KEY);
 
   try {
     return await runSync(connection, client, timeZone, existingToken ?? undefined);
   } catch (err: unknown) {
     if (isGone(err)) {
-      clearParam(connection, SYNC_TOKEN_KEY);
+      clearParam(connection, GCAL_SYNC_TOKEN_KEY);
       return await runSync(connection, client, timeZone, undefined);
     }
     throw err;
@@ -146,9 +146,9 @@ async function runSync(
 
   // Persist syncToken only after all pages succeed.
   if (lastSyncToken) {
-    upsertParam(db, SYNC_TOKEN_KEY, lastSyncToken);
+    upsertParam(db, GCAL_SYNC_TOKEN_KEY, lastSyncToken);
   }
-  upsertParam(db, LAST_SYNC_AT_KEY, now.toISOString());
+  upsertParam(db, GCAL_LAST_SYNC_AT_KEY, now.toISOString());
 
   return { upserted, cancelled, skipped };
 }

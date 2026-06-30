@@ -23,7 +23,9 @@ if (isMain) {
   const mapGateway = createMapGateway(readMapConfig());
   // Naver place-search gateway from env (cycle-79); defaults to disabled, needs no DB.
   const placeSearchGateway = createPlaceSearchGateway(readPlaceSearchConfig());
-  const app = buildServer(connection.db, gateway, mapGateway, placeSearchGateway);
+  const app = buildServer(connection.db, gateway, mapGateway, placeSearchGateway, {
+    gcalSync: { connection }
+  });
   const port = Number.parseInt(process.env.PORT ?? "3100", 10);
   const host = process.env.HOST ?? "0.0.0.0";
 

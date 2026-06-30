@@ -2411,6 +2411,92 @@ p {
   opacity: 0.55;
   cursor: not-allowed;
 }
+.gcal-sync-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.gcal-sync-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.gcal-sync-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  line-height: 1.2;
+}
+.gcal-sync-pill {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.gcal-sync-pill--connected {
+  color: var(--done);
+  border-color: var(--done);
+}
+.gcal-sync-pill--needs_auth,
+.gcal-sync-pill--needs_config {
+  color: var(--moved);
+  border-color: var(--moved);
+}
+.gcal-sync-loading {
+  display: grid;
+  gap: 10px;
+}
+.gcal-sync-loading span,
+.gcal-sync-loading strong {
+  display: block;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--skel);
+  animation: pulse 1.3s ease-in-out infinite;
+}
+.gcal-sync-loading span {
+  width: 70%;
+}
+.gcal-sync-loading strong {
+  width: 42%;
+}
+.gcal-sync-facts {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+.gcal-sync-facts div {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.gcal-sync-facts dt {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+.gcal-sync-facts dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--text);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+.gcal-sync-error {
+  display: grid;
+  gap: 12px;
+}
+.gcal-sync-error p {
+  margin: 0;
+  color: var(--muted);
+}
 
 /* Item index */
 .items-page {
