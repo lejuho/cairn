@@ -1,50 +1,54 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# PEV + Spec Kit Constitution
 
-## Core Principles
+## 1. Artifact hierarchy
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+Project requirements and architecture principles live in Spec Kit artifacts.
+Execution authority lives in PEV artifacts. Resolve conflicts in this order:
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+1. this constitution;
+2. `specs/<feature>/spec.md`;
+3. `specs/<feature>/plan.md` and `tasks.md`;
+4. `.review/cycle-N/selection.json` and `plan.md`;
+5. implementation and review artifacts.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+A feature plan is not a PEV cycle plan. The latter must be a smaller,
+independently verifiable execution contract.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+## 2. Role separation is mandatory
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+- Spec Kit defines and analyzes requirements, plans and the task graph.
+- Codex selects the next PEV slice, writes its immutable selection record,
+  reviews implementation and performs the approved merge.
+- Claude implements only the active PEV cycle plan and resolves review findings.
+- No agent may bypass `.review/cycle-N/plan.md`.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+`$speckit-implement` MUST NOT be used in this repository. Product implementation
+must start through PEV `/implement`, followed by `/review`, `/fix`/`/recheck` as
+needed, and `/merge`.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+## 3. Cycle economics
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+Each candidate must be scored with selection schema v2, including user value,
+dependency unlock, code affinity, independent verification, change risk, test
+cost, repetition and fragmentation penalties. Preserve requirement IDs and list
+all included task IDs.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+Do not create a single-task cycle merely because it is easy. When compatible
+work from the same requirement remains, bundle it up to the largest boundary
+that remains independently verifiable. A smaller boundary requires explicit
+evidence that its risk reduction is worth repeated tests and fixed verification
+cost.
 
-## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
+## 4. Verification and completion
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+Executor done records must contain every automated check with command,
+wall-clock duration and exit code. A task is complete only after the PEV verdict
+passes and the cycle is merged. Do not mark Spec Kit tasks complete when merely
+assigned to or implemented in an unmerged cycle.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+## 5. Governance
+
+Historical selection, review and metric records are immutable observations.
+Change scoring weights only in a recorded meta-cycle after a sufficient
+comparison window. Amend this constitution intentionally, document the reason,
+and keep PEV role separation intact.
