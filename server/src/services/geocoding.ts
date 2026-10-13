@@ -86,3 +86,22 @@ function toData(row: GeocodeCacheRow, eventId: number, cacheStatus: GeocodeCache
     lastCheckedAt: row.lastCheckedAt
   };
 }
+
+/** 일정과 무관한 자유 텍스트 위치를 좌표로 (캐시 우선, 미스면 provider 1회 + 캐시 기록). 실패 시 null. */
+export async function geocodeText(
+  db: CairnDatabase,
+  mapGateway: MapGateway,
+  locationText: string
+): Promise<{ lat: number; lng: number; label: string } | null> {
+  if (!locationText.trim()) return null;
+  const provider = mapGateway.provider;
+  const normalized = normalizeLocation(locationText);
+  let row = findGeocodeByKey(db, provider, normalized);
+  if (!row) {
+    const result = await mapGateway.geocodeAddress(locationText);
+    if (!result.ok) return null;
+    row = upsertGeocode(db, outcomeToUpsert(result.outcome, provider, normalized, locationText));
+  }
+  if (row.status !== "resolved" || row.latitude == null || row.longitude == null) return null;
+  return { lat: row.latitude, lng: row.longitude, label: locationText };
+}

@@ -13,16 +13,22 @@ const TOOL_SCOPES: Record<string, string> = {
   cairn_context_now: "cairn.read",
   cairn_inbox: "cairn.read",
   cairn_threads_list: "cairn.read",
+  cairn_check_feasibility: "cairn.read",
+  cairn_propose_event: "cairn.confirm",
+  cairn_pin_route: "cairn.confirm",
   cairn_confirm: "cairn.confirm",
   cairn_observe: "cairn.confirm"
 };
 
 const REMOTE_INSTRUCTIONS =
-  "Cairn is the user's context/priority hub (schedule, threads = purposes/projects, pending questions). " +
+  "Cairn is the user's context/priority hub (schedule, threads = purposes/projects, pending questions) and the single judge of whether an event fits the user's day. " +
   "When the user talks about plans, priorities or what to do next, call cairn_context_now first. " +
   "If it returns pending inbox items, ask at most one relevant question naturally, without interrupting the user's task. " +
-  "Record only answers the user actually gave with cairn_confirm (never guess an accept). " +
-  "When the user mentions an appointment, decision or commitment, record it with cairn_observe.";
+  "When you find an event (mail, X, Luma, conversation) with a concrete time, call cairn_propose_event with structured fields and the source URL; if alreadyKnown is true, do not ask again. " +
+  "For 'can I make it?' questions call cairn_check_feasibility. Never estimate travel time yourself: relay Cairn's verdict, reasons and assumptions. " +
+  "Follow analysisRequests: for route_check, check the route live (naverUrl) and tell the user the route; for origin_check, ask where they will be. " +
+  "Do not store route details anywhere; only if the user confirms a duration, record it with cairn_pin_route. " +
+  "Record only answers the user actually gave with cairn_confirm (never guess an accept). Use cairn_observe for decisions or commitments without a concrete time.";
 
 export function toolsForScopes(scopes: string[]): McpTool[] {
   return TOOLS.filter((t) => {
@@ -37,6 +43,7 @@ export function argsForGrant(grant: Grant) {
   return (name: string, args: JsonObject): JsonObject => {
     if (name === "cairn_confirm") return { ...args, answeredBy: label };
     if (name === "cairn_observe") return { ...args, agent: label };
+    if (name === "cairn_propose_event") return { ...args, proposedBy: label };
     return args;
   };
 }

@@ -93,7 +93,7 @@ export function buildServer(
     registerResourceRoutes(app, db);
     registerRelationRoutes(app, db);
     registerTransitFactsRoutes(app, db);
-    registerInboxRoutes(app, db, { ingestToken: opts.ingestToken });
+    registerInboxRoutes(app, db, { ingestToken: opts.ingestToken, mapGateway });
     if (opts.gcalSync) {
       registerGcalSyncRoutes(app, opts.gcalSync);
     }

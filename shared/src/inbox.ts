@@ -79,3 +79,36 @@ export type InboxItemView = {
   // 이 항목에 허용되는 decision 과 value 힌트 — 에이전트가 그대로 따라 쓰면 된다.
   answerHint: string;
 };
+
+const iso = z.string().datetime({ offset: true });
+
+export const CandidateFeasibilityRequestSchema = z
+  .object({
+    title: z.string().max(200).optional(),
+    start: iso,
+    end: iso.optional(),
+    location: z.string().max(300).optional(),
+    online: z.boolean().optional()
+  })
+  .strict();
+
+// 에이전트가 메일·X·Luma·대화에서 찾은 일정을 구조화된 채로 제안 (자유 텍스트 재추출 손실 없음).
+export const ProposeEventRequestSchema = CandidateFeasibilityRequestSchema.extend({
+  title: z.string().min(1).max(200),
+  url: z.string().url().max(1000).optional(),
+  // 어디서 찾았는지 (gmail, x, luma, conversation ...)
+  origin: z.string().max(50).optional(),
+  note: z.string().max(1000).optional(),
+  proposedBy: z.string().max(100).optional()
+}).strict();
+export type ProposeEventRequest = z.infer<typeof ProposeEventRequestSchema>;
+
+// 사용자가 확인한 소요시간만 고정한다 (네이버 경로 상세는 저장하지 않음).
+export const PinRouteRequestSchema = z
+  .object({
+    from: z.string().min(1).max(300),
+    to: z.string().min(1).max(300),
+    minutes: z.number().int().min(1).max(600),
+    note: z.string().max(300).optional()
+  })
+  .strict();

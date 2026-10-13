@@ -73,6 +73,23 @@ accept 효과: `outcome_check` → annotation + event.status, `event_candidate` 
        (값은 매직 텍스트 선택기로 넣는다)
    - 금융·인증 앱은 트리거 앱 목록에서 빼둔다 (서버 필터는 2차 방어).
 
+## Cairn ↔ 에이전트 경계
+
+- **Cairn = 기억과 계산**: 어느 에이전트가 물어도 같은 답이어야 하는 것. 일정/위치 타임라인, 이동시간
+  (pinned > Google transit 추정, 도착 시각 기준), feasibility 판정, 충돌, 중복 제거(URL), 수락/거절 이력.
+- **에이전트 = 감각과 대화**: 메일·X·Luma·대화에서 후보 찾기, 언제 물을지, 결과 전달, 실시간 경로 확인.
+- 에이전트는 이동시간을 추정하지 않고 Cairn 판정을 전달한다.
+- 네이버 경로 결과는 저장하지 않는다(cycle-77 원칙). 대신 판정이 `analysisRequests` 로
+  "무엇을 언제 기준으로 확인해야 판단이 서는지"(route_check + naverUrl, origin_check)를 돌려주고,
+  에이전트가 실시간으로 확인해 사용자에게 전한다. 사용자가 확인한 소요시간(분)만 `cairn_pin_route` 로 고정.
+- 기본 출발지: params `default_origin` = 홍익대학교 서울캠퍼스 (직전 대면 일정 장소가 없을 때, 가정으로 명시).
+
+| API | 용도 |
+| --- | --- |
+| POST `/api/feasibility/candidate` | 가정 판정 (저장 없음) |
+| POST `/api/inbox/propose-event` | 구조화 후보 제안 → event_candidate + 판정, URL 기준 1회 |
+| POST `/api/routes/pin` | 사용자 확인 소요시간 고정 (pinned_transit_facts, source=pinned_user) |
+
 ## 원격 MCP (ChatGPT·Grok 등)
 
 - `mcp/src/remote.ts` — `cairn-mcp-remote.service`, `0.0.0.0:8792`, env `/home/pi/cairn-data/cairn-mcp-remote.env`.
@@ -80,7 +97,7 @@ accept 효과: `outcome_check` → annotation + event.status, `event_candidate` 
   Cloudflare Access 앱은 `cairn-mcp.lee-blog.me/oauth/authorize` 경로만 보호 (macro-obs 와 같은 방식),
   서버가 Access JWT(aud=`CF_ACCESS_AUD`, email=`OAUTH_OWNER_EMAIL`)를 직접 검증 → 설정이 빠지면 승인 불가(fail closed).
 - OAuth 2.1 + PKCE + 동적 등록. 상태는 `/home/pi/cairn-data/mcp-oauth.json` (해시만 저장).
-- 스코프: `cairn.read`(context_now, inbox, threads_list), `cairn.confirm`(confirm, observe). 일정 CRUD 는 노출 안 함.
+- 스코프: `cairn.read`(context_now, inbox, threads_list, check_feasibility), `cairn.confirm`(confirm, observe, propose_event, pin_route). 일정 CRUD 는 노출 안 함.
 - 답·관찰의 `answeredBy`/`agent` 는 서버가 `remote:<클라이언트 이름>` 으로 덮어쓴다.
 - 서버→클라이언트 SSE 스트림은 미지원 (POST 요청-응답만, GET /mcp = 405).
 - 커넥터 URL: `https://cairn-mcp.lee-blog.me/mcp`. 연결 끊기: oauth.json 에서 해당 client/token 삭제 후 재시작.

@@ -45,7 +45,8 @@ export type MapGateway = {
   provider: MapProvider;
   smoke: () => Promise<MapSmokeResult>;
   geocodeAddress: (address: string) => Promise<GeocodeResult>;
-  travelTime: (origin: TravelPoint, dest: TravelPoint, mode: string) => Promise<TravelTimeResult>;
+  // arrivalTime(epoch seconds): 대중교통은 시각에 따라 경로가 크게 달라서 도착 시각 기준으로 계산할 수 있게 한다.
+  travelTime: (origin: TravelPoint, dest: TravelPoint, mode: string, opts?: { arrivalTime?: number }) => Promise<TravelTimeResult>;
 };
 
 export type MapGatewayOptions = { fetchImpl?: typeof fetch; retryCount?: number };
@@ -106,7 +107,7 @@ export function createMapGateway(configResult: MapConfigResult, options: MapGate
       }
       return geocodeGoogle(config, address, fetchImpl, retryCount);
     },
-    async travelTime(origin: TravelPoint, dest: TravelPoint, mode: string): Promise<TravelTimeResult> {
+    async travelTime(origin: TravelPoint, dest: TravelPoint, mode: string, opts?: { arrivalTime?: number }): Promise<TravelTimeResult> {
       if (!configResult.ok) {
         return { ok: false, error: { code: "config_error", message: "Map provider is misconfigured" } };
       }
@@ -114,7 +115,7 @@ export function createMapGateway(configResult: MapConfigResult, options: MapGate
       if (config.provider === "disabled") {
         return { ok: false, error: { code: "disabled", message: "Map provider is disabled" } };
       }
-      return travelTimeGoogle(config, origin, dest, mode, fetchImpl, retryCount);
+      return travelTimeGoogle(config, origin, dest, mode, fetchImpl, retryCount, opts?.arrivalTime);
     }
   };
 }
@@ -344,11 +345,15 @@ function travelError(code: MapErrorCode, message: string): TravelTimeResult {
   return { ok: false, error: { code, message } };
 }
 
-async function travelTimeGoogle(config: GoogleMapConfig, origin: TravelPoint, dest: TravelPoint, mode: string, fetchImpl: typeof fetch, retryCount: number): Promise<TravelTimeResult> {
+async function travelTimeGoogle(config: GoogleMapConfig, origin: TravelPoint, dest: TravelPoint, mode: string, fetchImpl: typeof fetch, retryCount: number, arrivalTime?: number): Promise<TravelTimeResult> {
   const url = new URL(DISTANCE_MATRIX_PATH, ensureTrailingSlash(config.baseUrl));
   url.searchParams.set("origins", `${origin.lat},${origin.lng}`);
   url.searchParams.set("destinations", `${dest.lat},${dest.lng}`);
   url.searchParams.set("mode", GOOGLE_TRAVEL_MODES[mode] ?? "driving");
+  // Google 은 arrival_time 을 transit 에서만 받는다.
+  if (arrivalTime !== undefined && url.searchParams.get("mode") === "transit") {
+    url.searchParams.set("arrival_time", String(Math.floor(arrivalTime)));
+  }
   url.searchParams.set("key", config.apiKey);
 
   for (let attempt = 0; attempt <= retryCount; attempt += 1) {

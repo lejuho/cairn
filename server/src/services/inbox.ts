@@ -263,6 +263,7 @@ export function answerInboxItem(
             start,
             end,
             location: str(value.location) ?? str(payload.location) ?? null,
+            mode: payload.online === true ? "remote" : null,
             threadId: threadId ?? null,
             // 사용자가 확인한 외부 약속 — 앱 생성(self_imposed=1)과 구분.
             source: "manual",

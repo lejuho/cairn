@@ -27,7 +27,7 @@ type Candidate = {
   reason: string;
 };
 
-const SYSTEM_PROMPT = `너는 휴대폰 알림 목록에서 "사용자가 참석/수행해야 하는 구체적인 일정"만 골라내는 추출기다.
+const SYSTEM_PROMPT = `너는 휴대폰 알림이나 에이전트가 남긴 메모 목록에서 "사용자가 참석/수행해야 하는 구체적인 일정"만 골라내는 추출기다.
 규칙:
 - 날짜와 시각이 알림 텍스트에서 확인될 때만 후보로 만든다. 추측으로 시각을 만들지 마라.
 - 광고, 단순 대화, 배송 상태, 결제 완료, 뉴스는 제외한다. 예약 확정, 약속 시간, 마감, 수령 예약은 포함한다.
@@ -73,13 +73,14 @@ function label(iso: string): string {
   }).format(new Date(iso));
 }
 
-/** 폰 알림 → 일정 후보 질문. LLM 실패 시 관찰을 처리 완료로 표시하지 않아 다음 회차에 재시도된다. */
+/** 폰 알림·에이전트 메모 → 일정 후보 질문. LLM 실패 시 관찰을 처리 완료로 표시하지 않아 다음 회차에 재시도된다. */
 export async function extractPhoneCandidates(
   db: CairnDatabase,
   gateway: LlmGateway,
-  nowIso: string
+  nowIso: string,
+  source: "phone_notification" | "agent" = "phone_notification"
 ): Promise<{ processed: number; candidates: number; error?: string }> {
-  const rows = findUnprocessedObservations(db, "phone_notification", PHONE_BATCH);
+  const rows = findUnprocessedObservations(db, source, PHONE_BATCH);
   if (!rows.length) return { processed: 0, candidates: 0 };
 
   const listing = rows
@@ -104,7 +105,7 @@ export async function extractPhoneCandidates(
     upsertInboxItem(db, {
       kind: "event_candidate",
       dedupeKey: `candidate:${key}`,
-      prompt: `알림에서 일정이 보여요: ${label(c.start)} '${c.title}'${where}. 일정에 넣을까요?`,
+      prompt: `${source === "agent" ? "대화 메모" : "알림"}에서 일정이 보여요: ${label(c.start)} '${c.title}'${where}. 일정에 넣을까요?`,
       payload: JSON.stringify({ title: c.title, start: c.start, end: c.end, location: c.location, confidence: c.confidence, reason: c.reason }),
       evidence: JSON.stringify(c.obs.map((id) => ({ observationId: id }))),
       priority: 50 + Math.round(c.confidence * 20),
@@ -155,8 +156,10 @@ export function startObservationExtractor(
     try {
       const nowIso = new Date().toISOString();
       proposeWorkspaceLinks(db, nowIso);
-      const r = await extractPhoneCandidates(db, gateway, nowIso);
-      if (r.error) logError(new Error(`phone extraction failed: ${r.error}`));
+      for (const source of ["phone_notification", "agent"] as const) {
+        const r = await extractPhoneCandidates(db, gateway, nowIso, source);
+        if (r.error) logError(new Error(`${source} extraction failed: ${r.error}`));
+      }
       purgeOldPhoneBodies(db, nowIso);
     } catch (e) {
       logError(e);

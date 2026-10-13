@@ -20,6 +20,9 @@ export const API_ROUTE_CATALOG: JsonValue[] = [
   { method: "POST", path: "/api/inbox/:id/answer", purpose: "Answer an inbox question" },
   { method: "POST", path: "/api/observations", purpose: "Record a raw observation" },
   { method: "POST", path: "/api/thread-workspaces", purpose: "Map a work directory to a thread" },
+  { method: "POST", path: "/api/feasibility/candidate", purpose: "Judge a hypothetical event (no write)" },
+  { method: "POST", path: "/api/inbox/propose-event", purpose: "Propose a structured event candidate" },
+  { method: "POST", path: "/api/routes/pin", purpose: "Pin a user-confirmed route duration" },
   { method: "POST", path: "/api/capture/flat-event", purpose: "Natural-language event capture" },
   { method: "POST", path: "/api/events", purpose: "Create scheduled event" },
   { method: "GET", path: "/api/events/:id", purpose: "Event detail" },
@@ -149,6 +152,56 @@ export const TOOLS: McpTool[] = [
         title: { type: "string" },
         cwd: { type: "string" },
         agent: { type: "string", description: "기록한 에이전트 이름" }
+      }
+    }
+  },
+  {
+    name: "cairn_check_feasibility",
+    description: "그 시간에 그 장소(또는 온라인) 일정에 참여할 수 있는지 Cairn 이 판정 (저장 안 함). 직전/직후 일정과 장소, 이동시간(고정값 > Google 대중교통 추정), 출발해야 할 시각, 겹침을 보고 가능/빠듯/어려움/확인 필요를 돌려준다. 이동시간을 직접 추정하지 말고 이 결과를 전달할 것. analysisRequests 는 판단 전에 확인해야 할 것(경로 확인, 출발지 확인)이며, route_check 는 naverUrl 로 실제 경로를 확인해 사용자에게 안내.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["start"],
+      properties: {
+        title: { type: "string" },
+        start: { type: "string", description: "RFC3339 (+09:00)" },
+        end: { type: "string", description: "RFC3339, 없으면 1시간" },
+        location: { type: "string", description: "오프라인 장소 (예: 코엑스, 강남역 2번출구)" },
+        online: { type: "boolean" }
+      }
+    }
+  },
+  {
+    name: "cairn_propose_event",
+    description: "메일·X·Luma·대화에서 찾은 일정을 구조화해서 Cairn 에 후보로 제안. 판정이 함께 돌아오고, 같은 URL 은 한 번만 질문으로 만든다(alreadyKnown=true 면 이미 물어본 것이니 다시 묻지 말 것). 사용자가 '넣어줘'라고 하면 돌아온 inboxId 로 cairn_confirm(accept).",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["title", "start"],
+      properties: {
+        title: { type: "string" },
+        start: { type: "string", description: "RFC3339 (+09:00)" },
+        end: { type: "string" },
+        location: { type: "string" },
+        online: { type: "boolean" },
+        url: { type: "string", description: "행사/메일 원문 링크 (중복 판별 기준)" },
+        origin: { type: "string", description: "gmail | x | luma | conversation 등" },
+        note: { type: "string" }
+      }
+    }
+  },
+  {
+    name: "cairn_pin_route",
+    description: "사용자가 확인한 구간 소요시간(분)을 고정. 이후 판정에서 Google 추정보다 우선한다. 사용자가 시간을 직접 말했거나 확인해 준 경우에만 호출하고, 네이버 경로의 상세 단계는 넣지 말 것 (note 는 '2호선 한 번' 정도의 짧은 메모).",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["from", "to", "minutes"],
+      properties: {
+        from: { type: "string" },
+        to: { type: "string" },
+        minutes: { type: "number", minimum: 1, maximum: 600 },
+        note: { type: "string" }
       }
     }
   },
@@ -505,6 +558,12 @@ async function dispatchTool(config: CairnApiClientConfig, name: string, args: Js
           ...(typeof args.agent === "string" ? { app: args.agent } : {})
         }
       });
+    case "cairn_check_feasibility":
+      return request(config, { method: "POST", path: "/api/feasibility/candidate", body: pickBody(args, ["title", "start", "end", "location", "online"]) });
+    case "cairn_propose_event":
+      return request(config, { method: "POST", path: "/api/inbox/propose-event", body: pickBody(args, ["title", "start", "end", "location", "online", "url", "origin", "note", "proposedBy"]) });
+    case "cairn_pin_route":
+      return request(config, { method: "POST", path: "/api/routes/pin", body: pickBody(args, ["from", "to", "minutes", "note"]) });
     case "cairn_thread_workspace":
       return request(config, { method: "POST", path: "/api/thread-workspaces", body: pickBody(args, ["threadId", "path"]) });
     case "cairn_api_request":
