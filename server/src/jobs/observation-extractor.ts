@@ -4,6 +4,8 @@ import type { CairnDatabase } from "../db/index.js";
 import { threads, threadWorkspaces } from "../db/schema.js";
 import type { LlmGateway } from "../llm/gateway.js";
 import { getLlmModel } from "../llm/config.js";
+import type { MapGateway } from "../maps/gateway.js";
+import { checkCandidateFeasibility } from "../services/candidate-feasibility.js";
 import { upsertInboxItem } from "../services/inbox.js";
 import {
   findUnprocessedObservations,
@@ -78,7 +80,8 @@ export async function extractPhoneCandidates(
   db: CairnDatabase,
   gateway: LlmGateway,
   nowIso: string,
-  source: "phone_notification" | "agent" = "phone_notification"
+  source: "phone_notification" | "agent" = "phone_notification",
+  mapGateway?: MapGateway | undefined
 ): Promise<{ processed: number; candidates: number; error?: string }> {
   const rows = findUnprocessedObservations(db, source, PHONE_BATCH);
   if (!rows.length) return { processed: 0, candidates: 0 };
@@ -102,11 +105,19 @@ export async function extractPhoneCandidates(
     if (Date.parse(c.end ?? c.start) < Date.parse(nowIso)) continue;
     const key = createHash("sha1").update(`${c.title}|${c.start}`).digest("hex").slice(0, 16);
     const where = c.location ? ` @ ${c.location}` : "";
+    // 약속 제안이 오면 "그날 되는지"까지 붙여서 묻는다.
+    const f = await checkCandidateFeasibility(db, mapGateway, {
+      title: c.title, start: c.start, end: c.end ?? undefined, location: c.location ?? undefined, online: c.location ? undefined : true
+    }, nowIso);
+    const why = f.reasons.find((r) => !r.startsWith("온라인")) ?? "";
     upsertInboxItem(db, {
       kind: "event_candidate",
       dedupeKey: `candidate:${key}`,
-      prompt: `${source === "agent" ? "대화 메모" : "알림"}에서 일정이 보여요: ${label(c.start)} '${c.title}'${where}. 일정에 넣을까요?`,
-      payload: JSON.stringify({ title: c.title, start: c.start, end: c.end, location: c.location, confidence: c.confidence, reason: c.reason }),
+      prompt: `${source === "agent" ? "대화 메모" : "알림"}에서 일정이 보여요: ${label(c.start)} '${c.title}'${where}. 판정: ${f.verdictKo}${why ? ` — ${why}` : ""} 일정에 넣을까요?`,
+      payload: JSON.stringify({
+        title: c.title, start: c.start, end: c.end, location: c.location, confidence: c.confidence, reason: c.reason,
+        feasibility: { verdict: f.verdict, reasons: f.reasons, assumptions: f.assumptions }
+      }),
       evidence: JSON.stringify(c.obs.map((id) => ({ observationId: id }))),
       priority: 50 + Math.round(c.confidence * 20),
       expiresAt: c.start
@@ -146,7 +157,7 @@ export function proposeWorkspaceLinks(db: CairnDatabase, nowIso: string): number
 export function startObservationExtractor(
   db: CairnDatabase,
   gateway: LlmGateway,
-  opts: { intervalMs?: number; logError?: (e: unknown) => void } = {}
+  opts: { intervalMs?: number; logError?: (e: unknown) => void; mapGateway?: MapGateway | undefined } = {}
 ): { stop: () => void } {
   const logError = opts.logError ?? ((e) => console.error("[extractor]", e));
   let running = false;
@@ -157,7 +168,7 @@ export function startObservationExtractor(
       const nowIso = new Date().toISOString();
       proposeWorkspaceLinks(db, nowIso);
       for (const source of ["phone_notification", "agent"] as const) {
-        const r = await extractPhoneCandidates(db, gateway, nowIso, source);
+        const r = await extractPhoneCandidates(db, gateway, nowIso, source, opts.mapGateway);
         if (r.error) logError(new Error(`${source} extraction failed: ${r.error}`));
       }
       purgeOldPhoneBodies(db, nowIso);

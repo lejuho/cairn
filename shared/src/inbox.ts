@@ -12,7 +12,8 @@ export const INBOX_KINDS = [
   "deadline", // 임박한 thread 마감
   "watcher_due", // 기한 도래 watcher
   "event_candidate", // 관찰에서 추출한 일정 후보
-  "thread_link" // 관찰/일정을 thread 에 연결하자는 제안
+  "thread_link", // 관찰/일정을 thread 에 연결하자는 제안
+  "person_profile" // 판정에 처음 등장한 사람의 연락 기한·선호 시간 확인
 ] as const;
 export const InboxKindSchema = z.enum(INBOX_KINDS);
 
@@ -88,7 +89,10 @@ export const CandidateFeasibilityRequestSchema = z
     start: iso,
     end: iso.optional(),
     location: z.string().max(300).optional(),
-    online: z.boolean().optional()
+    online: z.boolean().optional(),
+    people: z.array(z.string().min(1).max(100)).max(20).optional(),
+    kind: z.enum(["meeting", "trip", "event", "other"]).optional(),
+    abroad: z.boolean().optional()
   })
   .strict();
 

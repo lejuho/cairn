@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildServer } from "../app.js";
 import { createSqliteConnection, runMigrations, type SqliteConnection } from "../db/index.js";
-import { events, inboxItems } from "../db/schema.js";
+import { events, inboxItems, people, threads } from "../db/schema.js";
 import type { MapGateway } from "../maps/gateway.js";
 import { checkCandidateFeasibility } from "../services/candidate-feasibility.js";
 
@@ -111,5 +111,62 @@ describe("candidate feasibility", () => {
 
     await app.inject({ method: "POST", url: `/api/inbox/${first.json().data.inboxId}/answer`, payload: { decision: "accept" } });
     expect(conn.db.select().from(events).all()[0]).toMatchObject({ title: "Solana Seoul online AMA", mode: "remote", location: null });
+  });
+
+  it("gates strictness by horizon: distant overlaps only warn and skip travel", async () => {
+    conn.db.insert(events).values({ title: "기존 약속", start: "2027-03-05T18:00:00+09:00", end: "2027-03-05T20:00:00+09:00", source: "cairn" }).run();
+    const calls: { arrivalTime?: number }[] = [];
+    const far = await checkCandidateFeasibility(conn.db, fakeMap(30, calls), { start: "2027-03-05T19:00:00+09:00", location: "코엑스" }, NOW);
+    expect(far).toMatchObject({ horizon: "distant", verdict: "tight", legs: [] });
+    expect(calls).toHaveLength(0);
+    const near = await checkCandidateFeasibility(conn.db, fakeMap(30), { start: "2027-03-05T19:00:00+09:00", location: "코엑스" }, "2027-03-03T09:00:00+09:00");
+    expect(near).toMatchObject({ horizon: "imminent", verdict: "hard" });
+  });
+
+  it("reports nearby thread deadlines and all-day events as risks", async () => {
+    conn.db.insert(threads).values({ name: "BAY 운영", deadline: "2026-11-05" }).run();
+    conn.db.insert(events).values({ title: "가족 여행", start: "2026-11-04T00:00:00+09:00", end: "2026-11-05T00:00:00+09:00", source: "gcal" }).run();
+    const r = await checkCandidateFeasibility(conn.db, fakeMap(20), { start: "2026-11-04T19:00:00+09:00", online: true }, NOW);
+    expect(r.horizon).toBe("planning");
+    expect(r.risks.map((x) => x.type).sort()).toEqual(["all_day", "deadline"]);
+    expect(r.verdict).toBe("tight");
+  });
+
+  it("checks companions: hard weekday, contact deadline, and asks for a missing profile once", async () => {
+    conn.db.insert(people).values({
+      name: "유하영(04 신화)",
+      hardConstraints: JSON.stringify([{ type: "weekday_unavailable", weekday: "friday", text: "금요일 알바", firmness: "hard" }]),
+      leadTime: JSON.stringify({ days: 14, firmness: "hard" })
+    }).run();
+    conn.db.insert(people).values({ name: "박주현" }).run();
+    // 2026-10-16 은 금요일, NOW 기준 2일 뒤 → 연락 기한(14일 전) 이미 지남
+    const r = await checkCandidateFeasibility(conn.db, fakeMap(20), { start: "2026-10-16T19:00:00+09:00", online: true, people: ["유하영", "박주현", "모르는사람"] }, NOW);
+    expect(r.verdict).toBe("hard");
+    expect(r.people[0]!.issues.join(" ")).toContain("금요일 알바");
+    expect(r.risks.some((x) => x.type === "contact_deadline")).toBe(true);
+    const profileReq = r.analysisRequests.find((a) => a.kind === "person_profile")!;
+    expect(profileReq.inboxId).toBeTypeOf("number");
+    expect(r.analysisRequests.some((a) => a.kind === "person_unknown")).toBe(true);
+
+    await checkCandidateFeasibility(conn.db, fakeMap(20), { start: "2026-10-20T19:00:00+09:00", online: true, people: ["박주현"] }, NOW);
+    expect(conn.db.select().from(inboxItems).all().filter((i) => i.kind === "person_profile")).toHaveLength(1);
+
+    const app = buildServer(conn.db);
+    const ans = await app.inject({
+      method: "POST", url: `/api/inbox/${profileReq.inboxId}/answer`,
+      payload: { decision: "accept", value: { leadTimeDays: 3, unavailableWeekdays: ["sunday"] } }
+    });
+    expect(ans.statusCode).toBe(200);
+    const after = await checkCandidateFeasibility(conn.db, fakeMap(20), { start: "2026-10-25T19:00:00+09:00", online: true, people: ["박주현"] }, NOW);
+    expect(after.people[0]!.issues.join(" ")).toContain("일요일은 안 돼요");
+    expect(after.people[0]!.contactBy).toBe("2026-10-22");
+  });
+
+  it("asks the agent for a prep chain on trips abroad", async () => {
+    const r = await checkCandidateFeasibility(conn.db, fakeMap(20), { start: "2027-06-01T09:00:00+09:00", end: "2027-06-08T09:00:00+09:00", kind: "trip", abroad: true, location: "파리" }, NOW);
+    expect(r.analysisRequests.find((a) => a.kind === "prep_check")).toMatchObject({ targetDate: "2027-06-01" });
+    expect(r.horizon).toBe("distant");
+    expect(r.risks.some((x) => x.type === "day_load")).toBe(false);
+    expect(r.legs).toHaveLength(0);
   });
 });

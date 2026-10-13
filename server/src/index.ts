@@ -61,7 +61,7 @@ if (isMain) {
   // 관찰 추출은 배치로 여러 알림을 한 번에 보내므로 대화용 gateway 보다 timeout 을 길게 둔다.
   const extractor = process.env.OBSERVATION_EXTRACTOR_ENABLED === "0"
     ? null
-    : startObservationExtractor(connection.db, createLlmGateway({ timeoutMs: 90_000, retryCount: 0 }));
+    : startObservationExtractor(connection.db, createLlmGateway({ timeoutMs: 90_000, retryCount: 0 }), { mapGateway });
 
   let shuttingDown = false;
   const shutdown = async () => {

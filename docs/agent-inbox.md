@@ -82,6 +82,14 @@ accept 효과: `outcome_check` → annotation + event.status, `event_candidate` 
 - 네이버 경로 결과는 저장하지 않는다(cycle-77 원칙). 대신 판정이 `analysisRequests` 로
   "무엇을 언제 기준으로 확인해야 판단이 서는지"(route_check + naverUrl, origin_check)를 돌려주고,
   에이전트가 실시간으로 확인해 사용자에게 전한다. 사용자가 확인한 소요시간(분)만 `cairn_pin_route` 로 고정.
+- 날짜까지 거리로 검사 강도 조절 (스펙 원칙 4): imminent ≤7일 엄격 / planning ≤60일 늦음=빠듯·마감·부하·연락 기한 /
+  distant 겹침 표시만·이동 생략·준비 사슬. 여행·여러 날 일정은 기간 중 겹침만 본다.
+- 동행자(`people`): 안 되는 요일(hard), 선호 시간대, 연락 기한(lead time → contactBy). 프로필이 비어 있으면
+  `person_profile` inbox 질문을 1회 만든다. 근처 thread 마감(-1~+3일), 그날 일정 총량 vs `energy_budget`, 종일 일정은 risks 로.
+- "안 될 확률" 숫자는 만들지 않는다 (원칙 6) — 근거 있는 risks 로만.
+- 준비 사슬: Cairn 은 요건을 지어내지 않고 `prep_check` 를 돌려준다. 에이전트가 찾은 단계·소요 일수를
+  `cairn_plan_prep` (= POST /api/watchers/reverse-plan) 로 넘기면 마지노선 역산 → 할 일 + watcher.
+- 폰 알림·에이전트 메모에서 추출된 후보에도 판정을 붙여 묻는다.
 - 기본 출발지: params `default_origin` = 홍익대학교 서울캠퍼스 (직전 대면 일정 장소가 없을 때, 가정으로 명시).
 
 | API | 용도 |

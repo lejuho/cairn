@@ -71,7 +71,7 @@ describe("remote MCP", () => {
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" })
     }).then((r) => r.json() as Promise<{ result: { tools: { name: string }[] } }>);
     expect(res.result.tools.map((t) => t.name).sort()).toEqual(
-      ["cairn_check_feasibility", "cairn_confirm", "cairn_context_now", "cairn_inbox", "cairn_observe", "cairn_pin_route", "cairn_propose_event", "cairn_threads_list"]
+      ["cairn_check_feasibility", "cairn_confirm", "cairn_context_now", "cairn_inbox", "cairn_observe", "cairn_pin_route", "cairn_plan_prep", "cairn_propose_event", "cairn_threads_list"]
     );
     const denied = await fetch(`${base}/mcp`, {
       method: "POST",

@@ -421,7 +421,7 @@ export const observations = sqliteTable(
   ]
 );
 
-const INBOX_KINDS = ["outcome_check", "deadline", "watcher_due", "event_candidate", "thread_link"] as const;
+const INBOX_KINDS = ["outcome_check", "deadline", "watcher_due", "event_candidate", "thread_link", "person_profile"] as const;
 const INBOX_STATUSES = ["pending", "answered", "dismissed", "expired"] as const;
 export const inboxItems = sqliteTable(
   "inbox_items",

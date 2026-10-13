@@ -16,6 +16,7 @@ const TOOL_SCOPES: Record<string, string> = {
   cairn_check_feasibility: "cairn.read",
   cairn_propose_event: "cairn.confirm",
   cairn_pin_route: "cairn.confirm",
+  cairn_plan_prep: "cairn.confirm",
   cairn_confirm: "cairn.confirm",
   cairn_observe: "cairn.confirm"
 };
@@ -25,7 +26,8 @@ const REMOTE_INSTRUCTIONS =
   "When the user talks about plans, priorities or what to do next, call cairn_context_now first. " +
   "If it returns pending inbox items, ask at most one relevant question naturally, without interrupting the user's task. " +
   "When you find an event (mail, X, Luma, conversation) with a concrete time, call cairn_propose_event with structured fields and the source URL; if alreadyKnown is true, do not ask again. " +
-  "For 'can I make it?' questions call cairn_check_feasibility. Never estimate travel time yourself: relay Cairn's verdict, reasons and assumptions. " +
+  "For 'can I make it?' or 'can I schedule X on that day?' questions call cairn_check_feasibility (pass people and kind=trip/abroad when relevant). Never estimate travel time yourself: relay Cairn's verdict, horizon, reasons, risks and assumptions in detail. " +
+  "Follow analysisRequests: person_profile -> ask about that person and record with cairn_confirm; companion_check -> remind to confirm with companions; prep_check -> research requirements from official sources, agree steps with the user, then cairn_plan_prep. " +
   "Follow analysisRequests: for route_check, check the route live (naverUrl) and tell the user the route; for origin_check, ask where they will be. " +
   "Do not store route details anywhere; only if the user confirms a duration, record it with cairn_pin_route. " +
   "Record only answers the user actually gave with cairn_confirm (never guess an accept). Use cairn_observe for decisions or commitments without a concrete time.";

@@ -157,7 +157,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_check_feasibility",
-    description: "그 시간에 그 장소(또는 온라인) 일정에 참여할 수 있는지 Cairn 이 판정 (저장 안 함). 직전/직후 일정과 장소, 이동시간(고정값 > Google 대중교통 추정), 출발해야 할 시각, 겹침을 보고 가능/빠듯/어려움/확인 필요를 돌려준다. 이동시간을 직접 추정하지 말고 이 결과를 전달할 것. analysisRequests 는 판단 전에 확인해야 할 것(경로 확인, 출발지 확인)이며, route_check 는 naverUrl 로 실제 경로를 확인해 사용자에게 안내.",
+    description: "그 시간에 그 장소(또는 온라인) 일정에 참여할 수 있는지 Cairn 이 판정 (일정 저장 안 함). 날짜가 멀수록 느슨하게(horizon: imminent ≤7일 / planning ≤60일 / distant), 동행자 조건·연락 기한, 근처 프로젝트 마감, 그날 부하, 종일 일정도 본다. 직전/직후 일정과 장소, 이동시간(고정값 > Google 대중교통 추정), 출발해야 할 시각, 겹침을 보고 가능/빠듯/어려움/확인 필요를 돌려준다. 이동시간을 직접 추정하지 말고 이 결과를 전달할 것. analysisRequests 는 판단 전에 확인해야 할 것(경로 확인, 출발지 확인)이며, route_check 는 naverUrl 로 실제 경로를 확인해 사용자에게 안내.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -167,7 +167,10 @@ export const TOOLS: McpTool[] = [
         start: { type: "string", description: "RFC3339 (+09:00)" },
         end: { type: "string", description: "RFC3339, 없으면 1시간" },
         location: { type: "string", description: "오프라인 장소 (예: 코엑스, 강남역 2번출구)" },
-        online: { type: "boolean" }
+        online: { type: "boolean" },
+        people: { type: "array", items: { type: "string" }, description: "같이 하는 사람 이름 (Cairn people, 부분 일치)" },
+        kind: { type: "string", enum: ["meeting", "trip", "event", "other"] },
+        abroad: { type: "boolean", description: "해외 여행/행사" }
       }
     }
   },
@@ -184,6 +187,9 @@ export const TOOLS: McpTool[] = [
         end: { type: "string" },
         location: { type: "string" },
         online: { type: "boolean" },
+        people: { type: "array", items: { type: "string" }, description: "같이 하는 사람 이름 (Cairn people, 부분 일치)" },
+        kind: { type: "string", enum: ["meeting", "trip", "event", "other"] },
+        abroad: { type: "boolean", description: "해외 여행/행사" },
         url: { type: "string", description: "행사/메일 원문 링크 (중복 판별 기준)" },
         origin: { type: "string", description: "gmail | x | luma | conversation 등" },
         note: { type: "string" }
@@ -202,6 +208,33 @@ export const TOOLS: McpTool[] = [
         to: { type: "string" },
         minutes: { type: "number", minimum: 1, maximum: 600 },
         note: { type: "string" }
+      }
+    }
+  },
+  {
+    name: "cairn_plan_prep",
+    description: "여행·행사 준비 사슬을 등록. 각 준비의 소요 일수를 넘기면 Cairn 이 마지노선을 역산해 할 일과 알림(watcher)으로 만든다. 요건·소요 일수는 공식 출처로 확인한 것이나 사용자가 말한 것만 넣을 것.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["label", "targetDate", "steps"],
+      properties: {
+        label: { type: "string", description: "예: 파리 여행 준비" },
+        targetDate: { type: "string", description: "YYYY-MM-DD (출발일 등)" },
+        targetLabel: { type: "string" },
+        safetyDays: { type: "number", minimum: 0, maximum: 30 },
+        steps: {
+          type: "array",
+          minItems: 1,
+          maxItems: 8,
+          description: "실행 순서대로. leadDays = 이 단계에 걸리는 일수",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["label", "leadDays"],
+            properties: { label: { type: "string" }, leadDays: { type: "number", minimum: 0, maximum: 365 } }
+          }
+        }
       }
     }
   },
@@ -559,9 +592,11 @@ async function dispatchTool(config: CairnApiClientConfig, name: string, args: Js
         }
       });
     case "cairn_check_feasibility":
-      return request(config, { method: "POST", path: "/api/feasibility/candidate", body: pickBody(args, ["title", "start", "end", "location", "online"]) });
+      return request(config, { method: "POST", path: "/api/feasibility/candidate", body: pickBody(args, ["title", "start", "end", "location", "online", "people", "kind", "abroad"]) });
     case "cairn_propose_event":
-      return request(config, { method: "POST", path: "/api/inbox/propose-event", body: pickBody(args, ["title", "start", "end", "location", "online", "url", "origin", "note", "proposedBy"]) });
+      return request(config, { method: "POST", path: "/api/inbox/propose-event", body: pickBody(args, ["title", "start", "end", "location", "online", "people", "kind", "abroad", "url", "origin", "note", "proposedBy"]) });
+    case "cairn_plan_prep":
+      return request(config, { method: "POST", path: "/api/watchers/reverse-plan", body: { category: "prep", safetyDays: 0, ...pickBody(args, ["label", "targetDate", "targetLabel", "safetyDays", "steps"]) } });
     case "cairn_pin_route":
       return request(config, { method: "POST", path: "/api/routes/pin", body: pickBody(args, ["from", "to", "minutes", "note"]) });
     case "cairn_thread_workspace":

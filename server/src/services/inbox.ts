@@ -1,5 +1,6 @@
 import { and, desc, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
-import type { InboxAnswerRequest, InboxItemView } from "@cairn/shared";
+import { UpdatePersonProfileRequestSchema, type InboxAnswerRequest, type InboxItemView } from "@cairn/shared";
+import { findPersonById, updatePersonProfile } from "../repositories/people.js";
 import type { CairnDatabase } from "../db/index.js";
 import { annotations, events, inboxItems, threads, threadWorkspaces } from "../db/schema.js";
 import { findAllWatchers, findTaskStatusesByIds } from "../repositories/watchers.js";
@@ -139,7 +140,8 @@ const ANSWER_HINTS: Record<InboxRow["kind"], string> = {
   deadline: "accept + note=진행 상황/막힌 점. 아직이면 snooze, 무관하면 dismiss.",
   watcher_due: "accept = 처리함, snooze = 나중에, dismiss = 무시.",
   event_candidate: "accept = 일정으로 등록(value 로 title/start/end/location 수정 가능), reject = 일정 아님.",
-  thread_link: "accept = 연결(value.threadId 로 다른 thread 지정 가능), reject = 무관."
+  thread_link: "accept = 연결(value.threadId 로 다른 thread 지정 가능), reject = 무관.",
+  person_profile: "accept + value 에 사용자가 말한 것만: leadTimeDays(0~30), preferredWeekdays+preferredPeriods(morning|afternoon|evening, 둘 다 함께), unavailableWeekdays (요일은 monday..sunday). 모르면 snooze."
 };
 
 function parseJson(raw: string | null): unknown {
@@ -290,6 +292,26 @@ export function answerInboxItem(
           effect.workspace = path;
         }
         return record({ status: "answered", threadId }, effect);
+      }
+      case "person_profile": {
+        const person = item.subjectId != null ? findPersonById(txDb, item.subjectId) : null;
+        if (!person) return { ok: false as const, error: { code: "NOT_FOUND" as const, message: "person not found" } };
+        // 사용자가 말한 필드만 덮어쓰고 나머지는 기존 프로필 유지.
+        const merged = UpdatePersonProfileRequestSchema.safeParse({
+          preferredWeekdays: value.preferredWeekdays ?? person.preferredWindows?.weekdays ?? [],
+          preferredPeriods: value.preferredPeriods ?? person.preferredWindows?.periods ?? [],
+          leadTimeDays: value.leadTimeDays ?? person.leadTime?.days ?? null,
+          channel: value.channel ?? person.channel ?? "none",
+          unavailableWeekdays: value.unavailableWeekdays
+            ?? (person.hardConstraints ?? []).filter((c) => c.type === "weekday_unavailable").map((c) => c.weekday)
+        });
+        if (!merged.success) {
+          return { ok: false as const, error: { code: "VALIDATION_ERROR" as const, message: merged.error.message } };
+        }
+        if (!updatePersonProfile(txDb, person.id, merged.data)) {
+          return { ok: false as const, error: { code: "VALIDATION_ERROR" as const, message: "contradictory profile (preferred vs unavailable weekday)" } };
+        }
+        return record({ status: "answered" }, { updatedPersonId: person.id });
       }
       default:
         return record({ status: "answered" });
