@@ -73,7 +73,18 @@ accept 효과: `outcome_check` → annotation + event.status, `event_candidate` 
        (값은 매직 텍스트 선택기로 넣는다)
    - 금융·인증 앱은 트리거 앱 목록에서 빼둔다 (서버 필터는 2차 방어).
 
+## 원격 MCP (ChatGPT·Grok 등)
+
+- `mcp/src/remote.ts` — `cairn-mcp-remote.service`, `0.0.0.0:8792`, env `/home/pi/cairn-data/cairn-mcp-remote.env`.
+- 기존 터널(n8n_tunnel)에 `cairn-mcp.lee-blog.me` → `http://172.19.0.1:8792`.
+  Cloudflare Access 앱은 `cairn-mcp.lee-blog.me/oauth/authorize` 경로만 보호 (macro-obs 와 같은 방식),
+  서버가 Access JWT(aud=`CF_ACCESS_AUD`, email=`OAUTH_OWNER_EMAIL`)를 직접 검증 → 설정이 빠지면 승인 불가(fail closed).
+- OAuth 2.1 + PKCE + 동적 등록. 상태는 `/home/pi/cairn-data/mcp-oauth.json` (해시만 저장).
+- 스코프: `cairn.read`(context_now, inbox, threads_list), `cairn.confirm`(confirm, observe). 일정 CRUD 는 노출 안 함.
+- 답·관찰의 `answeredBy`/`agent` 는 서버가 `remote:<클라이언트 이름>` 으로 덮어쓴다.
+- 서버→클라이언트 SSE 스트림은 미지원 (POST 요청-응답만, GET /mcp = 405).
+- 커넥터 URL: `https://cairn-mcp.lee-blog.me/mcp`. 연결 끊기: oauth.json 에서 해당 client/token 삭제 후 재시작.
+
 ## 다음 단계
 
-- 원격 MCP 노출 (macro-obs `oauth.js` 패턴, 외부 에이전트는 inbox/confirm/observe 스코프만).
 - 세션·에이전트 관찰을 thread 에 붙이는 LLM 추론, 수락/거절 이력을 few-shot 으로 재사용.

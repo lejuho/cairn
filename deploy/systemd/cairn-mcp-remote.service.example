@@ -1,0 +1,16 @@
+[Unit]
+Description=Cairn remote MCP connector (OAuth, Cloudflare tunnel)
+After=network-online.target cairn-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/cairn/mcp
+EnvironmentFile=/home/pi/cairn-data/cairn-mcp-remote.env
+ExecStart=/usr/bin/node /home/pi/cairn/mcp/dist/remote.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

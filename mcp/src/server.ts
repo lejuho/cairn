@@ -1,6 +1,6 @@
 import { readApiConfig, type CairnApiClientConfig } from "./api.js";
 import { isJsonObject, toJsonValue, type JsonObject, type JsonValue } from "./json.js";
-import { callTool, TOOLS } from "./tools.js";
+import { callTool, TOOLS, type McpTool } from "./tools.js";
 
 type JsonRpcId = string | number | null;
 
@@ -33,11 +33,26 @@ const SERVER_INFO = {
   version: "0.1.0"
 };
 
+const DEFAULT_INSTRUCTIONS =
+  "Cairn is the user's context/priority hub. At the start of a conversation about plans or work, call cairn_context_now (or cairn_inbox) once; ask at most 1-2 pending questions when it does not interrupt the user's task, and record only real answers with cairn_confirm. Record decisions/appointments that come up in conversation with cairn_observe. Prefer specific tools; use cairn_api_request for routes not wrapped explicitly.";
+
+export interface CairnMcpServerOptions {
+  // 원격 커넥터는 허용된 도구만 노출한다 (기본: 전체).
+  tools?: McpTool[];
+  // 호출 인자 보정 — 예: 원격 클라이언트 이름을 answeredBy 에 고정.
+  argsFor?: (name: string, args: JsonObject) => JsonObject;
+  instructions?: string;
+}
+
 export class CairnMcpServer {
   private readonly apiConfig: CairnApiClientConfig;
+  private readonly tools: McpTool[];
+  private readonly options: CairnMcpServerOptions;
 
-  constructor(apiConfig: CairnApiClientConfig = readApiConfig()) {
+  constructor(apiConfig: CairnApiClientConfig = readApiConfig(), options: CairnMcpServerOptions = {}) {
     this.apiConfig = apiConfig;
+    this.tools = options.tools ?? TOOLS;
+    this.options = options;
   }
 
   async handleLine(line: string): Promise<JsonRpcResponse | null> {
@@ -80,7 +95,7 @@ export class CairnMcpServer {
       case "ping":
         return {};
       case "tools/list":
-        return { tools: TOOLS.map((tool) => toJsonValue(tool)) };
+        return { tools: this.tools.map((tool) => toJsonValue(tool)) };
       case "tools/call":
         return toJsonValue(await this.handleToolCall(request.params));
       case "resources/list":
@@ -105,8 +120,7 @@ export class CairnMcpServer {
         prompts: {}
       },
       serverInfo: SERVER_INFO,
-      instructions:
-        "Cairn is the user's context/priority hub. At the start of a conversation about plans or work, call cairn_context_now (or cairn_inbox) once; ask at most 1-2 pending questions when it does not interrupt the user's task, and record only real answers with cairn_confirm. Record decisions/appointments that come up in conversation with cairn_observe. Prefer specific tools; use cairn_api_request for routes not wrapped explicitly."
+      instructions: this.options.instructions ?? DEFAULT_INSTRUCTIONS
     };
   }
 
@@ -116,7 +130,11 @@ export class CairnMcpServer {
     if (typeof name !== "string" || name.trim().length === 0) throw new Error("tool name is required");
     const rawArgs = params.arguments;
     if (rawArgs !== undefined && !isJsonObject(rawArgs)) throw new Error("tool arguments must be an object");
-    return toJsonValue(await callTool(this.apiConfig, name, rawArgs));
+    if (!this.tools.some((tool) => tool.name === name)) {
+      return toJsonValue({ content: [{ type: "text", text: `tool not available: ${name}` }], isError: true });
+    }
+    const args = this.options.argsFor ? this.options.argsFor(name, rawArgs ?? {}) : rawArgs;
+    return toJsonValue(await callTool(this.apiConfig, name, args));
   }
 }
 
