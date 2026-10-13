@@ -28,10 +28,13 @@ import { registerRelationRoutes } from "./routes/relations.js";
 import { registerTransitFactsRoutes } from "./routes/transit-facts.js";
 import { registerResourceRoutes } from "./routes/resources.js";
 import { registerItemRoutes } from "./routes/items.js";
+import { registerInboxRoutes } from "./routes/inbox.js";
 import type { GcalSyncControlOptions } from "./services/gcal-sync-control.js";
 
 export type BuildServerOptions = {
   gcalSync?: GcalSyncControlOptions;
+  // POST /api/observations 인증 토큰. 미설정이면 loopback 요청만 허용.
+  ingestToken?: string | undefined;
 };
 
 export function buildServer(
@@ -90,6 +93,7 @@ export function buildServer(
     registerResourceRoutes(app, db);
     registerRelationRoutes(app, db);
     registerTransitFactsRoutes(app, db);
+    registerInboxRoutes(app, db, { ingestToken: opts.ingestToken });
     if (opts.gcalSync) {
       registerGcalSyncRoutes(app, opts.gcalSync);
     }

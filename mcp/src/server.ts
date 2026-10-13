@@ -106,7 +106,7 @@ export class CairnMcpServer {
       },
       serverInfo: SERVER_INFO,
       instructions:
-        "Use Cairn tools to read and mutate the local-first Cairn API. Prefer specific tools; use cairn_api_request for routes not wrapped explicitly."
+        "Cairn is the user's context/priority hub. At the start of a conversation about plans or work, call cairn_context_now (or cairn_inbox) once; ask at most 1-2 pending questions when it does not interrupt the user's task, and record only real answers with cairn_confirm. Record decisions/appointments that come up in conversation with cairn_observe. Prefer specific tools; use cairn_api_request for routes not wrapped explicitly."
     };
   }
 

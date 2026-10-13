@@ -396,3 +396,70 @@ export const pinnedTransitFacts = sqliteTable(
     check("pinned_transit_facts_duration_check", sql`${table.durationMinutes} > 0 and ${table.durationMinutes} <= 600`)
   ]
 );
+
+// Agent inbox (feature/agent-inbox). observations = 수동 관찰 원본, inbox_items = 질문 상태.
+const OBSERVATION_SOURCES = ["claude_session", "phone_notification", "agent"] as const;
+export const observations = sqliteTable(
+  "observations",
+  {
+    id: integer("id").primaryKey(),
+    source: text("source").notNull(),
+    sourceRef: text("source_ref"),
+    app: text("app"),
+    title: text("title"),
+    body: text("body"),
+    cwd: text("cwd"),
+    occurredAt: text("occurred_at"),
+    receivedAt: text("received_at").default(sql`(datetime('now'))`),
+    meta: text("meta"),
+    // 추출 배치가 처리한 시각. null = 미처리.
+    processedAt: text("processed_at")
+  },
+  (table) => [
+    check("observations_source_check", sql`${table.source} in (${enumSqlList(OBSERVATION_SOURCES)})`),
+    uniqueIndex("observations_source_ref_idx").on(table.source, table.sourceRef)
+  ]
+);
+
+const INBOX_KINDS = ["outcome_check", "deadline", "watcher_due", "event_candidate", "thread_link"] as const;
+const INBOX_STATUSES = ["pending", "answered", "dismissed", "expired"] as const;
+export const inboxItems = sqliteTable(
+  "inbox_items",
+  {
+    id: integer("id").primaryKey(),
+    kind: text("kind").notNull(),
+    // 같은 질문을 두 번 만들지 않기 위한 키 (예: outcome:event:12).
+    dedupeKey: text("dedupe_key").notNull(),
+    prompt: text("prompt").notNull(),
+    threadId: integer("thread_id").references(() => threads.id),
+    subjectType: text("subject_type"),
+    subjectId: integer("subject_id"),
+    payload: text("payload"),
+    evidence: text("evidence"),
+    priority: integer("priority").notNull().default(50),
+    status: text("status").notNull().default("pending"),
+    decision: text("decision"),
+    answer: text("answer"),
+    answeredBy: text("answered_by"),
+    snoozedUntil: text("snoozed_until"),
+    expiresAt: text("expires_at"),
+    createdAt: text("created_at").default(sql`(datetime('now'))`),
+    answeredAt: text("answered_at")
+  },
+  (table) => [
+    check("inbox_items_kind_check", sql`${table.kind} in (${enumSqlList(INBOX_KINDS)})`),
+    check("inbox_items_status_check", sql`${table.status} in (${enumSqlList(INBOX_STATUSES)})`),
+    uniqueIndex("inbox_items_dedupe_idx").on(table.dedupeKey)
+  ]
+);
+
+// cwd → thread 매핑. 세션이 열린 디렉터리와 관련된 질문을 먼저 꺼내는 데 쓴다.
+export const threadWorkspaces = sqliteTable(
+  "thread_workspaces",
+  {
+    id: integer("id").primaryKey(),
+    threadId: integer("thread_id").notNull().references(() => threads.id),
+    path: text("path").notNull()
+  },
+  (table) => [uniqueIndex("thread_workspaces_path_idx").on(table.path)]
+);

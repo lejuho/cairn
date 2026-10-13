@@ -15,6 +15,11 @@ export interface McpToolResult {
 export const API_ROUTE_CATALOG: JsonValue[] = [
   { method: "GET", path: "/api/today", purpose: "Today surface, cards, feasibility, location contexts" },
   { method: "GET", path: "/api/items", purpose: "Event/task inventory" },
+  { method: "GET", path: "/api/context/now", purpose: "Current context: upcoming events, active threads, top inbox" },
+  { method: "GET", path: "/api/inbox", purpose: "Pending confirmation questions" },
+  { method: "POST", path: "/api/inbox/:id/answer", purpose: "Answer an inbox question" },
+  { method: "POST", path: "/api/observations", purpose: "Record a raw observation" },
+  { method: "POST", path: "/api/thread-workspaces", purpose: "Map a work directory to a thread" },
   { method: "POST", path: "/api/capture/flat-event", purpose: "Natural-language event capture" },
   { method: "POST", path: "/api/events", purpose: "Create scheduled event" },
   { method: "GET", path: "/api/events/:id", purpose: "Event detail" },
@@ -91,6 +96,72 @@ const EMPTY_SCHEMA: JsonObject = {
 };
 
 export const TOOLS: McpTool[] = [
+  {
+    name: "cairn_context_now",
+    description: "지금의 맥락: 진행 중/24시간 내 일정, 활성 thread(현재 작업 디렉터리에 묶인 것 우선), 확인 대기 질문 상위 5개. 사용자가 '뭐부터 하지', '오늘 어때' 같은 걸 물으면 먼저 호출.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        cwd: { type: "string", description: "현재 작업 디렉터리 (있으면 관련 thread 우선)" },
+        now: { type: "string", description: "RFC3339 timestamp, 기본 현재" }
+      }
+    }
+  },
+  {
+    name: "cairn_inbox",
+    description: "사용자에게 확인할 질문 목록(우선순위 순). 대화 흐름이 끊기지 않는 시점에 1~2개만 자연스럽게 물어보고, 답을 받으면 cairn_confirm 으로 기록. 각 항목의 answerHint 를 따를 것.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        cwd: { type: "string" },
+        limit: { type: "number", minimum: 1, maximum: 50 }
+      }
+    }
+  },
+  {
+    name: "cairn_confirm",
+    description: "inbox 질문에 대한 사용자의 답을 기록. 사용자가 실제로 답한 것만 기록하고 추측으로 accept 하지 말 것. decision: accept|reject|dismiss|snooze.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["id", "decision"],
+      properties: {
+        id: { type: "number" },
+        decision: { type: "string", enum: ["accept", "reject", "dismiss", "snooze"] },
+        value: { type: "object", additionalProperties: true, description: "outcome_check: {outcome}, event_candidate: {title,start,end,location}, thread_link: {threadId}" },
+        note: { type: "string", description: "사용자가 한 말 그대로 한 줄" },
+        snoozeHours: { type: "number", minimum: 1 },
+        answeredBy: { type: "string", description: "답을 받은 에이전트 이름 (예: claude-code, chatgpt)" }
+      }
+    }
+  },
+  {
+    name: "cairn_observe",
+    description: "대화 중 드러난 사실/결정/약속을 관찰로 기록 (추론 재료). 확정 일정이 아니라 원문 메모. 예: '다음 주 화요일 BAY 운영진 회의 잡힘'.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["body"],
+      properties: {
+        body: { type: "string" },
+        title: { type: "string" },
+        cwd: { type: "string" },
+        agent: { type: "string", description: "기록한 에이전트 이름" }
+      }
+    }
+  },
+  {
+    name: "cairn_thread_workspace",
+    description: "작업 디렉터리를 thread 에 묶는다. 이후 그 디렉터리의 세션에서 해당 thread 질문이 우선 노출된다.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["threadId", "path"],
+      properties: { threadId: { type: "number" }, path: { type: "string" } }
+    }
+  },
   {
     name: "cairn_api_request",
     description: "Call any Cairn HTTP endpoint on the configured Cairn API base URL. Path is limited to /api/* or /health.",
@@ -416,6 +487,26 @@ export async function callTool(config: CairnApiClientConfig, name: string, rawAr
 
 async function dispatchTool(config: CairnApiClientConfig, name: string, args: JsonObject): Promise<JsonValue> {
   switch (name) {
+    case "cairn_context_now":
+      return request(config, { method: "GET", path: "/api/context/now", query: pickQuery(args, ["cwd", "now"]) });
+    case "cairn_inbox":
+      return request(config, { method: "GET", path: "/api/inbox", query: pickQuery(args, ["cwd", "limit"]) });
+    case "cairn_confirm":
+      return request(config, { method: "POST", path: `/api/inbox/${idArg(args)}/answer`, body: pickBody(args, ["decision", "value", "note", "snoozeHours", "answeredBy"]) });
+    case "cairn_observe":
+      return request(config, {
+        method: "POST",
+        path: "/api/observations",
+        body: {
+          source: "agent",
+          body: args.body ?? null,
+          ...(typeof args.title === "string" ? { title: args.title } : {}),
+          ...(typeof args.cwd === "string" ? { cwd: args.cwd } : {}),
+          ...(typeof args.agent === "string" ? { app: args.agent } : {})
+        }
+      });
+    case "cairn_thread_workspace":
+      return request(config, { method: "POST", path: "/api/thread-workspaces", body: pickBody(args, ["threadId", "path"]) });
     case "cairn_api_request":
       return request(config, apiRequestArgs(args));
     case "cairn_route_catalog":

@@ -26,6 +26,10 @@ Use this file to narrow read scope. Do not treat it as full spec. Product rules 
   - GCal sync controls are available as `cairn_gcal_sync_status` and
     `cairn_gcal_sync_run`, backed by the Cairn HTTP sync endpoints.
   - Default API target: `CAIRN_API_BASE_URL` or `http://127.0.0.1:3100`.
+- Agent inbox (feature/agent-inbox): observations → questions for agents.
+  - [docs/agent-inbox.md](/home/pi/cairn/docs/agent-inbox.md) — architecture, API, deploy, phone setup.
+  - `server/src/services/inbox.ts`, `services/observations.ts`, `routes/inbox.ts`,
+    `jobs/observation-extractor.ts`; hooks in `deploy/agent-hooks/`.
 - `docs/`
   - Product spec and design docs.
 - `.review/`
