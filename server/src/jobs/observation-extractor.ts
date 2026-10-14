@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { homedir } from "node:os";
 import { eq } from "drizzle-orm";
 import type { CairnDatabase } from "../db/index.js";
 import { threads, threadWorkspaces } from "../db/schema.js";
@@ -18,6 +19,8 @@ const PHONE_BATCH = 40;
 const SESSION_BATCH = 50;
 // 홈처럼 범용 디렉터리는 thread 에 묶지 않는다.
 const GENERIC_CWDS = new Set(["/", "/home/pi", "/tmp"]);
+// 임시 폴더와 Claude 자체 상태(메모리·세션 기록)는 어떤 작업이든 건드리므로 목적 신호가 아니다.
+const GENERIC_CWD_PREFIXES = ["/tmp/", `${homedir()}/.claude/`, "/home/pi/.claude/"];
 
 type Candidate = {
   obs: number[];
@@ -137,7 +140,8 @@ export function proposeWorkspaceLinks(db: CairnDatabase, nowIso: string): number
   const seen = new Set<string>();
   for (const r of rows) {
     const cwd = r.cwd?.replace(/\/+$/, "");
-    if (!cwd || GENERIC_CWDS.has(cwd) || cwd.startsWith("/tmp/") || seen.has(cwd)) continue;
+    if (!cwd || GENERIC_CWDS.has(cwd) || seen.has(cwd)) continue;
+    if (GENERIC_CWD_PREFIXES.some((p) => `${cwd}/`.startsWith(p))) continue;
     if (mapped.some((m) => cwd === m.path || cwd.startsWith(`${m.path}/`))) continue;
     seen.add(cwd);
     upsertInboxItem(db, {

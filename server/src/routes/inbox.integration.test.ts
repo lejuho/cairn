@@ -155,7 +155,7 @@ describe("agent inbox", () => {
   it("asks which thread an unmapped session workspace belongs to and maps it on accept", async () => {
     const [t] = conn.db.insert(threads).values({ name: "포트폴리오" }).returning().all();
     const app = buildServer(conn.db);
-    for (const [ref, cwd] of [["s1", "/home/pi/portfolio"], ["s2", "/home/pi"], ["s3", "/home/pi/portfolio"]]) {
+    for (const [ref, cwd] of [["s1", "/home/pi/portfolio"], ["s2", "/home/pi"], ["s3", "/home/pi/portfolio"], ["s4", "/home/pi/.claude/projects/-home-pi/memory"], ["s5", "/home/pi/.claude"]]) {
       await app.inject({ method: "POST", url: "/api/observations", payload: { source: "claude_session", sourceRef: ref, cwd } });
     }
     expect(proposeWorkspaceLinks(conn.db, NOW)).toBe(1);
