@@ -482,9 +482,11 @@ export const eventMaterials = sqliteTable(
     note: text("note"),
     addedBy: text("added_by"),
     createdAt: text("created_at").default(sql`(datetime('now'))`),
-    updatedAt: text("updated_at")
+    updatedAt: text("updated_at"),
+    missingReason: text("missing_reason")
   },
   (table) => [
+    check("event_materials_missing_reason_check", sql`${table.missingReason} is null or ${table.missingReason} in ('confirmed', 'auto_expired')`),
     check("event_materials_kind_check", sql`${table.kind} in (${enumSqlList(MATERIAL_KINDS)})`),
     check("event_materials_status_check", sql`${table.status} in (${enumSqlList(MATERIAL_STATUSES)})`),
     index("event_materials_event_idx").on(table.eventId)

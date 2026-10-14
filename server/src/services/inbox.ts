@@ -5,7 +5,7 @@ import type { CairnDatabase } from "../db/index.js";
 import { annotations, events, inboxItems, threads, threadWorkspaces } from "../db/schema.js";
 import { findAllWatchers, findTaskStatusesByIds } from "../repositories/watchers.js";
 import { buildWatcherDeepView } from "./watcher-deep-view.js";
-import { findDueMaterials, getCaptureCheck, MATERIAL_KIND_KO, updateEventMaterial } from "./event-materials.js";
+import { expireOverdueMaterials, findDueMaterials, getCaptureCheck, graceDeadline, MATERIAL_KIND_KO, updateEventMaterial } from "./event-materials.js";
 import { parseReversePlanRule } from "./watcher-reverse-plan.js";
 
 const TIME_ZONE = process.env.CAIRN_TIME_ZONE ?? "Asia/Seoul";
@@ -120,6 +120,14 @@ export function materializeDerivedItems(db: CairnDatabase, nowIso: string): void
     });
   }
 
+  const expired = expireOverdueMaterials(db, nowIso);
+  if (expired.length > 0) {
+    // 자료가 정리되면 그 자료에 대한 확인 질문도 함께 닫는다.
+    db.update(inboxItems)
+      .set({ status: "expired" })
+      .where(and(eq(inboxItems.kind, "material_due"), eq(inboxItems.status, "pending"), inArray(inboxItems.subjectId, expired)))
+      .run();
+  }
   for (const { material: m, event: e } of findDueMaterials(db, nowIso)) {
     const what = `${m.label ? `${m.label} ` : ""}${MATERIAL_KIND_KO[m.kind as keyof typeof MATERIAL_KIND_KO] ?? m.kind}`;
     upsertInboxItem(db, {
@@ -132,7 +140,7 @@ export function materializeDerivedItems(db: CairnDatabase, nowIso: string): void
       subjectId: m.id,
       payload: JSON.stringify({ eventId: e.id, kind: m.kind, label: m.label, sourceUrl: m.sourceUrl }),
       priority: 40,
-      expiresAt: new Date(Date.parse(m.expectedAt!) + 14 * DAY_MS).toISOString()
+      expiresAt: graceDeadline(m.kind, m.expectedAt!)
     });
   }
 }

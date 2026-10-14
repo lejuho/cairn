@@ -59,6 +59,8 @@ export type EventMaterialView = {
   sourceUrl: string | null;
   note: string | null;
   addedBy: string | null;
+  // missing 일 때만: confirmed = 공개 안 함을 확인, auto_expired = 유예 내 확인 못 해 자동 정리.
+  missingReason: "confirmed" | "auto_expired" | null;
   createdAt: string | null;
   updatedAt: string | null;
 };

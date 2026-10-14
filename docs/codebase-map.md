@@ -44,6 +44,11 @@ Use this file to narrow read scope. Do not treat it as full spec. Product rules 
     `decision.ts` discounts score (available 2, expected 1), counts as known cost,
     adds `catch_up_available` + option `catchUp`; candidate feasibility softens a
     conflict with such an event to `tight` and says so in the reason.
+  - Auto-expiry (migration 0016, hand-written additive ALTER): expected material
+    whose `expected_at` + grace (docs 14d, video/recording 30d) passes →
+    `missing` with `missing_reason=auto_expired` (manual → `confirmed`); swept in
+    `materializeDerivedItems`, which also expires its pending `material_due`.
+    `findCatchUp(…, now)` ignores past-grace expected rows even before the sweep.
 - `docs/`
   - Product spec and design docs.
 - `.review/`

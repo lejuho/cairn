@@ -7,6 +7,7 @@ import { buildServer } from "../app.js";
 import { createSqliteConnection, runMigrations, type SqliteConnection } from "../db/index.js";
 import { events } from "../db/schema.js";
 import { checkCandidateFeasibility } from "../services/candidate-feasibility.js";
+import { findCatchUp } from "../services/event-materials.js";
 
 const tempDirs: string[] = [];
 
@@ -142,5 +143,34 @@ describe("event materials", () => {
     const study = res.options.find((o: { event: { id: number } }) => o.event.id === other!.id);
     expect(kakao).toMatchObject({ suggested: true, catchUp: "available", reasonCodes: ["lower_cancel_cost", "catch_up_available"] });
     expect(study).toMatchObject({ suggested: false, catchUp: null });
+  });
+
+  it("auto-expires unconfirmed materials per kind and stops discounting them", async () => {
+    const app = buildServer(conn.db);
+    const post = (payload: Record<string, unknown>) => app.inject({ method: "POST", url: `/api/events/${eventId}/materials`, payload });
+    const slides = (await post({ kind: "slides", status: "expected", expectedAt: "2026-10-15T10:00:00+09:00" })).json().data.material;
+    const video = (await post({ kind: "video", status: "expected", expectedAt: "2026-10-15T10:00:00+09:00" })).json().data.material;
+    const list = async (now: string) => {
+      await app.inject({ method: "GET", url: `/api/inbox?now=${encodeURIComponent(now)}` });
+      const ms = (await app.inject({ method: "GET", url: `/api/events/${eventId}/materials` })).json().data.materials;
+      return Object.fromEntries(ms.map((m: { id: number; status: string; missingReason: string | null }) => [m.id, [m.status, m.missingReason]]));
+    };
+
+    // 13일째: 둘 다 아직 기다린다. 15일째: 문서만 정리, 영상은 30일까지.
+    expect(await list("2026-10-28T12:00:00+09:00")).toEqual({ [slides.id]: ["expected", null], [video.id]: ["expected", null] });
+    expect(await list("2026-10-30T12:00:00+09:00")).toEqual({ [slides.id]: ["missing", "auto_expired"], [video.id]: ["expected", null] });
+    expect(findCatchUp(conn.db, [eventId], "2026-11-10T12:00:00+09:00").get(eventId)).toBe("expected");
+    // 영상 유예가 지나면, 정리 배치 전이라도 비용 할인 근거에서 빠진다.
+    expect(findCatchUp(conn.db, [eventId], "2026-11-15T12:00:00+09:00").has(eventId)).toBe(false);
+    expect(await list("2026-11-15T12:00:00+09:00")).toEqual({ [slides.id]: ["missing", "auto_expired"], [video.id]: ["missing", "auto_expired"] });
+    const pendingDue = (await app.inject({ method: "GET", url: `/api/inbox?now=${encodeURIComponent("2026-11-15T12:00:00+09:00")}` }))
+      .json().data.items.filter((i: { kind: string }) => i.kind === "material_due");
+    expect(pendingDue).toHaveLength(0);
+
+    // 직접 확인한 미공개는 confirmed, 다시 공개되면 사유가 지워진다.
+    const confirmed = await app.inject({ method: "PATCH", url: `/api/materials/${slides.id}`, payload: { status: "missing" } });
+    expect(confirmed.json().data.material.missingReason).toBe("confirmed");
+    const back = await app.inject({ method: "PATCH", url: `/api/materials/${slides.id}`, payload: { status: "available", url: "https://if.kakao.com/2026/s.pdf" } });
+    expect(back.json().data.material.missingReason).toBeNull();
   });
 });

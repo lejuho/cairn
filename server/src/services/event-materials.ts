@@ -28,6 +28,26 @@ function toUtcIso(value: string | null | undefined): string | null {
   return value ? new Date(Date.parse(value)).toISOString() : null;
 }
 
+const DAY_MS = 86_400_000;
+
+// 공개 예정일이 이만큼 지나도 확인이 안 되면 missing(auto_expired) 으로 정리한다.
+// 영상은 "순차 공개"가 흔해 길게, 문서류는 행사 직후 올라오는 게 보통이라 짧게.
+// 에이전트가 "아직"으로 expectedAt 을 미루면 기준점이 옮겨져 자연히 다시 센다.
+export const MATERIAL_GRACE_DAYS: Record<EventMaterialView["kind"], number> = {
+  slides: 14,
+  notes: 14,
+  photo: 14,
+  link: 14,
+  file: 14,
+  video: 30,
+  recording: 30
+};
+
+export function graceDeadline(kind: string, expectedAt: string): string {
+  const days = MATERIAL_GRACE_DAYS[kind as EventMaterialView["kind"]] ?? 14;
+  return new Date(Date.parse(expectedAt) + days * DAY_MS).toISOString();
+}
+
 function toView(row: MaterialRow): EventMaterialView {
   return {
     id: row.id,
@@ -40,6 +60,7 @@ function toView(row: MaterialRow): EventMaterialView {
     sourceUrl: row.sourceUrl,
     note: row.note,
     addedBy: row.addedBy,
+    missingReason: row.missingReason as EventMaterialView["missingReason"],
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
   };
@@ -94,6 +115,8 @@ export function updateEventMaterial(
       ...req,
       ...(req.expectedAt !== undefined ? { expectedAt: toUtcIso(req.expectedAt) } : {}),
       ...(next.status !== "expected" ? { expectedAt: null } : {}),
+      // 사람·에이전트가 직접 missing 으로 바꾼 것은 확인된 미공개. 다른 상태로 가면 사유를 지운다.
+      missingReason: next.status === "missing" ? (req.status === "missing" ? "confirmed" : current.missingReason) : null,
       updatedAt: nowIso
     })
     .where(eq(eventMaterials.id, id))
@@ -108,18 +131,40 @@ export type CatchUp = "available" | "expected";
  * 놓쳐도 나중에 볼 수 있는 일정 (다시보기·녹음이 있거나 공개 예정).
  * 취소 비용 판단에 쓴다: 내용 손실이 회복 가능하면 놓치는 비용이 낮다.
  */
-export function findCatchUp(db: CairnDatabase, eventIds: number[]): Map<number, CatchUp> {
+export function findCatchUp(db: CairnDatabase, eventIds: number[], nowIso?: string): Map<number, CatchUp> {
   const out = new Map<number, CatchUp>();
   if (eventIds.length === 0) return out;
   const rows = db
-    .select({ eventId: eventMaterials.eventId, status: eventMaterials.status })
+    .select({ eventId: eventMaterials.eventId, kind: eventMaterials.kind, status: eventMaterials.status, expectedAt: eventMaterials.expectedAt })
     .from(eventMaterials)
     .where(and(inArray(eventMaterials.eventId, eventIds), inArray(eventMaterials.kind, ["video", "recording"]), inArray(eventMaterials.status, ["available", "expected"])))
     .all();
+  const nowMs = nowIso ? Date.parse(nowIso) : Date.now();
   for (const r of rows) {
+    // 정리 배치가 아직 안 돌았어도, 유예가 지난 공지는 비용 할인 근거로 쓰지 않는다.
+    if (r.status === "expected" && r.expectedAt && Date.parse(graceDeadline(r.kind, r.expectedAt)) <= nowMs) continue;
     if (r.status === "available" || !out.has(r.eventId)) out.set(r.eventId, r.status as CatchUp);
   }
   return out;
+}
+
+/** 유예가 지난 expected 자료를 missing(auto_expired) 으로 정리. 정리한 id 목록 반환. 멱등. */
+export function expireOverdueMaterials(db: CairnDatabase, nowIso: string): number[] {
+  const nowMs = Date.parse(nowIso);
+  const overdue = db
+    .select({ id: eventMaterials.id, kind: eventMaterials.kind, expectedAt: eventMaterials.expectedAt })
+    .from(eventMaterials)
+    .where(eq(eventMaterials.status, "expected"))
+    .all()
+    .filter((m) => m.expectedAt && Date.parse(graceDeadline(m.kind, m.expectedAt)) <= nowMs)
+    .map((m) => m.id);
+  if (overdue.length > 0) {
+    db.update(eventMaterials)
+      .set({ status: "missing", missingReason: "auto_expired", updatedAt: new Date(nowMs).toISOString() })
+      .where(inArray(eventMaterials.id, overdue))
+      .run();
+  }
+  return overdue;
 }
 
 /** 공개 예정 시점이 지난 expected 자료 (inbox material_due 재료). */

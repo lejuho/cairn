@@ -186,7 +186,7 @@ export async function checkCandidateFeasibility(
     reasons.push("이미 시작 시각이 지났어요.");
     severities.push("hard");
   }
-  const catchUp = findCatchUp(db, conflicts.map((c) => c.id));
+  const catchUp = findCatchUp(db, conflicts.map((c) => c.id), nowIso);
   for (const c of conflicts) {
     const text = `'${c.title}'(${dateLabel(Date.parse(c.start!))} ${hhmm(Date.parse(c.start!))}~${hhmm(Date.parse(c.end!))})과 시간이 겹쳐요.`;
     const replay = catchUp.get(c.id);

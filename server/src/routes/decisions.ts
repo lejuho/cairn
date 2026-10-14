@@ -24,7 +24,7 @@ export function registerDecisionRoutes(app: FastifyInstance, db: CairnDatabase):
     const dayEvents = findEventsWithCostsForDate(db, date);
     const eventIds = dayEvents.map((e) => e.id);
     const eventPeopleContext = findEventPeopleContext(db, eventIds, now);
-    const conflicts = buildConflictDecisions(now, dayEvents, eventPeopleContext, findCatchUp(db, eventIds));
+    const conflicts = buildConflictDecisions(now, dayEvents, eventPeopleContext, findCatchUp(db, eventIds, now));
 
     return reply.send({ ok: true, data: { conflicts } });
   });
