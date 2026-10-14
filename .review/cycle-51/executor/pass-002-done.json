@@ -1,0 +1,9 @@
+{
+  "cycle": 51,
+  "pass": 2,
+  "kind": "fix",
+  "review": ".review/cycle-51/review-v1.md",
+  "createdAt": "<UTC ISO timestamp>",
+  "summary": "Resolved review-v1 findings for cycle 51.",
+  "checks": ["<commands run>"]
+}

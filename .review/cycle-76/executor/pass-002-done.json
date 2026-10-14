@@ -1,0 +1,16 @@
+{
+  "cycle": 76,
+  "pass": 2,
+  "kind": "fix",
+  "review": ".review/cycle-76/review-v1.md",
+  "createdAt": "2026-06-28T10:51:58Z",
+  "summary": "Resolved review-v1 (2 MEDIUM findings, both APPLY). ISSUE-1: Today's TransitionCostsSection filtered out every costLevel-none row, so a same-thread adjacent pair carrying meaningful travel evidence (including fresh travel large enough to make the gap tight/impossible, plus stale/unavailable/missing-geocode) rendered no transition row and no TransitionTravelLine — hiding why a gap warning came from travel. Fix (web/src/Today.tsx, ONE filter line): the row is kept when `costLevel !== 'none' || (t.travel != null && t.travel.status !== 'same_location')`, so a none-cost pair with meaningful travel renders its row ('전환 비용 없음' + relation) and its travel line; none+no-travel or same_location-only stays hidden as before. +3 frontend tests (same-thread fresh shows the line with data-cost none; same-thread stale/unavailable/missing render quietly with no role=alert; same-thread same_location renders no row). ISSUE-2: no route-level proof that a provider failure with resolved geocodes leaves the read endpoints successful. Fix: +1 feasibility-route test + +1 today-route test — two resolved geocode endpoints, an empty travel cache, and a fake gateway whose travelTime() returns {ok:false}; each asserts HTTP 200, transitionCosts[0].travel.status === 'unavailable', the gap reason gap_travel_unavailable, and travel_time_cache row count 0 (a transient failure is never cached). The only production change is the single Today.tsx filter line; everything else is additive tests + one codebase-map doc line. No shared schema, gateway, repository, travel service, feasibility computation, or migration changed; the cache-only / server-only / fail-open / no-double-count boundaries are untouched. RESOLVED appended below the sentinel. Committed 9922ab5.",
+  "checks": [
+    "corepack pnpm lint (PASS)",
+    "corepack pnpm typecheck (PASS)",
+    "corepack pnpm test (shared 438 / server 519 / web 507 — +3 same-thread travel UI tests)",
+    "corepack pnpm test:integration (733 — feasibility-route +1, today-route +1: provider-failure → 200 + unavailable + no cache write)",
+    "corepack pnpm build (web + server Done)",
+    "git diff --check master...HEAD (OK); commit = web/src/Today.tsx (filter) + 3 test files + docs/codebase-map.md + review-v1.md; only Today.tsx is production source; ## RESOLVED count above sentinel = 0"
+  ]
+}

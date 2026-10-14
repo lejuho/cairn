@@ -1,0 +1,16 @@
+{
+  "cycle": 81,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-28T16:14:07Z",
+  "summary": "Operational Soft Remove Controls A (frontend-focused, REUSE-only). Exposes explicit task '드롭' soft-remove on operational surfaces by reusing the existing PATCH /api/tasks/:id/status with EXACTLY {status:'dropped'} — NO new route, table, migration, or hard delete for any core domain (tasks/events/watchers/people/threads). Today.tsx: markTaskDropped(id) + handleDropTask(taskId) refresh on success and on a generic failure set a SCOPED per-task taskDropError[id] (role=alert) that keeps the card (not handleDone's silent swallow); access errors re-surface via refresh. The two-minute card adds a secondary '드롭' (task-drop-{id}) next to '완료'; the due-task schedule prompt adds a PERMANENT '드롭' (task-prompt-drop-{id}) DISTINCT from the one-day '오늘 숨기기' (which still PATCHes /schedule-prompt/dismiss with only {dismissedOn}). Thread.tsx: TaskNodeCard gains a `droppable` prop — ACTIVE task rows pass it and show '드롭' (task-drop-{id}) → PATCH {status:'dropped'} → onSaved/refresh moves the task into the existing done/dropped history group (chip '드롭'); the done/dropped group's cards are NOT droppable (no drop button on history); failure → scoped role=alert (task-drop-error-{id}). Dropped tasks leave active Today/thread surfaces (findTwoMinuteTodoTasks/isTaskPromptEligible keep only todo/doing) but remain as dropped evidence; dropping never touches a task's scheduled block event. Copy prefers '드롭' (a reversible status), never '삭제'. Event detail cancel + watcher disarm are unchanged; no hard-delete route/button/cascade/cron/LLM is introduced. styles.css .today-drop-btn/.thread-node-drop-btn/.today-card-actions/.thread-node-actions (semantic tokens, 44px). New docs/soft-remove-roadmap.md documents the no-hard-delete boundary; codebase-map updated. Tests: Today +4 (two-min drop {status:dropped}+refresh; prompt permanent drop; one-day dismiss still dismissedOn-only not status; drop failure scoped error + card visible), Thread +2 (active drop {status:dropped}+refresh into dropped group; failure scoped error keeps row), today route integration +1 (dropped task absent from twoMinuteTasks + dueTaskSchedulePrompts + no dropped task card; active appears). Committed feb2935.",
+  "checks": [
+    "corepack pnpm lint (PASS)",
+    "corepack pnpm typecheck (PASS)",
+    "corepack pnpm test (shared 453 / server 533 / web 537 — +4 Today drop, +2 Thread drop)",
+    "corepack pnpm test:integration (753 — +1 today route: dropped task excluded from active surfaces)",
+    "corepack pnpm build (web + server Done)",
+    "git diff --check master...HEAD (OK); no app.delete/DELETE for core domains, no deleteTask/Event/Watcher/Person/Thread; no server/drizzle or db/schema.ts or migration; no auto-drop/auto-delete/cron/cleanup/cascade; no llm/chat-completions/Grok (the 'prompt' grep matches only the pre-existing schedule_prompt/task-prompt-drop domain terms, not an LLM path)"
+  ]
+}

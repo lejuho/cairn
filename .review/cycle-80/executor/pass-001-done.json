@@ -1,0 +1,16 @@
+{
+  "cycle": 80,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-28T15:04:07Z",
+  "summary": "Manual Transit Detail Capture A (small additive). Surfaces the EXISTING pinned_transit_facts.note (cycle-78) through the travel evidence and Today UI — no new table, route, or migration. Shared feasibility.ts: TransitionTravelSchema gains an optional `note: z.string().max(200).nullable().optional()` (.strict, fully back-compatible — route-step/fare/provider raw fields stay rejected). Backend services/travel-time.ts: pinnedEvidence carries the pinned fact's note (blank/whitespace → null) ONLY for pinned facts; provider/cache evidence functions never set a note key. The note is explanatory context only — it never enters gap math, sequence energy, ordering, or scheduling (gap requirement stays duration*travelMargin). Frontend Today.tsx: TransitionTravelLine appends a quiet `travel-detail` span (' · <note>') ONLY when travel.source==='pinned_user' AND travel.note is nonblank — provider evidence (even with an injected note) and a blank/absent note render no detail line. The pin controller's open(fromEventId,toEventId,prefill?) pre-fills the edit form with the current pinned evidence's duration + note when the transition has a pinned fact ('고정 이동시간 수정'); a new pin ('고정 이동시간') stays blank. Submit payload is unchanged ({fromEventId,toEventId,durationMinutes,note?} via the existing /api/transit-facts/pair). styles .feas-travel-detail (semantic tokens, no new palette). No Naver API/scrape/route-step parse, schedule mutation, cron, or LLM; cycle-77 directions + cycle-79 place search + cycle-78 upsert route untouched. The 77-80 Naver roadmap is complete. Tests: shared +3 (note accept/back-compat/reject route-step), travel-time integration +2 (note propagation+trim; blank→null + provider-no-note-key), feasibility route integration +1 (pinned note on /api/feasibility/day, gap stays duration-only), frontend +5 (duration+note render, blank-note omit, provider-no-detail, edit prefill, add stays blank). Committed 23e2021.",
+  "checks": [
+    "corepack pnpm lint (PASS)",
+    "corepack pnpm typecheck (PASS)",
+    "corepack pnpm test (shared 453 / server 533 / web 531 — +3 shared note, +5 frontend)",
+    "corepack pnpm test:integration (752 — +2 travel-time note propagation, +1 feasibility-route pinned note duration-only)",
+    "corepack pnpm build (web + server Done)",
+    "git diff --check master...HEAD (OK); no server/drizzle, db/schema.ts, or new transit/places route change; no scrap/cheerio/route-step/fare/subwayLine impl (only a schema-rejection test + a comment); no auto-reschedule/cron/bulk; no llm/chat-completions/Grok/prompt"
+  ]
+}

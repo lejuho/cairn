@@ -1,0 +1,16 @@
+{
+  "cycle": 75,
+  "pass": 2,
+  "kind": "fix",
+  "review": ".review/cycle-75/review-v1.md",
+  "createdAt": "2026-06-28T09:34:41Z",
+  "summary": "Resolved review-v1 ISSUE-1 (MEDIUM, test coverage gap; all APPLY). The Sprint Contract requires tests for needs_review and schedule_prompt location context plus preservation of their existing actions, and route integration for the needsReviewEvents/unscheduledEvents input paths — these were missing. The implementation already rendered the chip in those branches, so this is a TEST-ONLY change with no production code modified. web/src/Today.test.tsx (+2): a needs_review card with a matching locationContexts entry asserts the today-loc chip + map link render AND the existing detail button (상세 보기) + reply input (메모) remain; a schedule_prompt card with a context asserts the chip + map link AND the existing slot button (날짜 잡기) + dismiss control (dismiss-prompt-{id}) remain. server/src/routes/today.integration.test.ts (+1): seeds a needs_review event (ended in the recent past, no annotation, location Hongdae) and an unscheduled event (NULL start/end, planned, location Itaewon) with matching geocode_cache rows; asserts each appears in needsReviewEvents/unscheduledEvents, the unscheduled one is NOT in dayEvents (so that path is exercised independently of dayEvents), both get resolved contexts, and the geocode_cache row count is unchanged (Today still never writes). No shared schema, builder, repository, route, frontend component, or style changed; cache-only/no-provider boundary and card order/priority/actions unchanged. Unrelated worktree .claude/AGENTS.md/CONTRACT_MARKERS.md edits predate this cycle and were deliberately excluded from the commit (as review-v1 itself noted). RESOLVED appended below the sentinel. Committed 40f98cb.",
+  "checks": [
+    "corepack pnpm lint (PASS)",
+    "corepack pnpm typecheck (PASS)",
+    "corepack pnpm test (shared 434 / server 513 / web 501 — +2 needs_review/schedule_prompt context tests)",
+    "corepack pnpm test:integration (711 — today route +1: needsReviewEvents + unscheduledEvents context paths, unscheduled-not-in-dayEvents, no cache write)",
+    "corepack pnpm build (web + server Done)",
+    "git diff --check master...HEAD (OK); commit contains only web/src/Today.test.tsx + server/src/routes/today.integration.test.ts + .review/cycle-75/review-v1.md; no production source change; ## RESOLVED count above sentinel = 0"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "cycle": 78,
+  "pass": 2,
+  "kind": "fix",
+  "review": ".review/cycle-78/review-v1.md",
+  "createdAt": "2026-06-28T13:53:37Z",
+  "summary": "Resolved review-v1 (2 findings, both APPLY; test + style only). ISSUE-1 [MEDIUM]: the 'rejects an invalid duration' pin-form test had three unconditional diagnostic lines left in (await setTimeout(50), console.log('INPUTVAL=...'), screen.debug(...)) that polluted the repeatable automatic-check output. Fix (web/src/Today.test.tsx): removed all three; the test keeps its real assertions — the scoped error '이동 시간을 1~600분 사이로 입력해줘', calls.toHaveLength(0) (no PUT), and the form-stays-open check. ISSUE-2 [LOW]: .feas-pin-error used color var(--conflict), which is undefined in styles.css, so the scoped error tone was unreliable. Fix (web/src/styles.css): changed to var(--cancelled), the defined design-system error/negative token (#c05e52 / dark #ad453b). The only production change is the one CSS token; the rest is the test debug removal. No shared schema, DB, repository, service, route, or feasibility/travel logic changed; pinned-fact behavior, gap math, provenance, and the provider boundary are untouched. The pre-existing watcher-snooze var(--conflict) at Today.tsx:2296 predates this cycle and is outside the cycle-78 diff/scope, so only the flagged .feas-pin-error was changed. RESOLVED appended below the sentinel. Committed 5916b14.",
+  "checks": [
+    "corepack pnpm lint (PASS)",
+    "corepack pnpm typecheck (PASS)",
+    "corepack pnpm test (shared 445 / server 519 / web 521 — dedicated --filter @cairn/web run; a single PersonDetail timing flake under full-parallel pnpm test passes on the dedicated run and is not in this cycle's files)",
+    "corepack pnpm test:integration (749 — unchanged)",
+    "corepack pnpm build (web + server Done)",
+    "git diff --check master...HEAD (OK); commit = web/src/Today.test.tsx + web/src/styles.css + review-v1.md; only styles.css is production source (one token); no console.log/screen.debug remain; ## RESOLVED count above sentinel = 0"
+  ]
+}
