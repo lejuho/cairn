@@ -28,4 +28,5 @@ export * from "./transitFacts.js";
 export * from "./placeSearch.js";
 export * from "./providerStatus.js";
 export * from "./inbox.js";
+export * from "./materials.js";
 export * from "./naverMapLinks.js";

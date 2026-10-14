@@ -34,7 +34,7 @@ const SERVER_INFO = {
 };
 
 const DEFAULT_INSTRUCTIONS =
-  "Cairn is the user's context/priority hub. At the start of a conversation about plans or work, call cairn_context_now (or cairn_inbox) once; ask at most 1-2 pending questions when it does not interrupt the user's task, and record only real answers with cairn_confirm. Record decisions/appointments that come up in conversation with cairn_observe. Prefer specific tools; use cairn_api_request for routes not wrapped explicitly.";
+  "Cairn is the user's context/priority hub. At the start of a conversation about plans or work, call cairn_context_now (or cairn_inbox) once; ask at most 1-2 pending questions when it does not interrupt the user's task, and record only real answers with cairn_confirm. Record decisions/appointments that come up in conversation with cairn_observe. Attach slides/VOD/recording links from events with cairn_material_attach; for talks/classes, cairn_event_capture_check lists what to verify from official sources. Prefer specific tools; use cairn_api_request for routes not wrapped explicitly.";
 
 export interface CairnMcpServerOptions {
   // 원격 커넥터는 허용된 도구만 노출한다 (기본: 전체).

@@ -4,6 +4,7 @@ import {
   integer,
   primaryKey,
   real,
+  index,
   sqliteTable,
   text,
   uniqueIndex
@@ -30,6 +31,8 @@ const WATCHER_LOG_OUTCOMES = ["checked_no_signal", "signal_seen", "missed_signal
 const RESOURCE_KINDS = ["item", "knowledge"] as const;
 const RESOURCE_TARGET_TYPES = ["event", "task", "thread"] as const;
 const RESOURCE_FIRMNESSES = ["hard", "soft", "tentative"] as const;
+const MATERIAL_KINDS = ["slides", "video", "recording", "notes", "photo", "link", "file"] as const;
+const MATERIAL_STATUSES = ["expected", "available", "missing"] as const;
 
 const enumSqlList = (values: readonly string[]) =>
   sql.raw(values.map((value) => `'${value}'`).join(", "));
@@ -421,7 +424,7 @@ export const observations = sqliteTable(
   ]
 );
 
-const INBOX_KINDS = ["outcome_check", "deadline", "watcher_due", "event_candidate", "thread_link", "person_profile"] as const;
+const INBOX_KINDS = ["outcome_check", "deadline", "watcher_due", "event_candidate", "thread_link", "person_profile", "material_due"] as const;
 const INBOX_STATUSES = ["pending", "answered", "dismissed", "expired"] as const;
 export const inboxItems = sqliteTable(
   "inbox_items",
@@ -462,4 +465,28 @@ export const threadWorkspaces = sqliteTable(
     path: text("path").notNull()
   },
   (table) => [uniqueIndex("thread_workspaces_path_idx").on(table.path)]
+);
+
+// 이벤트 자료 (일정이 남긴 결과물 포인터). expected → available|missing 수명주기.
+export const eventMaterials = sqliteTable(
+  "event_materials",
+  {
+    id: integer("id").primaryKey(),
+    eventId: integer("event_id").notNull().references(() => events.id),
+    kind: text("kind").notNull(),
+    status: text("status").notNull().default("available"),
+    label: text("label"),
+    url: text("url"),
+    expectedAt: text("expected_at"),
+    sourceUrl: text("source_url"),
+    note: text("note"),
+    addedBy: text("added_by"),
+    createdAt: text("created_at").default(sql`(datetime('now'))`),
+    updatedAt: text("updated_at")
+  },
+  (table) => [
+    check("event_materials_kind_check", sql`${table.kind} in (${enumSqlList(MATERIAL_KINDS)})`),
+    check("event_materials_status_check", sql`${table.status} in (${enumSqlList(MATERIAL_STATUSES)})`),
+    index("event_materials_event_idx").on(table.eventId)
+  ]
 );

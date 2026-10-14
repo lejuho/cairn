@@ -13,7 +13,8 @@ export const INBOX_KINDS = [
   "watcher_due", // 기한 도래 watcher
   "event_candidate", // 관찰에서 추출한 일정 후보
   "thread_link", // 관찰/일정을 thread 에 연결하자는 제안
-  "person_profile" // 판정에 처음 등장한 사람의 연락 기한·선호 시간 확인
+  "person_profile", // 판정에 처음 등장한 사람의 연락 기한·선호 시간 확인
+  "material_due" // 공개 예정 자료(발표자료·VOD 등)를 확인할 시점 도래
 ] as const;
 export const InboxKindSchema = z.enum(INBOX_KINDS);
 

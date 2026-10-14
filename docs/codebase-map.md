@@ -30,6 +30,16 @@ Use this file to narrow read scope. Do not treat it as full spec. Product rules 
   - [docs/agent-inbox.md](/home/pi/cairn/docs/agent-inbox.md) — architecture, API, deploy, phone setup.
   - `server/src/services/inbox.ts`, `services/observations.ts`, `routes/inbox.ts`,
     `jobs/observation-extractor.ts`; hooks in `deploy/agent-hooks/`.
+- Event materials (migration 0015): `event_materials` = pointers to what an event
+  left behind (slides/video/recording/notes/photo/link/file), lifecycle
+  `expected → available|missing`, `expected_at` stored as UTC ISO.
+  - `shared/src/materials.ts`, `server/src/services/event-materials.ts`
+    (CRUD + `detectCaptureProfile`/`buildCaptureCheck`: talk|class|meeting|hackathon
+    checklist), `routes/materials.ts` (`GET|POST /api/events/:id/materials`,
+    `GET /api/events/:id/capture-check`, `PATCH /api/materials/:id`).
+  - Inbox `material_due` when `expected_at` passes; outcome_check `done` returns
+    open `captureCheck` in its effect; candidate feasibility emits `capture_check`.
+  - MCP: `cairn_event_capture_check`, `cairn_material_attach`, `cairn_material_update`.
 - `docs/`
   - Product spec and design docs.
 - `.review/`

@@ -29,6 +29,7 @@ import { registerTransitFactsRoutes } from "./routes/transit-facts.js";
 import { registerResourceRoutes } from "./routes/resources.js";
 import { registerItemRoutes } from "./routes/items.js";
 import { registerInboxRoutes } from "./routes/inbox.js";
+import { registerMaterialRoutes } from "./routes/materials.js";
 import type { GcalSyncControlOptions } from "./services/gcal-sync-control.js";
 
 export type BuildServerOptions = {
@@ -94,6 +95,7 @@ export function buildServer(
     registerRelationRoutes(app, db);
     registerTransitFactsRoutes(app, db);
     registerInboxRoutes(app, db, { ingestToken: opts.ingestToken, mapGateway });
+    registerMaterialRoutes(app, db);
     if (opts.gcalSync) {
       registerGcalSyncRoutes(app, opts.gcalSync);
     }

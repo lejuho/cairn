@@ -10,6 +10,7 @@ import { findAllPeople } from "../repositories/people.js";
 import { readNumericParam, readParam } from "../repositories/params.js";
 import { findPinnedByPair } from "../repositories/pinned-transit-facts.js";
 import { geocodeText } from "./geocoding.js";
+import { detectCaptureProfile } from "./event-materials.js";
 import { upsertInboxItem } from "./inbox.js";
 
 // "이 후보 일정을 넣으면 그날이 굴러가나?" — 저장 없는 가정 판정.
@@ -63,7 +64,7 @@ export type Leg = {
 };
 
 export type AnalysisRequest = {
-  kind: "route_check" | "origin_check" | "location_check" | "person_profile" | "person_unknown" | "companion_check" | "prep_check";
+  kind: "route_check" | "origin_check" | "location_check" | "person_profile" | "person_unknown" | "companion_check" | "prep_check" | "capture_check";
   priority: "high" | "normal";
   reason: string;
   from?: string;
@@ -369,6 +370,16 @@ export async function checkCandidateFeasibility(
         ? "해외라면 여권 만료일(입국일 기준 6개월 이상 남았는지), 입국 요건(비자·전자여행허가), 항공·숙소 예약 시점을 확인하고, 각 준비의 소요 일수를 cairn_plan_prep 으로 넘기세요. Cairn 이 마지노선을 역산해 알림으로 등록해요."
         : "숙소·교통 예약 등 미리 해야 할 준비와 소요 일수를 사용자와 정리해 cairn_plan_prep 으로 넘기세요.",
       targetDate: date
+    });
+  }
+
+  // ── 자료 확보: 강연·강의·해커톤 등은 발표자료·녹화본 공개 여부를 미리 확인해 두면 끝난 뒤 따로 찾지 않아도 된다 ──
+  const captureProfile = input.title ? detectCaptureProfile({ title: input.title, type: null }) : null;
+  if (captureProfile) {
+    analysisRequests.push({
+      kind: "capture_check",
+      priority: "normal",
+      reason: "일정이 등록되면 cairn_event_capture_check 로 확인 항목을 받아, 공식 출처에서 발표자료·다시보기·녹화본 공개 여부와 시점을 확인하고 cairn_material_attach(status=expected) 로 기록하세요. 지어내지 말 것."
     });
   }
 

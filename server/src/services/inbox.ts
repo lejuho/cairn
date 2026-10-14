@@ -5,6 +5,7 @@ import type { CairnDatabase } from "../db/index.js";
 import { annotations, events, inboxItems, threads, threadWorkspaces } from "../db/schema.js";
 import { findAllWatchers, findTaskStatusesByIds } from "../repositories/watchers.js";
 import { buildWatcherDeepView } from "./watcher-deep-view.js";
+import { findDueMaterials, getCaptureCheck, MATERIAL_KIND_KO, updateEventMaterial } from "./event-materials.js";
 import { parseReversePlanRule } from "./watcher-reverse-plan.js";
 
 const TIME_ZONE = process.env.CAIRN_TIME_ZONE ?? "Asia/Seoul";
@@ -118,6 +119,22 @@ export function materializeDerivedItems(db: CairnDatabase, nowIso: string): void
       expiresAt: new Date(nowMs + DAY_MS).toISOString()
     });
   }
+
+  for (const { material: m, event: e } of findDueMaterials(db, nowIso)) {
+    const what = `${m.label ? `${m.label} ` : ""}${MATERIAL_KIND_KO[m.kind as keyof typeof MATERIAL_KIND_KO] ?? m.kind}`;
+    upsertInboxItem(db, {
+      kind: "material_due",
+      // 예정 시점을 다시 잡으면 새 질문으로 취급.
+      dedupeKey: `material:${m.id}:${m.expectedAt}`,
+      prompt: `'${e.title}' ${what} 공개 예정 시점이 됐어요.${m.sourceUrl ? ` ${m.sourceUrl} 에서` : ""} 올라왔는지 확인해 볼까요?`,
+      threadId: e.threadId,
+      subjectType: "material",
+      subjectId: m.id,
+      payload: JSON.stringify({ eventId: e.id, kind: m.kind, label: m.label, sourceUrl: m.sourceUrl }),
+      priority: 40,
+      expiresAt: new Date(Date.parse(m.expectedAt!) + 14 * DAY_MS).toISOString()
+    });
+  }
 }
 
 function expireStale(db: CairnDatabase, nowIso: string): void {
@@ -141,6 +158,7 @@ const ANSWER_HINTS: Record<InboxRow["kind"], string> = {
   watcher_due: "accept = 처리함, snooze = 나중에, dismiss = 무시.",
   event_candidate: "accept = 일정으로 등록(value 로 title/start/end/location 수정 가능), reject = 일정 아님.",
   thread_link: "accept = 연결(value.threadId 로 다른 thread 지정 가능), reject = 무관.",
+  material_due: "에이전트가 sourceUrl 을 직접 확인: 올라왔으면 accept + value.url, 아직이면 accept + value.expectedAt(다음 확인 시점) 또는 snooze, 공개 안 한다고 확인되면 reject(=missing).",
   person_profile: "accept + value 에 사용자가 말한 것만: leadTimeDays(0~30), preferredWeekdays+preferredPeriods(morning|afternoon|evening, 둘 다 함께), unavailableWeekdays (요일은 monday..sunday). 모르면 snooze."
 };
 
@@ -232,7 +250,12 @@ export function answerInboxItem(
     return record({ status: "pending", snoozedUntil: new Date(Date.parse(nowIso) + hours * 3_600_000).toISOString() });
   }
   if (req.decision === "dismiss") return record({ status: "dismissed" });
-  if (req.decision === "reject") return record({ status: "answered" });
+  if (req.decision === "reject") {
+    if (item.kind === "material_due" && item.subjectId != null) {
+      updateEventMaterial(db, item.subjectId, { status: "missing", ...(req.note ? { note: req.note } : {}) }, nowIso);
+    }
+    return record({ status: "answered" });
+  }
 
   const value = req.value ?? {};
   const payload = (parseJson(item.payload) ?? {}) as Record<string, unknown>;
@@ -249,7 +272,14 @@ export function answerInboxItem(
           .values({ eventId: item.subjectId, outcome, reasonTags: "[]", reasonText: req.note ?? null, energyAtTime: null })
           .run();
         txDb.update(events).set({ status: outcome }).where(eq(events.id, item.subjectId)).run();
-        return record({ status: "answered" }, { annotatedEventId: item.subjectId, outcome });
+        const effect: Record<string, unknown> = { annotatedEventId: item.subjectId, outcome };
+        if (outcome === "done") {
+          // 다녀온 일정이면 남길 자료가 있는지 이어서 챙기도록 체크리스트를 돌려준다.
+          const check = getCaptureCheck(txDb, item.subjectId);
+          const open = check?.items.filter((i) => i.covered === null) ?? [];
+          if (check && open.length > 0) effect.captureCheck = { ...check, items: open };
+        }
+        return record({ status: "answered" }, effect);
       }
       case "event_candidate": {
         const title = str(value.title) ?? str(payload.title);
@@ -312,6 +342,22 @@ export function answerInboxItem(
           return { ok: false as const, error: { code: "VALIDATION_ERROR" as const, message: "contradictory profile (preferred vs unavailable weekday)" } };
         }
         return record({ status: "answered" }, { updatedPersonId: person.id });
+      }
+      case "material_due": {
+        if (item.subjectId == null) return record({ status: "answered" });
+        const url = str(value.url);
+        const expectedAt = str(value.expectedAt);
+        const patch = url
+          ? { status: "available" as const, url }
+          : expectedAt && !Number.isNaN(Date.parse(expectedAt))
+            ? { status: "expected" as const, expectedAt: new Date(Date.parse(expectedAt)).toISOString() }
+            : null;
+        if (!patch) {
+          return { ok: false as const, error: { code: "VALIDATION_ERROR" as const, message: "material_due accept needs value.url or value.expectedAt" } };
+        }
+        const result = updateEventMaterial(txDb, item.subjectId, { ...patch, ...(req.note ? { note: req.note } : {}) }, nowIso);
+        if (!result.ok) return { ok: false as const, error: { code: result.code, message: result.message } };
+        return record({ status: "answered" }, { material: result.material });
       }
       default:
         return record({ status: "answered" });

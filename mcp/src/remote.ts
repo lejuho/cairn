@@ -18,7 +18,10 @@ const TOOL_SCOPES: Record<string, string> = {
   cairn_pin_route: "cairn.confirm",
   cairn_plan_prep: "cairn.confirm",
   cairn_confirm: "cairn.confirm",
-  cairn_observe: "cairn.confirm"
+  cairn_observe: "cairn.confirm",
+  cairn_event_capture_check: "cairn.read",
+  cairn_material_attach: "cairn.confirm",
+  cairn_material_update: "cairn.confirm"
 };
 
 const REMOTE_INSTRUCTIONS =
@@ -27,7 +30,8 @@ const REMOTE_INSTRUCTIONS =
   "If it returns pending inbox items, ask at most one relevant question naturally, without interrupting the user's task. " +
   "When you find an event (mail, X, Luma, conversation) with a concrete time, call cairn_propose_event with structured fields and the source URL; if alreadyKnown is true, do not ask again. " +
   "For 'can I make it?' or 'can I schedule X on that day?' questions call cairn_check_feasibility (pass people and kind=trip/abroad when relevant). Never estimate travel time yourself: relay Cairn's verdict, horizon, reasons, risks and assumptions in detail. " +
-  "Follow analysisRequests: person_profile -> ask about that person and record with cairn_confirm; companion_check -> remind to confirm with companions; prep_check -> research requirements from official sources, agree steps with the user, then cairn_plan_prep. " +
+  "Follow analysisRequests: person_profile -> ask about that person and record with cairn_confirm; companion_check -> remind to confirm with companions; prep_check -> research requirements from official sources, agree steps with the user, then cairn_plan_prep; capture_check -> once the event exists, call cairn_event_capture_check and record what official sources say about slides/VOD/recordings with cairn_material_attach (status=expected + expectedAt + sourceUrl if not yet out). " +
+  "When the user shares slides, recordings or links from an event they attended, attach them with cairn_material_attach. For material_due inbox items, check the sourceUrl yourself before asking the user. " +
   "Follow analysisRequests: for route_check, check the route live (naverUrl) and tell the user the route; for origin_check, ask where they will be. " +
   "Do not store route details anywhere; only if the user confirms a duration, record it with cairn_pin_route. " +
   "Record only answers the user actually gave with cairn_confirm (never guess an accept). Use cairn_observe for decisions or commitments without a concrete time.";
@@ -44,6 +48,7 @@ export function argsForGrant(grant: Grant) {
   const label = `remote:${grant.clientName}`.slice(0, 100);
   return (name: string, args: JsonObject): JsonObject => {
     if (name === "cairn_confirm") return { ...args, answeredBy: label };
+    if (name === "cairn_material_attach") return { ...args, addedBy: label };
     if (name === "cairn_observe") return { ...args, agent: label };
     if (name === "cairn_propose_event") return { ...args, proposedBy: label };
     return args;

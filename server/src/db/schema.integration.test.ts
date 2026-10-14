@@ -24,6 +24,7 @@ describe("core SQLite migration", () => {
 
     expect(tables).toEqual([
       "annotations",
+      "event_materials",
       "event_people",
       "events",
       "geocode_cache",

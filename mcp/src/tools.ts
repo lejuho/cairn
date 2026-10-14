@@ -34,6 +34,10 @@ export const API_ROUTE_CATALOG: JsonValue[] = [
   { method: "PATCH", path: "/api/events/:id/schedule-prompt/dismiss", purpose: "Dismiss event schedule prompt for one Today date" },
   { method: "POST", path: "/api/events/:id/preparations", purpose: "Add event preparation item" },
   { method: "POST", path: "/api/events/:id/annotations", purpose: "Add event outcome/record annotation" },
+  { method: "GET", path: "/api/events/:id/materials", purpose: "List event materials (slides/VOD/recording links)" },
+  { method: "POST", path: "/api/events/:id/materials", purpose: "Attach or expect an event material" },
+  { method: "GET", path: "/api/events/:id/capture-check", purpose: "Material capture checklist by event profile" },
+  { method: "PATCH", path: "/api/materials/:id", purpose: "Update material status/url/expectedAt" },
   { method: "GET", path: "/api/events/:id/people", purpose: "List event people" },
   { method: "PUT", path: "/api/events/:id/people", purpose: "Replace event people" },
   { method: "POST", path: "/api/tasks", purpose: "Create task" },
@@ -235,6 +239,54 @@ export const TOOLS: McpTool[] = [
             properties: { label: { type: "string" }, leadDays: { type: "number", minimum: 0, maximum: 365 } }
           }
         }
+      }
+    }
+  },
+  {
+    name: "cairn_event_capture_check",
+    description: "일정 성격(강연·강의·회의·해커톤)에 따라 확보할 자료 체크리스트와 이미 붙은 자료를 돌려준다. covered=null 항목만 공식 출처에서 확인해 cairn_material_attach 로 기록할 것.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["id"],
+      properties: { id: { type: "number", description: "event id" } }
+    }
+  },
+  {
+    name: "cairn_material_attach",
+    description: "일정에 자료(발표자료·다시보기·녹음·메모·사진·링크) 포인터를 붙인다. 이미 있으면 status=available + url(또는 note). 공개 예정이면 status=expected + expectedAt(다시 확인할 시점) + sourceUrl(공지 출처) — 시점이 되면 Cairn 이 material_due 질문을 띄운다. 공개 여부·시점은 공식 출처나 사용자 말만 근거로, 본문은 저장하지 말 것.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["id", "kind"],
+      properties: {
+        id: { type: "number", description: "event id" },
+        kind: { type: "string", enum: ["slides", "video", "recording", "notes", "photo", "link", "file"] },
+        status: { type: "string", enum: ["available", "expected", "missing"], description: "기본 available" },
+        label: { type: "string", description: "세션명 등 (하루 행사 안의 세션 구분)" },
+        url: { type: "string" },
+        expectedAt: { type: "string", description: "ISO datetime with offset" },
+        sourceUrl: { type: "string" },
+        note: { type: "string" },
+        addedBy: { type: "string" }
+      }
+    }
+  },
+  {
+    name: "cairn_material_update",
+    description: "자료 상태 갱신. 공개됐으면 status=available + url, 확인 시점을 미루면 expectedAt, 공개 안 함이 확인되면 status=missing.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["id"],
+      properties: {
+        id: { type: "number", description: "material id" },
+        status: { type: "string", enum: ["available", "expected", "missing"] },
+        label: { type: ["string", "null"] },
+        url: { type: ["string", "null"] },
+        expectedAt: { type: ["string", "null"] },
+        sourceUrl: { type: ["string", "null"] },
+        note: { type: ["string", "null"] }
       }
     }
   },
@@ -597,6 +649,12 @@ async function dispatchTool(config: CairnApiClientConfig, name: string, args: Js
       return request(config, { method: "POST", path: "/api/inbox/propose-event", body: pickBody(args, ["title", "start", "end", "location", "online", "people", "kind", "abroad", "url", "origin", "note", "proposedBy"]) });
     case "cairn_plan_prep":
       return request(config, { method: "POST", path: "/api/watchers/reverse-plan", body: { category: "prep", safetyDays: 0, ...pickBody(args, ["label", "targetDate", "targetLabel", "safetyDays", "steps"]) } });
+    case "cairn_event_capture_check":
+      return request(config, { method: "GET", path: `/api/events/${idArg(args)}/capture-check` });
+    case "cairn_material_attach":
+      return request(config, { method: "POST", path: `/api/events/${idArg(args)}/materials`, body: pickBody(args, ["kind", "status", "label", "url", "expectedAt", "sourceUrl", "note", "addedBy"]) });
+    case "cairn_material_update":
+      return request(config, { method: "PATCH", path: `/api/materials/${idArg(args)}`, body: pickBody(args, ["status", "label", "url", "expectedAt", "sourceUrl", "note"]) });
     case "cairn_pin_route":
       return request(config, { method: "POST", path: "/api/routes/pin", body: pickBody(args, ["from", "to", "minutes", "note"]) });
     case "cairn_thread_workspace":
