@@ -4,6 +4,7 @@ import { ConflictDecisionQuerySchema, ResolveConflictRequestSchema } from "@cair
 import { findEventsWithCostsForDate } from "../repositories/events.js";
 import { findEventPeopleContext, findEventPeopleFullProfiles } from "../repositories/people.js";
 import { buildConflictDecisions, eventsOverlap, isResolvable } from "../services/decision.js";
+import { findCatchUp } from "../services/event-materials.js";
 import { evaluatePeopleGuard, parseHardConstraints } from "../services/people-impact.js";
 import { buildNotificationDrafts } from "../services/notification-drafts.js";
 import type { CairnDatabase } from "../db/index.js";
@@ -23,7 +24,7 @@ export function registerDecisionRoutes(app: FastifyInstance, db: CairnDatabase):
     const dayEvents = findEventsWithCostsForDate(db, date);
     const eventIds = dayEvents.map((e) => e.id);
     const eventPeopleContext = findEventPeopleContext(db, eventIds, now);
-    const conflicts = buildConflictDecisions(now, dayEvents, eventPeopleContext);
+    const conflicts = buildConflictDecisions(now, dayEvents, eventPeopleContext, findCatchUp(db, eventIds));
 
     return reply.send({ ok: true, data: { conflicts } });
   });

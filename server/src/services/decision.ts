@@ -1,11 +1,16 @@
 import type { ConflictDecision, ConflictDecisionOption, EventRow } from "@cairn/shared";
 import type { PersonContextItem } from "../repositories/people.js";
+import type { CatchUp } from "./event-materials.js";
 import { computeSocialContext, evaluatePeopleGuard } from "./people-impact.js";
 
 const NEAR_HORIZON_MS = 6 * 60 * 60 * 1000;
 
 // cancel_effort text enum → ordinal for internal ordering only
 const EFFORT_ORDINAL: Record<string, number> = { none: 0, low: 1, medium: 2, high: 3 };
+
+// 다시보기가 있으면 놓치는 비용을 깎는다. 공지만 있는(expected) 경우는 절반만 믿는다.
+// 금액(원 단위)이 있으면 그쪽이 압도하므로, 실질적으로는 무료 일정끼리의 순서를 바꾸는 정도.
+const CATCH_UP_DISCOUNT: Record<CatchUp, number> = { available: 2, expected: 1 };
 
 // Raw DB row shape with cost columns; status is string|null from DB
 export type EventWithCosts = {
@@ -26,7 +31,8 @@ export type EventWithCosts = {
 export function buildConflictDecisions(
   now: string,
   events: EventWithCosts[],
-  eventPeopleContext?: Map<number, PersonContextItem[]>
+  eventPeopleContext?: Map<number, PersonContextItem[]>,
+  catchUp?: Map<number, CatchUp>
 ): ConflictDecision[] {
   const scheduled = events.filter(
     (e) =>
@@ -62,7 +68,7 @@ export function buildConflictDecisions(
       const id = [a.id, b.id].sort((x, y) => x - y).join(":");
       const aPeople = eventPeopleContext?.get(a.id) ?? [];
       const bPeople = eventPeopleContext?.get(b.id) ?? [];
-      const options = buildOptions(a, b, aPeople, bPeople);
+      const options = buildOptions(a, b, aPeople, bPeople, catchUp?.get(a.id) ?? null, catchUp?.get(b.id) ?? null);
       const { actionability, disabledReasonCodes } = computeActionability(nowMs, aStart, bStart);
 
       decisions.push({ id, pair: { a: toEventRow(a), b: toEventRow(b) }, overlapMinutes, urgency, actionability, disabledReasonCodes, options });
@@ -76,7 +82,9 @@ function buildOptions(
   a: EventWithCosts,
   b: EventWithCosts,
   aPeople: PersonContextItem[],
-  bPeople: PersonContextItem[]
+  bPeople: PersonContextItem[],
+  catchUpA: CatchUp | null = null,
+  catchUpB: CatchUp | null = null
 ): [ConflictDecisionOption, ConflictDecisionOption] {
   // socialContext: for option A (cancel A), A's linked people affect A's social cost
   const socialCtxA = computeSocialContext(a.cancelSocial ?? null, aPeople);
@@ -89,10 +97,11 @@ function buildOptions(
   const effectiveSocialA = socialCtxA.effective;
   const effectiveSocialB = socialCtxB.effective;
 
-  const scoreA = internalScoreWithContext(a, effectiveSocialA);
-  const scoreB = internalScoreWithContext(b, effectiveSocialB);
-  const anyKnownA = hasKnownCostWithContext(a, effectiveSocialA);
-  const anyKnownB = hasKnownCostWithContext(b, effectiveSocialB);
+  const scoreA = internalScoreWithContext(a, effectiveSocialA) - (catchUpA ? CATCH_UP_DISCOUNT[catchUpA] : 0);
+  const scoreB = internalScoreWithContext(b, effectiveSocialB) - (catchUpB ? CATCH_UP_DISCOUNT[catchUpB] : 0);
+  // 다시보기 유무도 판단 근거가 된다 — 비용 정보가 없는 두 일정 사이에서도 순서를 정할 수 있게.
+  const anyKnownA = hasKnownCostWithContext(a, effectiveSocialA) || catchUpA !== null;
+  const anyKnownB = hasKnownCostWithContext(b, effectiveSocialB) || catchUpB !== null;
 
   let suggestedA = false;
   let suggestedB = false;
@@ -105,8 +114,8 @@ function buildOptions(
     }
   }
   // If one side is blocked and the other is not, mark the unblocked as required by guard
-  let reasonCodesA = suggestedA ? ["lower_cancel_cost"] : [];
-  let reasonCodesB = suggestedB ? ["lower_cancel_cost"] : [];
+  let reasonCodesA = suggestedA ? ["lower_cancel_cost", ...(catchUpA ? ["catch_up_available"] : [])] : [];
+  let reasonCodesB = suggestedB ? ["lower_cancel_cost", ...(catchUpB ? ["catch_up_available"] : [])] : [];
   if (guardA.blocked && !guardB.blocked) {
     reasonCodesB = [...new Set([...reasonCodesB, "required_by_people_constraint"])];
   } else if (guardB.blocked && !guardA.blocked) {
@@ -127,7 +136,8 @@ function buildOptions(
     suggested: suggestedA,
     reasonCodes: reasonCodesA,
     socialContext: socialCtxA,
-    peopleGuard: guardA
+    peopleGuard: guardA,
+    catchUp: catchUpA
   };
 
   const optB: ConflictDecisionOption = {
@@ -144,7 +154,8 @@ function buildOptions(
     suggested: suggestedB,
     reasonCodes: reasonCodesB,
     socialContext: socialCtxB,
-    peopleGuard: guardB
+    peopleGuard: guardB,
+    catchUp: catchUpB
   };
 
   return [optA, optB];

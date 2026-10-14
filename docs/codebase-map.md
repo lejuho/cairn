@@ -40,6 +40,10 @@ Use this file to narrow read scope. Do not treat it as full spec. Product rules 
   - Inbox `material_due` when `expected_at` passes; outcome_check `done` returns
     open `captureCheck` in its effect; candidate feasibility emits `capture_check`.
   - MCP: `cairn_event_capture_check`, `cairn_material_attach`, `cairn_material_update`.
+  - Catch-up: `findCatchUp` (video/recording available|expected) lowers miss cost —
+    `decision.ts` discounts score (available 2, expected 1), counts as known cost,
+    adds `catch_up_available` + option `catchUp`; candidate feasibility softens a
+    conflict with such an event to `tight` and says so in the reason.
 - `docs/`
   - Product spec and design docs.
 - `.review/`

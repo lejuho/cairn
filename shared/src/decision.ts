@@ -60,7 +60,9 @@ export const ConflictDecisionOptionSchema = z.object({
   suggested: z.boolean(),
   reasonCodes: z.array(z.string()),
   socialContext: SocialContextSchema.optional(),
-  peopleGuard: PeopleGuardSchema.optional()
+  peopleGuard: PeopleGuardSchema.optional(),
+  // 다시보기·녹음이 있으면(available) 또는 공개 예정이면(expected) 놓쳐도 내용은 회복 가능.
+  catchUp: z.enum(["available", "expected"]).nullable().optional()
 });
 
 export const ConflictDecisionSchema = z.object({

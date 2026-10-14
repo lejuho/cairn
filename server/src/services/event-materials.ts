@@ -1,4 +1,4 @@
-import { and, asc, eq, lte } from "drizzle-orm";
+import { and, asc, eq, inArray, lte } from "drizzle-orm";
 import type {
   CaptureCheck,
   CaptureCheckItem,
@@ -100,6 +100,26 @@ export function updateEventMaterial(
     .returning()
     .all();
   return { ok: true, material: toView(row!) };
+}
+
+export type CatchUp = "available" | "expected";
+
+/**
+ * 놓쳐도 나중에 볼 수 있는 일정 (다시보기·녹음이 있거나 공개 예정).
+ * 취소 비용 판단에 쓴다: 내용 손실이 회복 가능하면 놓치는 비용이 낮다.
+ */
+export function findCatchUp(db: CairnDatabase, eventIds: number[]): Map<number, CatchUp> {
+  const out = new Map<number, CatchUp>();
+  if (eventIds.length === 0) return out;
+  const rows = db
+    .select({ eventId: eventMaterials.eventId, status: eventMaterials.status })
+    .from(eventMaterials)
+    .where(and(inArray(eventMaterials.eventId, eventIds), inArray(eventMaterials.kind, ["video", "recording"]), inArray(eventMaterials.status, ["available", "expected"])))
+    .all();
+  for (const r of rows) {
+    if (r.status === "available" || !out.has(r.eventId)) out.set(r.eventId, r.status as CatchUp);
+  }
+  return out;
 }
 
 /** 공개 예정 시점이 지난 expected 자료 (inbox material_due 재료). */

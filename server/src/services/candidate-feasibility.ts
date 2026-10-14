@@ -10,7 +10,7 @@ import { findAllPeople } from "../repositories/people.js";
 import { readNumericParam, readParam } from "../repositories/params.js";
 import { findPinnedByPair } from "../repositories/pinned-transit-facts.js";
 import { geocodeText } from "./geocoding.js";
-import { detectCaptureProfile } from "./event-materials.js";
+import { detectCaptureProfile, findCatchUp } from "./event-materials.js";
 import { upsertInboxItem } from "./inbox.js";
 
 // "이 후보 일정을 넣으면 그날이 굴러가나?" — 저장 없는 가정 판정.
@@ -186,11 +186,19 @@ export async function checkCandidateFeasibility(
     reasons.push("이미 시작 시각이 지났어요.");
     severities.push("hard");
   }
+  const catchUp = findCatchUp(db, conflicts.map((c) => c.id));
   for (const c of conflicts) {
     const text = `'${c.title}'(${dateLabel(Date.parse(c.start!))} ${hhmm(Date.parse(c.start!))}~${hhmm(Date.parse(c.end!))})과 시간이 겹쳐요.`;
-    reasons.push(horizon === "distant" ? `${text} 아직 멀어서 조정 여지가 있어요.` : text);
-    risks.push({ type: "conflict", text });
-    severities.push(bySeverity("hard", "hard", "tight"));
+    const replay = catchUp.get(c.id);
+    // 겹치는 기존 일정에 다시보기가 있으면 그쪽을 나중에 보는 선택지가 생기므로 한 단계 완화.
+    const replayNote = replay === "available"
+      ? " 다만 그 일정은 다시보기가 있어서 나중에 볼 수 있어요."
+      : replay === "expected"
+        ? " 다만 그 일정은 다시보기가 공개될 예정이라(공지 기준) 나중에 볼 수 있을 거예요."
+        : "";
+    reasons.push(`${horizon === "distant" ? `${text} 아직 멀어서 조정 여지가 있어요.` : text}${replayNote}`);
+    risks.push({ type: "conflict", text: `${text}${replayNote}` });
+    severities.push(replay ? "tight" : bySeverity("hard", "hard", "tight"));
   }
 
   // 종일 일정(여행·시험·행사 등)은 시간 겹침으로 안 잡히므로 따로 본다.

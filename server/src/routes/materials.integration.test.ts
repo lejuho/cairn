@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildServer } from "../app.js";
 import { createSqliteConnection, runMigrations, type SqliteConnection } from "../db/index.js";
 import { events } from "../db/schema.js";
+import { checkCandidateFeasibility } from "../services/candidate-feasibility.js";
 
 const tempDirs: string[] = [];
 
@@ -104,5 +105,42 @@ describe("event materials", () => {
     const ok = await app.inject({ method: "POST", url: `/api/inbox/${item.id}/answer`, payload: { decision: "accept", value: { outcome: "done" } } });
     expect(ok.json().data.effect.captureCheck).toMatchObject({ profile: "talk" });
     expect(ok.json().data.effect.captureCheck.items).toHaveLength(3);
+  });
+
+  it("treats a conflicting event with a replay as recoverable", async () => {
+    const app = buildServer(conn.db);
+    const input = { title: "친구 점심", start: "2026-10-14T12:00:00+09:00", end: "2026-10-14T13:00:00+09:00" };
+    const now = "2026-10-01T09:00:00+09:00";
+    const before = await checkCandidateFeasibility(conn.db, undefined, input, now);
+    const conflictBefore = before.risks.find((r) => r.type === "conflict")!;
+    expect(conflictBefore.text).not.toMatch(/다시보기/);
+
+    await app.inject({
+      method: "POST", url: `/api/events/${eventId}/materials`,
+      payload: { kind: "video", status: "expected", expectedAt: "2026-10-31T10:00:00+09:00", sourceUrl: "https://www.youtube.com/@kakaotech" }
+    });
+    const after = await checkCandidateFeasibility(conn.db, undefined, input, now);
+    expect(after.risks.find((r) => r.type === "conflict")!.text).toMatch(/다시보기가 공개될 예정/);
+    expect(after.verdict).not.toBe("hard");
+  });
+
+  it("suggests giving up the event with a replay in a cost-free conflict", async () => {
+    const [other] = conn.db.insert(events).values({
+      title: "스터디", start: "2026-10-14T11:00:00+09:00", end: "2026-10-14T12:00:00+09:00", source: "manual"
+    }).returning().all();
+    const app = buildServer(conn.db);
+    const url = `/api/decisions/conflicts?date=2026-10-14&now=${encodeURIComponent("2026-10-14T08:00:00+09:00")}`;
+    const neutral = (await app.inject({ method: "GET", url })).json().data.conflicts[0];
+    expect(neutral.options.map((o: { suggested: boolean }) => o.suggested)).toEqual([false, false]);
+
+    await app.inject({
+      method: "POST", url: `/api/events/${eventId}/materials`,
+      payload: { kind: "video", url: "https://www.youtube.com/watch?v=abc" }
+    });
+    const res = (await app.inject({ method: "GET", url })).json().data.conflicts[0];
+    const kakao = res.options.find((o: { event: { id: number } }) => o.event.id === eventId);
+    const study = res.options.find((o: { event: { id: number } }) => o.event.id === other!.id);
+    expect(kakao).toMatchObject({ suggested: true, catchUp: "available", reasonCodes: ["lower_cancel_cost", "catch_up_available"] });
+    expect(study).toMatchObject({ suggested: false, catchUp: null });
   });
 });
