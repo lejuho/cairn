@@ -27,6 +27,7 @@
 | **M-RESOLVED-SECTION** | `## RESOLVED` | `^## RESOLVED` | review-vN.md (Executor append) | check-resolved-immutable.sh (경계 위 출현 시 위반) |
 | **M-PLAN-SKILLS** | `Skills: <s1, s2>` 또는 `Skills: none` | `^Skills:` (대소문자 무시) | plan.md 첫 섹션 (Planner 선언) | check-skill-loaded.sh |
 | **M-SKILL-LOAD** | `[[SKILL:<name>]]` | `\[\[SKILL:<name>\]\]` (고정 문자열 grep -F) | Executor가 skill 로드 시 (transcript) | check-skill-loaded.sh |
+| **M-EXECUTOR-DONE** | `[[EXECUTOR_DONE:cycle=N pass=NNN kind=implement]]` | `\[\[EXECUTOR_DONE:cycle=[0-9]+ pass=[0-9]+ kind=(implement\|fix)\]\]` | Executor가 pass 완료 시 (transcript) | write-executor-done.sh |
 
 ## 알려진 충돌 — M-ADVISOR-CALL
 

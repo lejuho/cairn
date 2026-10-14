@@ -62,6 +62,10 @@
           {
             "type": "command",
             "command": ".claude/hooks/check-cycle-cap.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/write-executor-done.sh"
           }
         ]
       }

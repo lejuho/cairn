@@ -7,7 +7,9 @@
 #   대신 cycle 단위 누적 카운트로 근사. 너무 많은 파일을 읽으면 신호.
 #
 # 기본값:
-#   CYCLE_FILE_LIMIT=25 (한 cycle 동안 25개 unique 파일 read 허용)
+#   CYCLE_FILE_WARN_LIMIT=25 (초과 시 1회 경고만 출력)
+#   CYCLE_FILE_BLOCK_LIMIT=40 (초과 시 block)
+#   legacy CYCLE_FILE_LIMIT는 warning threshold로만 사용
 #   필요 시 환경 변수로 override
 #
 # 제외 대상:
@@ -53,7 +55,9 @@ done
 [ -z "$CURRENT_CYCLE" ] && exit 0
 
 COUNTER="$CURRENT_CYCLE/.read-counter"
-FILE_LIMIT=${CYCLE_FILE_LIMIT:-25}
+WARN_LIMIT=${CYCLE_FILE_WARN_LIMIT:-${CYCLE_FILE_LIMIT:-25}}
+BLOCK_LIMIT=${CYCLE_FILE_BLOCK_LIMIT:-40}
+WARN_MARKER="$CURRENT_CYCLE/.context-budget-warning"
 
 # 이미 카운트된 파일이면 통과 (중복 read 허용)
 if [ -f "$COUNTER" ] && grep -qFx "$FILE_PATH" "$COUNTER" 2>/dev/null; then
@@ -65,15 +69,31 @@ echo "$FILE_PATH" >> "$COUNTER"
 CURRENT_COUNT=$(wc -l < "$COUNTER" 2>/dev/null | tr -d ' ')
 CURRENT_COUNT=${CURRENT_COUNT:-0}
 
-# 한도 이내면 통과
-if [ "$CURRENT_COUNT" -le "$FILE_LIMIT" ]; then
+# hard limit 초과 — block
+if [ "$CURRENT_COUNT" -gt "$BLOCK_LIMIT" ]; then
+  cat <<EOF
+{
+  "decision": "block",
+  "reason": "Context budget hard limit 초과. 이번 cycle에서 read한 unique 파일 ${CURRENT_COUNT}개로 block limit ${BLOCK_LIMIT}개 초과. just-in-time retrieval 원칙 위반 가능성이 큼. halt + report 후 다음 중 하나를 결정: (1) plan.md amend (Key Changes 추가 누락), (2) cycle split, (3) step 재정의. CLAUDE.md 'Context Discipline' 섹션 참조. counter 위치: ${COUNTER}"
+}
+EOF
   exit 0
 fi
 
-# 초과 — block
-cat <<EOF
-{
-  "decision": "block",
-  "reason": "Context budget 초과. 이번 cycle에서 read한 unique 파일 ${CURRENT_COUNT}개로 limit ${FILE_LIMIT}개 초과. just-in-time retrieval 원칙 위반 가능성. halt + report 후 다음 중 하나를 결정: (1) plan.md amend (Key Changes 추가 누락), (2) cycle split, (3) step 재정의. CLAUDE.md 'Context Discipline' 섹션 참조. counter 위치: ${COUNTER}"
-}
+# warning threshold 이하면 통과
+if [ "$CURRENT_COUNT" -le "$WARN_LIMIT" ]; then
+  exit 0
+fi
+
+# warning threshold 초과 — 한 번만 경고하고 진행 허용
+if [ ! -f "$WARN_MARKER" ]; then
+  {
+    echo "Context budget warning: ${CURRENT_COUNT} unique files read; warn limit ${WARN_LIMIT}, block limit ${BLOCK_LIMIT}."
+    echo "Counter: ${COUNTER}"
+  } > "$WARN_MARKER" 2>/dev/null || true
+  cat >&2 <<EOF
+Context budget warning: 이번 cycle에서 read한 unique 파일 ${CURRENT_COUNT}개로 warning limit ${WARN_LIMIT}개 초과. block limit ${BLOCK_LIMIT}개까지는 진행 허용. counter 위치: ${COUNTER}
 EOF
+fi
+
+exit 0

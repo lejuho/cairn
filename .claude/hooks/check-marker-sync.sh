@@ -132,6 +132,15 @@ assert_in_hook  "M-PLAN-SKILLS" "check-skill-loaded.sh" "^Skills:"
 assert_in_hook  "M-SKILL-LOAD"  "check-skill-loaded.sh" "[[SKILL:"
 echo
 
+echo "M-EXECUTOR-DONE (write-executor-done.sh)"
+EXEC_DONE_RE='\[\[EXECUTOR_DONE:cycle=[0-9]+ pass=[0-9]+ kind=(implement|fix)\]\]'
+assert_match    "M-EXECUTOR-DONE" "[[EXECUTOR_DONE:cycle=9999 pass=001 kind=implement]]" "$EXEC_DONE_RE"
+assert_match    "M-EXECUTOR-DONE" "[[EXECUTOR_DONE:cycle=9999 pass=002 kind=fix]]" "$EXEC_DONE_RE"
+assert_no_match "M-EXECUTOR-DONE" "[[EXECUTOR_DONE:cycle=N pass=NNN kind=implement]]" "$EXEC_DONE_RE"
+assert_in_hook  "M-EXECUTOR-DONE" "write-executor-done.sh" "EXECUTOR_DONE:cycle="
+assert_in_hook  "M-EXECUTOR-DONE" "write-executor-done.sh" "kind=(implement|fix)"
+echo
+
 echo "----------------------------------------"
 echo "PASS=$PASS  FAIL=$FAIL  SKIP=$SKIP"
 if [ "$FAIL" -gt 0 ]; then

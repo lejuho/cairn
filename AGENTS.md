@@ -271,11 +271,13 @@ Pass 1  Planner (Codex plan mode)  → plan.md 작성
 Pass 2  Executor (Sonnet)          → implementation
         └─ step 단위로 진행, step마다 Advisor(Opus) hook 자동 호출
         └─ Advisor 피드백은 advisor-feedback/step-NNN.md에 보존
+        └─ 완료 시 executor/pass-001-done.json 생성
 Pass 3  Cycle Reviewer (Codex)     → review-v1.md
         verdict: BLOCKED | PASS | READY_TO_MERGE
 
 (BLOCKED 시 반복)
 Pass 4  Executor                   → review-v1.md 끝에 RESOLVED 섹션 append
+        └─ 완료 시 executor/pass-NNN-done.json 생성 (NNN = review 번호 + 1)
 Pass 5  Cycle Reviewer             → review-v2.md
 ...
 
@@ -317,6 +319,18 @@ Step Advisor와 Cycle Reviewer는 모두 **별도 세션/sub-agent**로 실행�
 - `in_progress` — 사이클 진행 중
 - `ready_to_merge` — Cycle Reviewer PASS, PR 가능
 - `escalated` — Issue-velocity cap 발동, 사용자 개입 필요
+
+### Executor 완료 신호
+
+Hermes flow는 tmux 화면의 idle 상태가 아니라 executor 완료 파일을 기준으로
+구현→검증 / 수정→재검증 전환을 판단한다.
+
+- 최초 구현 완료: `.review/cycle-N/executor/pass-001-done.json`
+- BLOCKED 수정 완료: 최신 `review-vN.md` 기준 `.review/cycle-N/executor/pass-(N+1)-done.json`
+- JSON 필드: `cycle`, `pass`, `kind` (`implement` 또는 `fix`), `review`, `createdAt`, `summary`, `checks`
+- 같은 done 파일은 한 번만 처리된다. Hermes는 처리한 파일을 `hermes-flow.json`의 processed 목록에 저장한다.
+- Executor는 마지막 응답에 `[[EXECUTOR_DONE:cycle=N pass=NNN kind=implement]]` 형식의 완료 마커를 포함한다. 마커 계약은 `CONTRACT_MARKERS.md`(M-EXECUTOR-DONE)에 고정한다.
+- 작업이 미완료이거나 사용자 판단이 필요한 경우에는 done 파일과 완료 마커를 만들지 않는다.
 
 ---
 

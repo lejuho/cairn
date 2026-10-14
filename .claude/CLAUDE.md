@@ -30,16 +30,16 @@ Executor는 context를 **preemptive하게 채우지 않는다.** Just-in-time re
 - **Glob/grep first** — 파일이 필요해지면 먼저 `glob`/`rg`로 위치 파악, 그 다음 read.
 - **Bounded read** — plan.md `Key Changes`의 `Files` 목록에 명시된 파일만 read. 그 외는 grep 후 필요한 부분만.
 - **5-file halt rule** — 한 step 안에서 read한 파일이 5개를 초과하면 즉시 halt + report. commit unit이 너무 큰 신호.
-- **25% budget** — 전체 cycle 동안 context usage가 모델 capacity의 25%를 넘으면 halt + report. (200k 모델 기준 50k 토큰, 1M 모델 기준 250k 토큰)
+- **Context budget warning/block** — 전체 cycle 동안 unique file read가 25개를 넘으면 경고만 출력하고 계속 진행한다. 40개를 넘으면 halt + report. 토큰 기준으로도 모델 capacity의 25%를 넘는다고 판단하면 자발적으로 halt + report.
 
-### 25% rule이 중요한 이유
+### Context budget rule이 중요한 이유
 
 Context Rot — context가 길어질수록 모델의 의사결정 품질이 떨어진다. 200k 윈도우가 있어도 50k부터는 정확도가 눈에 띄게 감소한다는 게 measured 결과. 큰 컨텍스트가 곧 좋은 컨텍스트가 아니다.
 
 ### Halt 시 보고 형식
 
 ```
-HALT: Context budget exceeded (or 5-file rule)
+HALT: Context budget hard limit exceeded (or 5-file rule)
 - Cycle: N
 - Step: <짧은 설명>
 - 읽은 파일: <목록>
@@ -47,7 +47,7 @@ HALT: Context budget exceeded (or 5-file rule)
 - 권장 조치: <plan.md amend / cycle split / step 재정의>
 ```
 
-→ status.txt = `escalated`로 변경하고 사용자 개입 요청.
+→ hard limit 또는 5-file rule일 때 status.txt = `escalated`로 변경하고 사용자 개입 요청. 25-file warning만으로는 escalated 처리하지 않는다.
 
 ---
 
@@ -81,6 +81,39 @@ Agent({
 응답 받은 직후 `.review/cycle-N/advisor-feedback/step-NNN.md`에 저장. 형식은 AGENTS.md의 "Advisor Feedback Externalization" 섹션 참조.
 
 **"무시" 결정 시 이유 명시 의무.** Communication bridge가 명시화되는 지점.
+
+---
+
+## Executor 완료 신호
+
+Hermes flow는 tmux 화면의 idle 상태가 아니라 executor 완료 파일을 다음 단계 트리거로 사용한다.
+
+Executor pass가 정말 끝났을 때만 다음 파일을 생성한다:
+
+- 최초 구현 pass: `.review/cycle-N/executor/pass-001-done.json`
+- BLOCKED 수정 pass: 최신 `review-vN.md` 기준 `.review/cycle-N/executor/pass-(N+1)-done.json`
+
+JSON 형식:
+
+```json
+{
+  "cycle": 51,
+  "pass": 1,
+  "kind": "implement",
+  "review": null,
+  "createdAt": "2026-06-26T00:00:00Z",
+  "summary": "short summary",
+  "checks": ["pnpm test ..."]
+}
+```
+
+마지막 응답에는 완료 마커도 한 줄 포함한다:
+
+```text
+[[EXECUTOR_DONE:cycle=N pass=NNN kind=implement]]
+```
+
+`kind`는 `implement` 또는 `fix`만 사용한다. 이 마커는 `.claude/hooks/write-executor-done.sh`가 done 파일 누락을 방지하기 위한 백업 신호다. 작업이 미완료이거나 사용자 판단이 필요한 경우에는 done 파일과 마커를 만들지 않는다.
 
 ---
 
@@ -124,6 +157,7 @@ skill 선택을 암묵적 판단에 맡기지 않고 **계약화**한다:
 | `check-resolved-immutable.sh` | Stop | review-vN.md의 `RESOLVED-BOUNDARY` 센티넬 위 Codex 본문 변조 시 block. |
 | `check-skill-loaded.sh` | Stop | plan.md `Skills:` 선언과 실제 `[[SKILL:...]]` 로드 마커 불일치 시 block. |
 | `check-cycle-cap.sh` | Stop | Issue-velocity cap 발동 시 status.txt = escalated. |
+| `write-executor-done.sh` | Stop | `[[EXECUTOR_DONE:...]]` 마커가 있으면 executor done JSON 누락을 보완. |
 
 **Fail-open 원칙**: 모든 hook은 jq 없음/파일 없음/JSON 파싱 실패 시 통과. 시스템을 막지 않는다.
 
