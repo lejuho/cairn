@@ -4,6 +4,7 @@ import { EventGeocodeResponseSchema, PlaceSearchResponseSchema, ResolveConflictR
 import { datetimeLocalToRfc3339, localDateString } from "./dateUtils.js";
 import { apiJson, type AccessSessionError } from "./api.js";
 import { naverSearchUrl, naverTransitDirectionsUrl } from "./naver-map-links.js";
+import { EventMaterials } from "./EventMaterials.js";
 import { DomainFilterControl } from "./DomainFilter.js";
 import { ResultCard } from "./ResultCard.js";
 import { CreationComposer, type ComposerMode, type ComposerModeConfig } from "./CreationComposer.js";
@@ -229,6 +230,8 @@ const TODAY_COMPOSER_MODES: ComposerModeConfig[] = [
   { mode: "watcher", label: "Watcher", placeholder: "지켜볼 것 이름 — 예: 여권 갱신" },
   { mode: "record", label: "기록", placeholder: "무슨 일이 있었는지 적어줘 — 이벤트에 기록돼" }
 ];
+
+const EMPTY_MATERIALS: NonNullable<EventDetailData["materials"]> = [];
 
 async function fetchEventDetail(id: number): Promise<EventDetailData> {
   const body = await apiJson<{ ok: boolean; data?: EventDetailData; error?: { message: string } }>(`/api/events/${id}`);
@@ -2101,6 +2104,7 @@ export function Today() {
                 </ul>
               </div>
             )}
+            <EventMaterials eventId={eventDetail.data.event.id} initial={eventDetail.data.materials ?? EMPTY_MATERIALS} />
             <form
               className="event-detail-note-form"
               onSubmit={(e) => { e.preventDefault(); void handleDetailNote(); }}

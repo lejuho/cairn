@@ -3,6 +3,7 @@ import { EventModeSchema, EventRowSchema } from "./events.js";
 import { EventStatusSchema } from "./enums.js";
 import { PersonRowSchema, PreferredPeriodSchema, WeekdaySchema } from "./people.js";
 import { AnnotationRowSchema } from "./annotations.js";
+import type { EventMaterialView } from "./materials.js";
 import { ResourceFirmnessSchema, ResourceRowSchema } from "./resources.js";
 
 export const CompactThreadSchema = z.object({
@@ -113,7 +114,9 @@ export const EventDetailDataSchema = z.object({
   people: z.array(PersonRowSchema),
   annotations: z.array(AnnotationRowSchema),
   thread: CompactThreadSchema.nullable(),
-  scheduleBrief: ScheduleBriefSchema
+  scheduleBrief: ScheduleBriefSchema,
+  // 일정이 남긴 자료 (event_materials). 옛 응답과의 호환을 위해 optional.
+  materials: z.array(z.custom<EventMaterialView>()).optional()
 });
 
 export const PatchEventStatusRequestSchema = z.object({

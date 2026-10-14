@@ -4076,3 +4076,95 @@ p {
   .composer-mode,
   .composer-submit { transition: none; }
 }
+
+/* Event materials (자료) section in the event detail sheet */
+.event-detail-materials {
+  margin-bottom: 16px;
+}
+
+.event-material-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.event-material {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  padding: 6px 10px;
+  background: var(--raised);
+  border-radius: 6px;
+  border-left: 2px solid var(--done);
+}
+
+.event-material[data-status="expected"] { border-left-color: var(--moved); }
+.event-material[data-status="missing"] { border-left-color: var(--border); color: var(--muted); }
+
+.event-material-kind {
+  font-size: 0.7rem;
+  color: var(--faint);
+  min-width: 3.5em;
+}
+
+.event-material-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  overflow-wrap: anywhere;
+}
+
+.event-material-body a { color: var(--text); }
+
+.event-material-status {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.event-material-source {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.event-material-fill-btn {
+  font-size: 0.75rem;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.event-material-fill,
+.event-material-add {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+}
+
+.event-material-add .today-reply-input,
+.event-material-fill .today-reply-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.event-material-add { flex-wrap: wrap; }
+.event-material-add .event-material-label-input { flex-basis: 100%; order: -1; }
+
+.event-material-kind-select {
+  background: var(--raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  padding: 0 6px;
+}

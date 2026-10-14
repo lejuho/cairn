@@ -7,6 +7,7 @@ import { findThreadById } from "../repositories/threads.js";
 import { addEventPreparation, findPreparationLinkData } from "../repositories/resources.js";
 import { eventExists } from "../repositories/resources.js";
 import { buildScheduleBrief, pickNewestAnnotation } from "../services/scheduleBrief.js";
+import { listEventMaterials } from "../services/event-materials.js";
 import { buildPreparations } from "../services/preparationBrief.js";
 import { buildPreparationSuggestions } from "../services/preparationSuggestions.js";
 import type { CairnDatabase } from "../db/index.js";
@@ -86,7 +87,7 @@ export function registerEventRoutes(app: FastifyInstance, db: CairnDatabase): vo
     const preparationSuggestions = buildPreparationSuggestions(result.event, thread, preparations);
     const scheduleBrief = buildScheduleBrief(result.event, thread, previousEvent, previousAnnotation, result.people, preparations, preparationSuggestions);
 
-    return reply.send({ ok: true, data: { event: result.event, people: result.people, annotations, thread: compactThread, scheduleBrief } });
+    return reply.send({ ok: true, data: { event: result.event, people: result.people, annotations, thread: compactThread, scheduleBrief, materials: listEventMaterials(db, result.event.id) } });
   });
 
   app.patch("/api/events/:id/status", async (req, reply) => {

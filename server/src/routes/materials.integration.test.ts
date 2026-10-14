@@ -63,6 +63,8 @@ describe("event materials", () => {
     const after = await app.inject({ method: "GET", url: `/api/events/${eventId}/capture-check` });
     expect(after.json().data.items.map((i: { covered: unknown }) => i.covered)).toEqual(["available", "expected", null]);
     expect(after.json().data.materials).toHaveLength(2);
+    const detail = await app.inject({ method: "GET", url: `/api/events/${eventId}` });
+    expect(detail.json().data.materials.map((m: { kind: string }) => m.kind)).toEqual(["slides", "video"]);
   });
 
   it("asks when an expected material is due and resolves it from the answer", async () => {
