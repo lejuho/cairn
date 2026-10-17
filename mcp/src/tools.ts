@@ -97,6 +97,11 @@ export const API_ROUTE_CATALOG: JsonValue[] = [
   { method: "GET", path: "/api/mirror/diary", purpose: "Mirror diary" }
 ];
 
+// 두 서버(로컬 stdio·원격)의 instructions 끝에 붙는 응답 형식 안내.
+export const RESPONSE_FORMAT_NOTE =
+  " Response format: every tool returns {ok, status, statusText, data} where data is the Cairn server body {ok, data} — the \"반환:\" at the end of each tool description is the shape of that inner data.data. " +
+  "On failure isError is true and data.error is {code, message} (e.g. VALIDATION_ERROR lists the bad field); fix the arguments instead of retrying unchanged.";
+
 const EMPTY_SCHEMA: JsonObject = {
   type: "object",
   additionalProperties: false
@@ -105,7 +110,7 @@ const EMPTY_SCHEMA: JsonObject = {
 export const TOOLS: McpTool[] = [
   {
     name: "cairn_context_now",
-    description: "지금의 맥락: 진행 중/24시간 내 일정, 활성 thread(현재 작업 디렉터리에 묶인 것 우선), 확인 대기 질문 상위 5개. 사용자가 '뭐부터 하지', '오늘 어때' 같은 걸 물으면 먼저 호출.",
+    description: "지금의 맥락: 진행 중/24시간 내 일정, 활성 thread(현재 작업 디렉터리에 묶인 것 우선), 확인 대기 질문 상위 5개. 사용자가 '뭐부터 하지', '오늘 어때' 같은 걸 물으면 먼저 호출. 반환: {now, cwd, upcoming:[{id, title, start, end, location, threadId, status, ongoing}], activeThreads:[{id, name, goal, deadline, matchesWorkspace}], inbox:{items:[cairn_inbox 항목], pendingTotal}}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -117,7 +122,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_inbox",
-    description: "사용자에게 확인할 질문 목록(우선순위 순). 대화 흐름이 끊기지 않는 시점에 1~2개만 자연스럽게 물어보고, 답을 받으면 cairn_confirm 으로 기록. 각 항목의 answerHint 를 따를 것.",
+    description: "사용자에게 확인할 질문 목록(우선순위 순). 대화 흐름이 끊기지 않는 시점에 1~2개만 자연스럽게 물어보고, 답을 받으면 cairn_confirm 으로 기록. 각 항목의 answerHint 를 따를 것. 반환: {items:[{id, kind, prompt, priority, relevance, threadId, threadName, subject:{type, id}, payload, evidence, createdAt, answerHint}], pendingTotal}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -129,7 +134,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_confirm",
-    description: "inbox 질문에 대한 사용자의 답을 기록. 사용자가 실제로 답한 것만 기록하고 추측으로 accept 하지 말 것. decision: accept|reject|dismiss|snooze.",
+    description: "inbox 질문에 대한 사용자의 답을 기록. 사용자가 실제로 답한 것만 기록하고 추측으로 accept 하지 말 것. decision: accept|reject|dismiss|snooze. 반환: {id, status, effect(accept로 만들어진 것 | null)}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -146,7 +151,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_observe",
-    description: "대화 중 드러난 사실/결정/약속을 관찰로 기록 (추론 재료). 확정 일정이 아니라 원문 메모. 예: '다음 주 화요일 BAY 운영진 회의 잡힘'.",
+    description: "대화 중 드러난 사실/결정/약속을 관찰로 기록 (추론 재료). 확정 일정이 아니라 원문 메모. 예: '다음 주 화요일 BAY 운영진 회의 잡힘'. 반환: {stored:true, id} 또는 {stored:false, reason:\"duplicate\"|\"filtered\"}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -161,7 +166,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_check_feasibility",
-    description: "그 시간에 그 장소(또는 온라인) 일정에 참여할 수 있는지 Cairn 이 판정 (일정 저장 안 함). 날짜가 멀수록 느슨하게(horizon: imminent ≤7일 / planning ≤60일 / distant), 동행자 조건·연락 기한, 근처 프로젝트 마감, 그날 부하, 종일 일정도 본다. 직전/직후 일정과 장소, 이동시간(고정값 > Google 대중교통 추정), 출발해야 할 시각, 겹침을 보고 가능/빠듯/어려움/확인 필요를 돌려준다. 이동시간을 직접 추정하지 말고 이 결과를 전달할 것. analysisRequests 는 판단 전에 확인해야 할 것(경로 확인, 출발지 확인)이며, route_check 는 naverUrl 로 실제 경로를 확인해 사용자에게 안내.",
+    description: "그 시간에 그 장소(또는 온라인) 일정에 참여할 수 있는지 Cairn 이 판정 (일정 저장 안 함). 날짜가 멀수록 느슨하게(horizon: imminent ≤7일 / planning ≤60일 / distant), 동행자 조건·연락 기한, 근처 프로젝트 마감, 그날 부하, 종일 일정도 본다. 직전/직후 일정과 장소, 이동시간(고정값 > Google 대중교통 추정), 출발해야 할 시각, 겹침을 보고 가능/빠듯/어려움/확인 필요를 돌려준다. 이동시간을 직접 추정하지 말고 이 결과를 전달할 것. analysisRequests 는 판단 전에 확인해야 할 것(경로 확인, 출발지 확인)이며, route_check 는 naverUrl 로 실제 경로를 확인해 사용자에게 안내. 반환: {verdict, verdictKo, horizon, daysAhead, reasons[], risks:[{type, text}], people[], assumptions[], conflicts[], previous, next, legs:[{from:{label, source}, to, arriveBy, departBy, minutes, basis, naverUrl, slackMinutes}], analysisRequests:[{kind, priority, reason}]}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -180,7 +185,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_propose_event",
-    description: "메일·X·Luma·대화에서 찾은 일정을 구조화해서 Cairn 에 후보로 제안. 판정이 함께 돌아오고, 같은 URL 은 한 번만 질문으로 만든다(alreadyKnown=true 면 이미 물어본 것이니 다시 묻지 말 것). 사용자가 '넣어줘'라고 하면 돌아온 inboxId 로 cairn_confirm(accept).",
+    description: "메일·X·Luma·대화에서 찾은 일정을 구조화해서 Cairn 에 후보로 제안. 판정이 함께 돌아오고, 같은 URL 은 한 번만 질문으로 만든다(alreadyKnown=true 면 이미 물어본 것이니 다시 묻지 말 것). 사용자가 '넣어줘'라고 하면 돌아온 inboxId 로 cairn_confirm(accept). 반환: {inboxId, alreadyKnown, status, feasibility(cairn_check_feasibility 반환과 같음)}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -202,7 +207,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_pin_route",
-    description: "사용자가 확인한 구간 소요시간(분)을 고정. 이후 판정에서 Google 추정보다 우선한다. 사용자가 시간을 직접 말했거나 확인해 준 경우에만 호출하고, 네이버 경로의 상세 단계는 넣지 말 것 (note 는 '2호선 한 번' 정도의 짧은 메모).",
+    description: "사용자가 확인한 구간 소요시간(분)을 고정. 이후 판정에서 Google 추정보다 우선한다. 사용자가 시간을 직접 말했거나 확인해 준 경우에만 호출하고, 네이버 경로의 상세 단계는 넣지 말 것 (note 는 '2호선 한 번' 정도의 짧은 메모). 반환: {id, from, to, minutes}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -217,7 +222,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_plan_prep",
-    description: "여행·행사 준비 사슬을 등록. 각 준비의 소요 일수를 넘기면 Cairn 이 마지노선을 역산해 할 일과 알림(watcher)으로 만든다. 요건·소요 일수는 공식 출처로 확인한 것이나 사용자가 말한 것만 넣을 것.",
+    description: "여행·행사 준비 사슬을 등록. 각 준비의 소요 일수를 넘기면 Cairn 이 마지노선을 역산해 할 일과 알림(watcher)으로 만든다. 요건·소요 일수는 공식 출처로 확인한 것이나 사용자가 말한 것만 넣을 것. 반환: {watcher, tasks:[{id, title, status, due}](단계별 할 일), targetTask, links[], reversePlan}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -244,7 +249,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_event_capture_check",
-    description: "일정 성격(강연·강의·회의·해커톤)에 따라 확보할 자료 체크리스트와 이미 붙은 자료를 돌려준다. covered=null 항목만 공식 출처에서 확인해 cairn_material_attach 로 기록할 것.",
+    description: "일정 성격(강연·강의·회의·해커톤)에 따라 확보할 자료 체크리스트와 이미 붙은 자료를 돌려준다. covered=null 항목만 공식 출처에서 확인해 cairn_material_attach 로 기록할 것. 반환: {eventId, profile, items:[{kind, question, covered(null이면 미확인)}], instruction, materials:[자료]}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -254,7 +259,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_material_attach",
-    description: "일정에 자료(발표자료·다시보기·녹음·메모·사진·링크) 포인터를 붙인다. 이미 있으면 status=available + url(또는 note). 공개 예정이면 status=expected + expectedAt(다시 확인할 시점) + sourceUrl(공지 출처) — 시점이 되면 Cairn 이 material_due 질문을 띄운다. 공개 여부·시점은 공식 출처나 사용자 말만 근거로, 본문은 저장하지 말 것.",
+    description: "일정에 자료(발표자료·다시보기·녹음·메모·사진·링크) 포인터를 붙인다. 이미 있으면 status=available + url(또는 note). 공개 예정이면 status=expected + expectedAt(다시 확인할 시점) + sourceUrl(공지 출처) — 시점이 되면 Cairn 이 material_due 질문을 띄운다. 공개 여부·시점은 공식 출처나 사용자 말만 근거로, 본문은 저장하지 말 것. 반환: {material:{id, eventId, kind, status, label, url, expectedAt, sourceUrl, note, addedBy, missingReason, createdAt, updatedAt}}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -274,7 +279,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_material_update",
-    description: "자료 상태 갱신. 공개됐으면 status=available + url, 확인 시점을 미루면 expectedAt, 공개 안 함이 확인되면 status=missing.",
+    description: "자료 상태 갱신. 공개됐으면 status=available + url, 확인 시점을 미루면 expectedAt, 공개 안 함이 확인되면 status=missing. 반환: {material} (cairn_material_attach와 같은 형태).",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -292,7 +297,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_thread_workspace",
-    description: "작업 디렉터리를 thread 에 묶는다. 이후 그 디렉터리의 세션에서 해당 thread 질문이 우선 노출된다.",
+    description: "작업 디렉터리를 thread 에 묶는다. 이후 그 디렉터리의 세션에서 해당 thread 질문이 우선 노출된다. 반환: {threadId, path}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -302,7 +307,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_api_request",
-    description: "Call any Cairn HTTP endpoint on the configured Cairn API base URL. Path is limited to /api/* or /health.",
+    description: "Call any Cairn HTTP endpoint on the configured Cairn API base URL. Path is limited to /api/* or /health. 반환: 해당 경로의 서버 응답 본문 그대로.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -318,15 +323,16 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_route_catalog",
-    description: "List Cairn API routes exposed through cairn_api_request.",
+    description: "List Cairn API routes exposed through cairn_api_request. 반환: 이 도구만 봉투 없이 {ok, data:{routes:[{method, path, purpose}]}}.",
     inputSchema: EMPTY_SCHEMA
   },
   {
     name: "cairn_today_get",
-    description: "Read the Today surface.",
+    description: "Read the Today surface. 반환: {date, now, state, nextEvent, conflicts[], dayEvents[], cards[], unscheduledEvents[], dueTaskSchedulePrompts[], watcherBubbles[], needsReviewEvents[], twoMinuteTasks[], feasibility:{params, energy:{loadUnits, budgetUnits, remainingUnits, deficit}, gaps[], sequenceEnergy, sequenceOrder, …}, locationContexts[]}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
+      required: ["date", "now"],
       properties: {
         date: { type: "string", description: "YYYY-MM-DD" },
         now: { type: "string", description: "RFC3339 timestamp" },
@@ -336,7 +342,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_items_list",
-    description: "List event/task inventory.",
+    description: "List event/task inventory. 반환: {scope, events:[{id, threadId, title, type, start, end, location, mode, source, status, …}], tasks:[{id, threadId, title, estMinutes, due, context, optional, status, …}]}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -348,7 +354,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_event_create",
-    description: "Create a scheduled Cairn event.",
+    description: "Create a scheduled Cairn event. 반환: 생성된 일정 {id, threadId, title, type, start, end, location, mode, source, status, …}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -367,7 +373,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_event_update_node",
-    description: "Edit event node fields: title, type, location, mode.",
+    description: "Edit event node fields: title, type, location, mode. 반환: {event}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -383,7 +389,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_event_status",
-    description: "Update event status.",
+    description: "Update event status. 반환: {event}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -396,7 +402,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_event_geocode",
-    description: "Geocode an event's authored location and update the geocode cache.",
+    description: "Geocode an event's authored location and update the geocode cache. 반환: {eventId, provider, locationText, normalizedLocation, cacheStatus, status, latitude, longitude, …}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -406,7 +412,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_event_slot_candidates",
-    description: "Preview schedule candidates for an unscheduled event.",
+    description: "Preview schedule candidates for an unscheduled event. 반환: {event, candidates:[{start, end, score, rank, scoreLabel, reasons[], reasonCodes[], contributions[]}]}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -421,7 +427,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_event_schedule",
-    description: "Apply one event slot candidate.",
+    description: "Apply one event slot candidate. 반환: {event}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -438,7 +444,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_task_create",
-    description: "Create a Cairn task.",
+    description: "Create a Cairn task. 반환: 생성된 할 일 {id, threadId, title, estMinutes, due, context, optional, status, …}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -455,7 +461,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_task_update_node",
-    description: "Edit task fields: title, estimate, due, context, optional.",
+    description: "Edit task fields: title, estimate, due, context, optional. 반환: {task}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -472,7 +478,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_task_status",
-    description: "Update task status.",
+    description: "Update task status. 반환: 갱신된 할 일 {id, threadId, title, estMinutes, due, context, optional, status, …}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -485,7 +491,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_task_slot_candidates",
-    description: "Preview schedule candidates for a due task.",
+    description: "Preview schedule candidates for a due task. 반환: {task, candidates:[cairn_event_slot_candidates와 같은 후보]}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -500,7 +506,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_task_schedule_block",
-    description: "Apply one task slot candidate as a scheduled block event.",
+    description: "Apply one task slot candidate as a scheduled block event. 반환: {task, event(만들어진 블록 일정)}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -517,7 +523,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_threads_list",
-    description: "List threads.",
+    description: "List threads. 반환: [{thread:{id, name, kind, goal, deadline, status, domain}, eventCount, taskCount, doneCount, totalCount, relationCounts}].",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -526,7 +532,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_thread_detail",
-    description: "Read thread detail.",
+    description: "Read thread detail. 반환: {thread, events[], tasks[], progress:{done, total}, relations:{incoming, outgoing}, rollup, nodeLinks[], unknownBlockers[], settlement, missingNodeSuggestions[], resume, personFocus}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -536,7 +542,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_thread_create",
-    description: "Create a thread.",
+    description: "Create a thread. 반환: 생성된 thread {id, name, kind, goal, deadline, status, domain, createdAt}.",
     inputSchema: {
       type: "object",
       additionalProperties: true,
@@ -551,7 +557,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_thread_status",
-    description: "Update thread status.",
+    description: "Update thread status. 반환: {thread}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -564,7 +570,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_place_search",
-    description: "Search Naver place candidates for authored event location text.",
+    description: "Search Naver place candidates for authored event location text. 반환: {provider, candidates:[{title, category, address, roadAddress, description, naverUrl, locationText}]}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -574,16 +580,20 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_watchers_list",
-    description: "List watchers.",
+    description: "List watchers. 반환: {watchers:[{id, category, label, kind, armed, threshold, snoozedUntil, status, daysUntil, daysOverdue, message, reasonCodes[]}]}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      properties: { scope: { type: "string" } }
+      required: ["date", "now"],
+      properties: {
+        date: { type: "string", description: "YYYY-MM-DD (daysUntil 기준일)" },
+        now: { type: "string", description: "RFC3339 timestamp" }
+      }
     }
   },
   {
     name: "cairn_watcher_create_date",
-    description: "Create a date-threshold watcher.",
+    description: "Create a date-threshold watcher. 반환: 생성된 watcher.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -597,17 +607,17 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_provider_status",
-    description: "Read map/place provider status diagnostics.",
+    description: "Read map/place provider status diagnostics. 반환: {providers:[…]}.",
     inputSchema: EMPTY_SCHEMA
   },
   {
     name: "cairn_gcal_sync_status",
-    description: "Read Google Calendar OAuth/token/sync status.",
+    description: "Read Google Calendar OAuth/token/sync status. 반환: {state, configured, tokenPresent, syncTokenPresent, lastSyncAt, tokenPath, message}.",
     inputSchema: EMPTY_SCHEMA
   },
   {
     name: "cairn_gcal_sync_run",
-    description: "Run Google Calendar inbound sync now. Requires configured OAuth credentials and token.",
+    description: "Run Google Calendar inbound sync now. Requires configured OAuth credentials and token. 반환: {status(cairn_gcal_sync_status와 같음), result:{upserted, cancelled, skipped}}.",
     inputSchema: EMPTY_SCHEMA
   }
 ];
@@ -616,7 +626,8 @@ export async function callTool(config: CairnApiClientConfig, name: string, rawAr
   try {
     const args = rawArgs ?? {};
     const response = await dispatchTool(config, name, args);
-    return textResult(response);
+    // HTTP 4xx/5xx 도 isError 로 알려야 모델이 실패를 성공으로 읽지 않는다
+    return textResult(response, isJsonObject(response) && response.ok === false);
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown tool error";
     return textResult({ ok: false, error: message }, true);
@@ -700,7 +711,7 @@ async function dispatchTool(config: CairnApiClientConfig, name: string, args: Js
     case "cairn_place_search":
       return request(config, { method: "GET", path: "/api/places/naver", query: pickQuery(args, ["query"]) });
     case "cairn_watchers_list":
-      return request(config, { method: "GET", path: "/api/watchers", query: pickQuery(args, ["scope"]) });
+      return request(config, { method: "GET", path: "/api/watchers", query: pickQuery(args, ["date", "now"]) });
     case "cairn_watcher_create_date":
       return request(config, { method: "POST", path: "/api/watchers", body: pickBody(args, ["label", "threshold", "category"]) });
     case "cairn_provider_status":

@@ -1,6 +1,6 @@
 import { readApiConfig, type CairnApiClientConfig } from "./api.js";
 import { isJsonObject, toJsonValue, type JsonObject, type JsonValue } from "./json.js";
-import { callTool, TOOLS, type McpTool } from "./tools.js";
+import { callTool, RESPONSE_FORMAT_NOTE, TOOLS, type McpTool } from "./tools.js";
 
 type JsonRpcId = string | number | null;
 
@@ -120,7 +120,7 @@ export class CairnMcpServer {
         prompts: {}
       },
       serverInfo: SERVER_INFO,
-      instructions: this.options.instructions ?? DEFAULT_INSTRUCTIONS
+      instructions: this.options.instructions ?? DEFAULT_INSTRUCTIONS + RESPONSE_FORMAT_NOTE
     };
   }
 

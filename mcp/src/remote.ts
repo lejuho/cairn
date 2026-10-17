@@ -7,7 +7,7 @@ import { readApiConfig } from "./api.js";
 import type { JsonObject } from "./json.js";
 import { CORS, header, json, OAuthServer, readBody, type Grant } from "./oauth.js";
 import { CairnMcpServer } from "./server.js";
-import { TOOLS, type McpTool } from "./tools.js";
+import { RESPONSE_FORMAT_NOTE, TOOLS, type McpTool } from "./tools.js";
 
 const TOOL_SCOPES: Record<string, string> = {
   cairn_context_now: "cairn.read",
@@ -85,7 +85,7 @@ export function createRemoteHandler(oauth: OAuthServer) {
     const server = new CairnMcpServer(apiConfig, {
       tools: toolsForScopes(grant.scope),
       argsFor: argsForGrant(grant),
-      instructions: REMOTE_INSTRUCTIONS
+      instructions: REMOTE_INSTRUCTIONS + RESPONSE_FORMAT_NOTE
     });
     const body = await readBody(req);
     let parsed: unknown;
