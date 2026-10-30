@@ -4,6 +4,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
 import { readApiConfig } from "./api.js";
+import { defaultEventService, type McpEventService } from "./events.js";
 import type { JsonObject } from "./json.js";
 import { CORS, header, json, OAuthServer, readBody, type Grant } from "./oauth.js";
 import { CairnMcpServer } from "./server.js";
@@ -55,7 +56,7 @@ export function argsForGrant(grant: Grant) {
   };
 }
 
-export function createRemoteHandler(oauth: OAuthServer) {
+export function createRemoteHandler(oauth: OAuthServer, eventService: McpEventService = defaultEventService) {
   const apiConfig = readApiConfig();
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const url = new URL(req.url ?? "/", "http://x");
@@ -85,7 +86,8 @@ export function createRemoteHandler(oauth: OAuthServer) {
     const server = new CairnMcpServer(apiConfig, {
       tools: toolsForScopes(grant.scope),
       argsFor: argsForGrant(grant),
-      instructions: REMOTE_INSTRUCTIONS + RESPONSE_FORMAT_NOTE
+      instructions: REMOTE_INSTRUCTIONS + RESPONSE_FORMAT_NOTE,
+      eventService
     });
     const body = await readBody(req);
     let parsed: unknown;
@@ -114,6 +116,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const storePath = process.env.OAUTH_STORE_PATH ?? "/home/pi/cairn-data/mcp-oauth.json";
   const port = Number(process.env.REMOTE_MCP_PORT ?? 8792);
   const host = process.env.REMOTE_MCP_HOST ?? "0.0.0.0";
+  defaultEventService.start();
   const handler = createRemoteHandler(new OAuthServer(baseUrl, storePath));
   createServer((req, res) => {
     handler(req, res).catch((e: unknown) => {

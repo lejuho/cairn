@@ -19,10 +19,28 @@ Use this file to narrow read scope. Do not treat it as full spec. Product rules 
   - Local dev default: Vite on `5173`, backend proxy target on `3100`.
   - Start here when behavior is UI state, fetch flow, or PWA output.
 - `mcp/`
-  - Local stdio MCP server for agent access to Cairn's HTTP API.
+  - Local stdio and OAuth-protected remote MCP server for agent access to Cairn's HTTP API.
   - `src/server.ts` implements minimal JSON-RPC/MCP handling; `src/tools.ts`
     defines specific Cairn tools plus the generic `cairn_api_request` route
     wrapper; `src/api.ts` owns the API client and path guard.
+  - `src/events.ts` implements MCP 2.0 discovery and the
+    `reason.message.created` Standard Webhooks lifecycle. Remote subscriptions
+    persist at `/home/pi/cairn-data/mcp-event-subscriptions.json`; the watcher
+    polls subscribed Reason Network sessions and `cairn_context_now` with
+    `cwd="rn:events"` reports sanitized subscription/watcher status.
+  - `src/reason-relay.ts` owns the Reason→Slack relay (`/home/pi/cairn-data/reason-slack.json`,
+    env fallbacks `REASON_SLACK_*`, default channel `C0CCT18TZEU`) and the inbox cache
+    (`/home/pi/cairn-data/reason-inbox-cache.json`, pending until explicit ack, both 0600). The watcher polls
+    `cursor`, `muse`, `dots`, and `claude-app` regardless of Slack configuration.
+    `rn:inbox[:session]` repeatedly returns `cachedMessages`; `rn:ack:<session>:<id>`
+    deletes only that message. `claude-app` is shared across Claude app conversations.
+    The kernel flock serializes cache writers across processes; durable ack IDs suppress replay,
+    and only newly inserted messages trigger watcher notifications. External serve exclusion is not implemented.
+    Slack notifications remain dots-only.
+    See `docs/reason-inbox.md` for API and transport/deployment limitations. Bridges:
+    `rn:slack`, `rn:slack:test` (context_now), `cairn_observe(title="rn:slack")`. Sessions
+    `pi-codex`/`pi-claude-6` are reserved (`RESERVED_REASON_SESSIONS`). `remote.ts` calls
+    `start()`, which keeps the watcher ticking for the process lifetime.
   - GCal sync controls are available as `cairn_gcal_sync_status` and
     `cairn_gcal_sync_run`, backed by the Cairn HTTP sync endpoints.
   - Default API target: `CAIRN_API_BASE_URL` or `http://127.0.0.1:3100`.
