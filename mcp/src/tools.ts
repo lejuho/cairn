@@ -1,5 +1,18 @@
+import { execFile, spawn } from "node:child_process";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { delimiter, dirname, join } from "node:path";
+import { promisify } from "node:util";
 import { requestCairnApi, type ApiMethod, type CairnApiClientConfig, type CairnApiRequest } from "./api.js";
+import { parseReasonMessages, defaultEventService } from "./events.js";
 import { isJsonObject, toJsonValue, ToolInputError, type JsonObject, type JsonValue } from "./json.js";
+import { defaultReasonRelay, RESERVED_REASON_SESSIONS } from "./reason-relay.js";
+
+const execFileAsync = promisify(execFile);
+const DEFAULT_REASON_SESSION = "dots";
+const REASON_MCP_URL = "https://mcp.reasonmachines.com/mcp";
+const REASON_MCP_TOKEN_PATH = "/home/pi/cairn-data/reason-mcp.json";
+const LOCAL_REASON_MCP_TOOLS = new Set(["ask_user", "check_inbox", "list_team", "send_message"]);
 
 export interface McpTool {
   name: string;
@@ -110,7 +123,7 @@ const EMPTY_SCHEMA: JsonObject = {
 export const TOOLS: McpTool[] = [
   {
     name: "cairn_context_now",
-    description: "지금의 맥락: 진행 중/24시간 내 일정, 활성 thread(현재 작업 디렉터리에 묶인 것 우선), 확인 대기 질문 상위 5개. 사용자가 '뭐부터 하지', '오늘 어때' 같은 걸 물으면 먼저 호출. 반환: {now, cwd, upcoming:[{id, title, start, end, location, threadId, status, ongoing}], activeThreads:[{id, name, goal, deadline, matchesWorkspace}], inbox:{items:[cairn_inbox 항목], pendingTotal}}.",
+    description: "지금의 맥락: 진행 중/24시간 내 일정, 활성 thread(현재 작업 디렉터리에 묶인 것 우선), 확인 대기 질문 상위 5개. Reason 브릿지: cwd='rn:mcp:<tool>:<jsonArgs>', 'rn:auth', 'rn:events', 'rn:who', 'rn:inbox[:session]', 'rn:ack:<session>:<id>', 'rn:send:[session@]target:message', 'rn:ask:[session@]target:message' (기본 session=dots, pi-codex·pi-claude-6 는 예약). rn:events는 MCP event 구독(비밀 제외)과 watcher 상태를 반환. 'rn:slack' 은 Slack relay 상태 {configured, mode, channelId, enabled, lastSentAt, lastError, cachedUnreadCount}, 'rn:slack:test' 는 #for_dots 로 테스트 알림 전송. rn:inbox 와 기본 호출의 reasonNetworkInbox 는 watcher 가 먼저 받아 캐시한 메시지를 cachedMessages 로 반환하며 읽기로 삭제하지 않는다. rn:ack:<session>:<id> 만 삭제한다. cursor/muse/dots/claude-app 큐 지원; claude-app은 여러 대화가 공유한다. 사용자가 '뭐부터 하지', '오늘 어때' 같은 걸 물으면 먼저 호출. 반환: {now, cwd, upcoming:[{id, title, start, end, location, threadId, status, ongoing}], activeThreads:[{id, name, goal, deadline, matchesWorkspace}], inbox:{items:[cairn_inbox 항목], pendingTotal}}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -122,7 +135,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_inbox",
-    description: "사용자에게 확인할 질문 목록(우선순위 순). 대화 흐름이 끊기지 않는 시점에 1~2개만 자연스럽게 물어보고, 답을 받으면 cairn_confirm 으로 기록. 각 항목의 answerHint 를 따를 것. 반환: {items:[{id, kind, prompt, priority, relevance, threadId, threadName, subject:{type, id}, payload, evidence, createdAt, answerHint}], pendingTotal}.",
+    description: "사용자에게 확인할 질문 목록(우선순위 순). Reason 브릿지는 cwd='rn:mcp:<tool>:<jsonArgs>' 또는 cairn_context_now와 같은 rn:* 문법을 지원하며 기본 session은 dots. 대화 흐름이 끊기지 않는 시점에 1~2개만 자연스럽게 물어보고, 답을 받으면 cairn_confirm 으로 기록. 각 항목의 answerHint 를 따를 것. 반환: {items:[{id, kind, prompt, priority, relevance, threadId, threadName, subject:{type, id}, payload, evidence, createdAt, answerHint}], pendingTotal}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -151,7 +164,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_observe",
-    description: "대화 중 드러난 사실/결정/약속을 관찰로 기록 (추론 재료). 확정 일정이 아니라 원문 메모. 예: '다음 주 화요일 BAY 운영진 회의 잡힘'. 반환: {stored:true, id} 또는 {stored:false, reason:\"duplicate\"|\"filtered\"}.",
+    description: "대화 중 드러난 사실/결정/약속을 관찰로 기록 (추론 재료). Reason 브릿지: title='rn:mcp:<tool>' + JSON body, title='rn:send:[session@]target'/'rn:ask:[session@]target', 또는 title='rn:token' + OAuth token body. title='rn:slack' + body=Slack webhook URL·xoxb/xoxp 토큰·JSON{webhookUrl|botToken, channelId?, enabled?} 는 Reason→Slack relay 설정을 저장하고 즉시 켠다 (반환은 rn:slack 상태, 비밀 제외). 기본 session=dots. 확정 일정이 아니라 원문 메모. 예: '다음 주 화요일 BAY 운영진 회의 잡힘'. 반환: {stored:true, id} 또는 {stored:false, reason:\"duplicate\"|\"filtered\"}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -636,13 +649,39 @@ export async function callTool(config: CairnApiClientConfig, name: string, rawAr
 
 async function dispatchTool(config: CairnApiClientConfig, name: string, args: JsonObject): Promise<JsonValue> {
   switch (name) {
-    case "cairn_context_now":
-      return request(config, { method: "GET", path: "/api/context/now", query: pickQuery(args, ["cwd", "now"]) });
-    case "cairn_inbox":
+    case "cairn_context_now": {
+      if (args.cwd === "rn:events") return toJsonValue({ ok: true, data: await defaultEventService.status() });
+      if (args.cwd === "rn:slack") return { ok: true, data: await defaultReasonRelay.status() };
+      if (args.cwd === "rn:slack:test") return { ok: true, data: { sent: true, ...await defaultReasonRelay.sendTest() } };
+      const reasonMcpCall = reasonMcpCallFromCwd(args.cwd);
+      if (reasonMcpCall) return callReasonMcp(reasonMcpCall.name, reasonMcpCall.arguments);
+      if (args.cwd === "rn:auth") return reasonAuthStatus();
+      const reasonCommand = reasonCommandFromCwd(args.cwd);
+      if (reasonCommand) return runReasonCommand(reasonCommand);
+      const response = await request(config, { method: "GET", path: "/api/context/now", query: pickQuery(args, ["cwd", "now"]) });
+      return attachReasonNetworkInbox(response);
+    }
+    case "cairn_inbox": {
+      const reasonMcpCall = reasonMcpCallFromCwd(args.cwd);
+      if (reasonMcpCall) return callReasonMcp(reasonMcpCall.name, reasonMcpCall.arguments);
+      if (args.cwd === "rn:auth") return reasonAuthStatus();
+      const reasonCommand = reasonCommandFromCwd(args.cwd);
+      if (reasonCommand) return runReasonCommand(reasonCommand);
       return request(config, { method: "GET", path: "/api/inbox", query: pickQuery(args, ["cwd", "limit"]) });
+    }
     case "cairn_confirm":
       return request(config, { method: "POST", path: `/api/inbox/${idArg(args)}/answer`, body: pickBody(args, ["decision", "value", "note", "snoozeHours", "answeredBy"]) });
-    case "cairn_observe":
+    case "cairn_observe": {
+      if (args.title === "rn:token") return storeReasonMcpToken(args.body);
+      if (args.title === "rn:slack") {
+        const status = await defaultReasonRelay.saveConfig(args.body);
+        defaultEventService.wake();
+        return { ok: true, data: status };
+      }
+      const reasonMcpCall = reasonMcpCallFromTitle(args.title, args.body);
+      if (reasonMcpCall) return callReasonMcp(reasonMcpCall.name, reasonMcpCall.arguments);
+      const reasonCommand = reasonCommandFromTitle(args.title, args.body);
+      if (reasonCommand) return runReasonCommand(reasonCommand);
       return request(config, {
         method: "POST",
         path: "/api/observations",
@@ -654,6 +693,7 @@ async function dispatchTool(config: CairnApiClientConfig, name: string, args: Js
           ...(typeof args.agent === "string" ? { app: args.agent } : {})
         }
       });
+    }
     case "cairn_check_feasibility":
       return request(config, { method: "POST", path: "/api/feasibility/candidate", body: pickBody(args, ["title", "start", "end", "location", "online", "people", "kind", "abroad"]) });
     case "cairn_propose_event":
@@ -723,6 +763,324 @@ async function dispatchTool(config: CairnApiClientConfig, name: string, args: Js
     default:
       throw new ToolInputError(`unknown tool: ${name}`);
   }
+}
+
+type ReasonCommand =
+  | { action: "who" }
+  | { action: "inbox"; session: string }
+  | { action: "ack"; session: string; id: string }
+  | { action: "send" | "ask"; session: string; target: string; message: string };
+
+function reasonCommandFromCwd(value: JsonValue | undefined): ReasonCommand | undefined {
+  if (value === "rn:who") return { action: "who" };
+  if (value === "rn:inbox") return { action: "inbox", session: DEFAULT_REASON_SESSION };
+  if (typeof value !== "string") return undefined;
+
+  const ackMatch = /^rn:ack:([^:]+):([^:]+)$/.exec(value);
+  if (ackMatch) return { action: "ack", session: sessionName(ackMatch[1]!), id: ackMatch[2]! };
+
+  const inboxMatch = /^rn:inbox:([^:]+)$/.exec(value);
+  if (inboxMatch) return { action: "inbox", session: sessionName(inboxMatch[1]!) };
+
+  const match = /^rn:(send|ask):([^:]+):(.+)$/.exec(value);
+  if (!match) return undefined;
+  const [, action, address, message] = match;
+  const { session, target } = reasonAddress(address!);
+  return { action: action as "send" | "ask", session, target, message: message! };
+}
+
+function reasonCommandFromTitle(title: JsonValue | undefined, body: JsonValue | undefined): ReasonCommand | undefined {
+  if (typeof title !== "string") return undefined;
+  const match = /^rn:(send|ask):([^:]+)$/.exec(title);
+  if (!match) return undefined;
+  if (typeof body !== "string" || body.trim().length === 0) {
+    throw new ToolInputError("body must be a non-empty string");
+  }
+
+  const [, action, address] = match;
+  const { session, target } = reasonAddress(address!);
+  return { action: action as "send" | "ask", session, target, message: body };
+}
+
+function reasonAddress(value: string): { session: string; target: string } {
+  const separator = value.indexOf("@");
+  if (separator < 0) return { session: DEFAULT_REASON_SESSION, target: value };
+  return {
+    session: sessionName(value.slice(0, separator)),
+    target: value.slice(separator + 1)
+  };
+}
+
+function sessionName(value: string): string {
+  value = value.replace(/^zedd1324\//, "");
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(value)) throw new ToolInputError("Reason session must contain only letters, digits, _ or -");
+  if (RESERVED_REASON_SESSIONS.has(value)) throw new ToolInputError(`Reason session ${value} is reserved for a resident worker`);
+  return value;
+}
+
+async function runReasonCommand(command: ReasonCommand): Promise<JsonObject> {
+  const localBin = join(homedir(), ".local", "bin");
+  const path = [localBin, process.env.PATH].filter((part): part is string => Boolean(part)).join(delimiter);
+  const env = {
+    ...process.env,
+    PATH: path,
+    ...(command.action === "who" ? {} : { REASON_NETWORK_SESSION: command.session, TINCAN_SESSION: command.session })
+  };
+
+  if (command.action === "who") {
+    const { stdout } = await execFileAsync("reason", ["network", "who", "--all", "--json"], { encoding: "utf8", env });
+    return { ok: true, data: parseReasonOutput(stdout) };
+  }
+  if (command.action === "ack") {
+    return { ok: true, data: { session: command.session, message_id: command.id,
+      acknowledged: await defaultReasonRelay.acknowledge(command.session, command.id) } };
+  }
+  if (command.action === "inbox") {
+    // Inbox reads use only the durable queue; they never drain the transport.
+    const cachedMessages = await defaultReasonRelay.readPending(command.session);
+    return { ok: true, data: { session: command.session }, cachedMessages: toJsonValue(cachedMessages) };
+  }
+
+  const engine = join(homedir(), ".reason", "bin", "reason-network");
+  const send = () => execFileAsync(engine, ["send", command.target, command.message, "--from", command.session], {
+      encoding: "utf8",
+      env
+    });
+  let sent: Awaited<ReturnType<typeof send>>;
+  try {
+    sent = await send();
+  } catch (error) {
+    if (!isUnregisteredReasonSession(error)) throw error;
+    // `listen --as` is the CLI's supported way to create a named session.
+    const registration = await execFileAsync(engine, ["listen", "--as", command.session, "--wait", "0"], { encoding: "utf8", env });
+    await defaultReasonRelay.cacheMessages(parseReasonMessages(registration.stdout, command.session));
+    sent = await send();
+  }
+  if (command.action === "send") return { ok: true, data: parseReasonOutput(sent.stdout) };
+
+  const answer = await execFileAsync(engine, ["listen", "--as", command.session, "--wait", "20"], {
+    encoding: "utf8",
+    env,
+    timeout: 25_000
+  });
+  await defaultReasonRelay.cacheMessages(parseReasonMessages(answer.stdout, command.session));
+  return { ok: true, data: parseReasonOutput(answer.stdout), cachedMessages: toJsonValue(await defaultReasonRelay.readPending(command.session)) };
+}
+
+function isUnregisteredReasonSession(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const stderr = "stderr" in error && typeof error.stderr === "string" ? error.stderr : "";
+  return `${error.message}\n${stderr}`.includes("isn't registered with Reason Network");
+}
+
+function parseReasonOutput(stdout: string): JsonValue {
+  const output = stdout.trim();
+  if (output.length === 0) return "";
+  try {
+    return toJsonValue(JSON.parse(output));
+  } catch {
+    return output;
+  }
+}
+
+async function attachReasonNetworkInbox(response: JsonValue): Promise<JsonValue> {
+  if (!isJsonObject(response) || !isJsonObject(response.data) || !isJsonObject(response.data.data)) return response;
+
+  let reasonNetworkInbox: JsonObject;
+  try {
+    reasonNetworkInbox = await runReasonCommand({ action: "inbox", session: DEFAULT_REASON_SESSION });
+  } catch (error) {
+    reasonNetworkInbox = {
+      ok: false,
+      error: error instanceof Error ? error.message : "unknown Reason Network error"
+    };
+  }
+
+  return {
+    ...response,
+    data: {
+      ...response.data,
+      data: { ...response.data.data, reasonNetworkInbox }
+    }
+  };
+}
+
+interface ReasonMcpCall {
+  name: string;
+  arguments: JsonObject;
+}
+
+function reasonMcpCallFromCwd(value: JsonValue | undefined): ReasonMcpCall | undefined {
+  if (typeof value !== "string" || !value.startsWith("rn:mcp:")) return undefined;
+  const rest = value.slice("rn:mcp:".length);
+  const separator = rest.indexOf(":");
+  return parseReasonMcpCall(separator < 0 ? rest : rest.slice(0, separator), separator < 0 ? "" : rest.slice(separator + 1));
+}
+
+function reasonMcpCallFromTitle(title: JsonValue | undefined, body: JsonValue | undefined): ReasonMcpCall | undefined {
+  if (typeof title !== "string" || !title.startsWith("rn:mcp:")) return undefined;
+  if (typeof body !== "string") throw new ToolInputError("body must be a JSON string");
+  return parseReasonMcpCall(title.slice("rn:mcp:".length), body);
+}
+
+function parseReasonMcpCall(name: string, rawArguments: string): ReasonMcpCall {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(name)) throw new ToolInputError("Reason MCP tool name is invalid");
+  let parsed: unknown = {};
+  if (rawArguments.trim().length > 0) {
+    try {
+      parsed = JSON.parse(rawArguments);
+    } catch {
+      throw new ToolInputError("Reason MCP arguments must be valid JSON");
+    }
+  }
+  if (!isJsonObject(parsed)) throw new ToolInputError("Reason MCP arguments must be a JSON object");
+  return { name, arguments: parsed };
+}
+
+async function callReasonMcp(name: string, args: JsonObject): Promise<JsonValue> {
+  if (LOCAL_REASON_MCP_TOOLS.has(name)) return callLocalReasonMcp(name, args);
+
+  const token = await loadReasonMcpToken();
+  if (!token) throw new ToolInputError("Reason MCP token not found; use rn:auth or cairn_observe(title=\"rn:token\", body=\"<token>\")");
+  const response = await fetch(REASON_MCP_URL, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      "mcp-protocol-version": "2025-06-18"
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+    signal: AbortSignal.timeout(30_000)
+  });
+  const payload = await parseReasonMcpResponse(await response.text());
+  if (!response.ok) throw new Error(`Reason MCP HTTP ${response.status}: ${JSON.stringify(payload)}`);
+  return payload;
+}
+
+async function callLocalReasonMcp(name: string, args: JsonObject): Promise<JsonValue> {
+  const engine = join(homedir(), ".reason", "bin", "reason-network");
+  const session = typeof args.as === "string" ? sessionName(args.as) : DEFAULT_REASON_SESSION;
+  if (name === "check_inbox") return runReasonCommand({ action: "inbox", session });
+  const toolArgs = { ...args };
+  delete toolArgs.as;
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(engine, ["mcp"], {
+      env: {
+        ...process.env,
+        REASON_NETWORK_AGENT: "cairn",
+        REASON_NETWORK_SESSION: session,
+        TINCAN_SESSION: session
+      },
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const finish = (error?: Error, value?: JsonValue): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.kill();
+      if (error) reject(error);
+      else resolve(value ?? "");
+    };
+    const timer = setTimeout(() => finish(new Error("Reason Network local MCP timed out")), 30_000);
+
+    child.on("error", (error) => finish(error));
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => { stderr += chunk; });
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+      const lines = stdout.split(/\r?\n/);
+      stdout = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const payload = toJsonValue(JSON.parse(line));
+          if (isJsonObject(payload) && payload.id === 2) finish(undefined, payload);
+        } catch {
+          // Wait for a complete JSON-RPC line.
+        }
+      }
+    });
+    child.on("close", (code) => {
+      if (!settled) finish(new Error(`Reason Network local MCP exited ${code ?? "without a status"}: ${stderr.trim()}`));
+    });
+
+    child.stdin.end([
+      JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "cairn", version: "0.1.0" } } }),
+      JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: toolArgs } }),
+      ""
+    ].join("\n"));
+  });
+}
+
+async function parseReasonMcpResponse(body: string): Promise<JsonValue> {
+  const candidates = body.trim().startsWith("data:")
+    ? body.split(/\r?\n/).filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).filter(Boolean)
+    : [body.trim()];
+  let fallback: JsonValue | undefined;
+  for (const candidate of candidates) {
+    try {
+      const parsed = toJsonValue(JSON.parse(candidate));
+      fallback = parsed;
+      if (isJsonObject(parsed) && ("result" in parsed || "error" in parsed)) return parsed;
+    } catch {
+      // Streamable HTTP responses can contain non-JSON endpoint/keepalive events.
+    }
+  }
+  if (fallback !== undefined) return fallback;
+  if (body.trim().length === 0) return "";
+  throw new Error("Reason MCP returned a non-JSON response");
+}
+
+async function loadReasonMcpToken(): Promise<string | undefined> {
+  const environmentToken = process.env.REASON_MCP_TOKEN?.trim();
+  if (environmentToken) return environmentToken;
+  for (const path of [REASON_MCP_TOKEN_PATH]) {
+    try {
+      const value = JSON.parse(await readFile(path, "utf8")) as unknown;
+      if (typeof value === "string" && value.trim()) return value.trim();
+      if (isJsonObject(value)) {
+        for (const key of ["token", "accessToken", "access_token", "bearerToken"]) {
+          const token = value[key];
+          if (typeof token === "string" && token.trim()) return token.trim();
+        }
+      }
+    } catch {
+      // Missing or unrelated local credential files are expected.
+    }
+  }
+  return undefined;
+}
+
+async function storeReasonMcpToken(value: JsonValue | undefined): Promise<JsonValue> {
+  if (typeof value !== "string" || value.trim().length === 0) throw new ToolInputError("body must contain the Reason MCP token");
+  await mkdir(dirname(REASON_MCP_TOKEN_PATH), { recursive: true });
+  await writeFile(REASON_MCP_TOKEN_PATH, `${JSON.stringify({ token: value.trim() })}\n`, { encoding: "utf8", mode: 0o600 });
+  return { ok: true, data: { stored: true, path: REASON_MCP_TOKEN_PATH } };
+}
+
+async function reasonAuthStatus(): Promise<JsonValue> {
+  const token = await loadReasonMcpToken();
+  return {
+    ok: true,
+    data: {
+      authenticated: true,
+      local: true,
+      localTools: [...LOCAL_REASON_MCP_TOOLS],
+      remoteAuthenticated: Boolean(token),
+      remoteEndpoint: REASON_MCP_URL,
+      ...(!token ? {
+        protectedResourceMetadata: "https://mcp.reasonmachines.com/.well-known/oauth-protected-resource/mcp",
+        tokenInstall: "cairn_observe(title=\"rn:token\", body=\"<OAuth access token>\")",
+        tokenPath: REASON_MCP_TOKEN_PATH
+      } : {})
+    }
+  };
 }
 
 async function request(config: CairnApiClientConfig, req: CairnApiRequest): Promise<JsonValue> {

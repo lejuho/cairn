@@ -17,8 +17,27 @@ describe("CairnMcpServer", () => {
 
     expect(init?.id).toBe(1);
     expect(init && "result" in init && isJsonObject(init.result) ? init.result.protocolVersion : null).toBe("test-version");
+    const capabilities = init && "result" in init && isJsonObject(init.result) && isJsonObject(init.result.capabilities)
+      ? init.result.capabilities
+      : null;
+    expect(capabilities).toMatchObject({ tools: {}, events: {} });
     expect(list?.id).toBe(2);
     expect(list && "result" in list && isJsonObject(list.result) && Array.isArray(list.result.tools)).toBe(true);
+  });
+
+  it("supports MCP 2.0 discovery and event listing", async () => {
+    const server = new CairnMcpServer({ baseUrl: "http://127.0.0.1:3100", fetchImpl: okFetch({ ok: true }) });
+    const discover = await server.handleLine(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "server/discover" }));
+    const events = await server.handleLine(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "events/list" }));
+
+    expect(discover && "result" in discover ? discover.result : null).toMatchObject({
+      resultType: "complete",
+      supportedVersions: ["2026-07-28", "2025-03-26", "2024-11-05"],
+      capabilities: { tools: {}, events: {} }
+    });
+    expect(events && "result" in events ? events.result : null).toMatchObject({
+      events: [{ name: "reason.message.created", delivery: ["webhook"] }]
+    });
   });
 
   it("calls a Cairn tool through fetch", async () => {

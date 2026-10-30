@@ -1,4 +1,5 @@
 import { readApiConfig, type CairnApiClientConfig } from "./api.js";
+import { defaultEventService, McpEventError, type McpEventService } from "./events.js";
 import { isJsonObject, toJsonValue, type JsonObject, type JsonValue } from "./json.js";
 import { callTool, RESPONSE_FORMAT_NOTE, TOOLS, type McpTool } from "./tools.js";
 
@@ -23,6 +24,7 @@ interface JsonRpcFailure {
   error: {
     code: number;
     message: string;
+    data?: JsonValue;
   };
 }
 
@@ -42,6 +44,7 @@ export interface CairnMcpServerOptions {
   // 호출 인자 보정 — 예: 원격 클라이언트 이름을 answeredBy 에 고정.
   argsFor?: (name: string, args: JsonObject) => JsonObject;
   instructions?: string;
+  eventService?: McpEventService;
 }
 
 export class CairnMcpServer {
@@ -78,6 +81,7 @@ export class CairnMcpServer {
       const result = await this.handleRequest(request.message);
       return { jsonrpc: "2.0", id: request.message.id, result };
     } catch (e) {
+      if (e instanceof McpEventError) return error(request.message.id, e.code, e.message, e.data);
       const message = e instanceof Error ? e.message : "Internal error";
       return error(request.message.id, -32603, message);
     }
@@ -92,12 +96,24 @@ export class CairnMcpServer {
     switch (request.method) {
       case "initialize":
         return this.initializeResult(request.params);
+      case "server/discover":
+        return {
+          resultType: "complete",
+          supportedVersions: ["2026-07-28", "2025-03-26", "2024-11-05"],
+          capabilities: { tools: {}, events: {} }
+        };
       case "ping":
         return {};
       case "tools/list":
         return { tools: this.tools.map((tool) => toJsonValue(tool)) };
       case "tools/call":
         return toJsonValue(await this.handleToolCall(request.params));
+      case "events/list":
+        return this.eventService.list();
+      case "events/subscribe":
+        return this.eventService.subscribe(request.params);
+      case "events/unsubscribe":
+        return this.eventService.unsubscribe(request.params);
       case "resources/list":
         return { resources: [] };
       case "prompts/list":
@@ -115,13 +131,18 @@ export class CairnMcpServer {
     return {
       protocolVersion,
       capabilities: {
-        tools: { listChanged: false },
+        tools: {},
+        events: {},
         resources: {},
         prompts: {}
       },
       serverInfo: SERVER_INFO,
       instructions: this.options.instructions ?? DEFAULT_INSTRUCTIONS + RESPONSE_FORMAT_NOTE
     };
+  }
+
+  private get eventService(): McpEventService {
+    return this.options.eventService ?? defaultEventService;
   }
 
   private async handleToolCall(params: JsonValue | undefined): Promise<JsonValue> {
@@ -188,8 +209,8 @@ function parseId(value: JsonValue | undefined): JsonRpcId | undefined {
   return undefined;
 }
 
-function error(id: JsonRpcId, code: number, message: string): JsonRpcFailure {
-  return { jsonrpc: "2.0", id, error: { code, message } };
+function error(id: JsonRpcId, code: number, message: string, data?: JsonValue): JsonRpcFailure {
+  return { jsonrpc: "2.0", id, error: { code, message, ...(data !== undefined ? { data } : {}) } };
 }
 
 class JsonRpcMethodError extends Error {}
