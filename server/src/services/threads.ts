@@ -1,5 +1,9 @@
+import { inArray } from "drizzle-orm";
+import { events as eventsTable, tasks as tasksTable, threads as threadsTable } from "../db/schema.js";
+import { localDateOf } from "./notes.js";
 import type {
   CreateThreadLinkRequest,
+  ThreadChildCard,
   EventRow,
   TaskRow,
   ThreadDetail,
@@ -120,7 +124,33 @@ export function getThreadDetail(db: CairnDatabase, id: number): ThreadDetail | n
 
   const resume = findThreadResume(db, id) ?? { resumeRelevant: false, starSituation: null, starAction: null, starResult: null, skillsTags: [] };
   const personFocus = { people: findThreadPersonFocus(db, threadEvents.map((e) => e.id)) };
-  return { thread, events: threadEvents, tasks: threadTasks, progress, relations, rollup, nodeLinks, unknownBlockers, settlement, missingNodeSuggestions, resume, personFocus };
+  const childThreads = buildChildCards(db, id);
+  return { thread, events: threadEvents, tasks: threadTasks, progress, relations, rollup, nodeLinks, unknownBlockers, settlement, missingNodeSuggestions, resume, personFocus, childThreads };
+}
+
+// Direct hard-contained children with the span of dates their own items cover.
+function buildChildCards(db: CairnDatabase, parentId: number): ThreadChildCard[] {
+  const childIds = findHardContainsEdges(db).filter((e) => e.parentId === parentId).map((e) => e.childId);
+  if (childIds.length === 0) return [];
+  const rows = db.select().from(threadsTable).where(inArray(threadsTable.id, childIds)).all();
+  const eventRows = db.select({ threadId: eventsTable.threadId, start: eventsTable.start, end: eventsTable.end }).from(eventsTable).where(inArray(eventsTable.threadId, childIds)).all();
+  const taskRows = db.select({ threadId: tasksTable.threadId, due: tasksTable.due }).from(tasksTable).where(inArray(tasksTable.threadId, childIds)).all();
+  return rows
+    .map((row) => {
+      const days = [
+        ...eventRows.filter((e) => e.threadId === row.id).flatMap((e) => [localDateOf(e.start), localDateOf(e.end)]),
+        ...taskRows.filter((t) => t.threadId === row.id).map((t) => localDateOf(t.due)),
+        localDateOf(row.deadline)
+      ].filter((d): d is string => d !== null).sort();
+      return {
+        id: row.id,
+        name: row.name,
+        status: row.status as ThreadChildCard["status"],
+        deadline: row.deadline,
+        period: days.length > 0 ? { from: days[0]!, to: days[days.length - 1]! } : null
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
 }
 
 function buildRollup(db: CairnDatabase, rootId: number): ThreadRollup {

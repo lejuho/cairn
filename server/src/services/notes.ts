@@ -80,7 +80,7 @@ function missingTarget(link: { targetType: string; targetId: number }): NoteTarg
 }
 
 function itemView(row: ItemRow): NoteItemView {
-  return { id: row.id, text: row.text, done: row.done === 1, doneAt: row.doneAt, position: row.position };
+  return { id: row.id, text: row.text, done: row.done === 1, doneAt: row.doneAt, position: row.position, taskId: row.taskId };
 }
 
 function buildViews(db: CairnDatabase, rows: NoteRow[]): NoteView[] {
@@ -274,6 +274,13 @@ export function updateNoteItem(db: CairnDatabase, noteId: number, itemId: number
   db.transaction((tx) => {
     tx.update(noteItems).set(patch).where(eq(noteItems.id, itemId)).run();
     tx.update(notes).set({ updatedAt: stamp }).where(eq(notes.id, noteId)).run();
+    // 이 항목에서 만든 할 일이 있으면 체크와 함께 움직인다. 드롭한 할 일은 건드리지 않는다.
+    if (req.done !== undefined && item.taskId != null) {
+      tx.update(tasks)
+        .set({ status: req.done ? "done" : "todo" })
+        .where(and(eq(tasks.id, item.taskId), inArray(tasks.status, req.done ? ["todo", "doing"] : ["done"])))
+        .run();
+    }
   });
   return { ok: true, note: getNote(db, noteId)! };
 }
@@ -406,4 +413,89 @@ export function listNoteTargets(db: CairnDatabase, q: string | undefined, limit:
   const openTasks = db.select(TASK_COLS).from(tasks).where(inArray(tasks.status, ["todo", "doing"])).orderBy(desc(tasks.id)).limit(limit).all();
   const activeThreads = db.select(THREAD_COLS).from(threads).where(eq(threads.status, "active")).orderBy(desc(threads.id)).limit(limit).all();
   return [...nearEvents.map(eventTarget), ...openTasks.map(taskTarget), ...activeThreads.map(threadTarget)];
+}
+
+// ── 메모에서 일정·할 일 만들기 ──────────────────────────────────────────────
+
+// 메모가 스레드 하나에만 붙어 있으면 거기서 만든 일정·할 일도 그 스레드에 넣는다.
+function singleThreadOf(note: NoteView): number | undefined {
+  const threadLinks = note.links.filter((l) => l.targetType === "thread" && l.exists);
+  return threadLinks.length === 1 ? threadLinks[0]!.targetId : undefined;
+}
+
+// AI 에 보낼 글: 제목, 본문, 아직 안 끝난 체크 항목.
+export function noteTextForParsing(note: NoteView): string {
+  return [note.title, note.body, ...note.items.filter((i) => !i.done).map((i) => i.text)]
+    .filter((part): part is string => Boolean(part && part.trim()))
+    .join("\n")
+    .slice(0, 2000);
+}
+
+export function noteHeadline(note: NoteView): string {
+  const first = note.title?.trim() || bodyFirstLine(note.body) || note.items[0]?.text || "메모";
+  return first.slice(0, 200);
+}
+
+function bodyFirstLine(body: string | null): string {
+  return (body ?? "").split("\n").map((line) => line.trim()).find(Boolean) ?? "";
+}
+
+function linkNote(tx: CairnDatabase, noteId: number, targetType: NoteTargetType, targetId: number, stamp: string): void {
+  const exists = tx
+    .select({ id: noteLinks.id })
+    .from(noteLinks)
+    .where(and(eq(noteLinks.noteId, noteId), eq(noteLinks.targetType, targetType), eq(noteLinks.targetId, targetId)))
+    .get();
+  if (!exists) tx.insert(noteLinks).values({ noteId, targetType, targetId, createdAt: stamp }).run();
+  tx.update(notes).set({ updatedAt: stamp }).where(eq(notes.id, noteId)).run();
+}
+
+export type NoteEventResult =
+  | { ok: true; note: NoteView; eventId: number }
+  | { ok: false; code: "NOT_FOUND"; message: string };
+
+// 사용자가 확인한 값으로 일정을 만들고 메모를 그 일정에 붙인다. 메모는 그대로 남는다.
+export function createEventFromNote(
+  db: CairnDatabase,
+  noteId: number,
+  input: { title: string; start: string; end: string },
+  now: Date = new Date()
+): NoteEventResult {
+  const note = getNote(db, noteId);
+  if (!note) return { ok: false, code: "NOT_FOUND", message: `note ${noteId} not found` };
+  const threadId = singleThreadOf(note);
+  const eventId = db.transaction((tx) => {
+    const [row] = tx
+      .insert(events)
+      .values({ title: input.title, start: input.start, end: input.end, threadId: threadId ?? null, source: "cairn", selfImposed: 1, status: "planned" })
+      .returning({ id: events.id })
+      .all();
+    linkNote(tx as unknown as CairnDatabase, noteId, "event", row!.id, now.toISOString());
+    return row!.id;
+  });
+  return { ok: true, note: getNote(db, noteId)!, eventId };
+}
+
+export type NoteTaskResult =
+  | { ok: true; note: NoteView; taskId: number }
+  | { ok: false; code: "NOT_FOUND" | "VALIDATION_ERROR"; message: string };
+
+// 체크 항목 하나를 할 일로. 같은 항목은 한 번만 — 이미 만든 게 있으면 그걸 돌려준다.
+export function createTaskFromNoteItem(db: CairnDatabase, noteId: number, itemId: number, estMinutes?: number, now: Date = new Date()): NoteTaskResult {
+  const note = getNote(db, noteId);
+  const item = db.select().from(noteItems).where(and(eq(noteItems.id, itemId), eq(noteItems.noteId, noteId))).get();
+  if (!note || !item) return { ok: false, code: "NOT_FOUND", message: `item ${itemId} not found on note ${noteId}` };
+  if (item.taskId != null) return { ok: true, note, taskId: item.taskId };
+  const threadId = singleThreadOf(note);
+  const taskId = db.transaction((tx) => {
+    const [row] = tx
+      .insert(tasks)
+      .values({ title: item.text, due: note.noteDate, estMinutes: estMinutes ?? null, threadId: threadId ?? null, status: item.done === 1 ? "done" : "todo", optional: 0 })
+      .returning({ id: tasks.id })
+      .all();
+    tx.update(noteItems).set({ taskId: row!.id }).where(eq(noteItems.id, itemId)).run();
+    linkNote(tx as unknown as CairnDatabase, noteId, "task", row!.id, now.toISOString());
+    return row!.id;
+  });
+  return { ok: true, note: getNote(db, noteId)!, taskId };
 }

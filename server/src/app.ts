@@ -56,7 +56,7 @@ export function buildServer(
   // Only same-site paths are accepted so this cannot be used as an open redirect.
   app.get("/api/session/return", async (req, reply) => {
     const to = (req.query as Record<string, unknown> | undefined)?.to;
-    const safe = typeof to === "string" && /^\/(?![/\\])[^\s]*$/.test(to) ? to : "/today";
+    const safe = typeof to === "string" && /^\/(?![/\\])[^\s]*$/.test(to) ? to : "/calendar";
     return reply.header("cache-control", "no-store").redirect(safe, 302);
   });
 
@@ -107,7 +107,7 @@ export function buildServer(
     registerTransitFactsRoutes(app, db);
     registerInboxRoutes(app, db, { ingestToken: opts.ingestToken, mapGateway });
     registerMaterialRoutes(app, db);
-    registerNoteRoutes(app, db);
+    registerNoteRoutes(app, db, gateway);
     registerCalendarRoutes(app, db);
     if (opts.gcalSync) {
       registerGcalSyncRoutes(app, opts.gcalSync);

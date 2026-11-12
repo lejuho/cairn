@@ -348,7 +348,7 @@ export function InputHub() {
           kind={r.scheduled ? "일정" : "미정 일정"}
           status={r.scheduled ? "저장됐어" : "날짜 없이 저장됐어"}
           primary={r.scheduled
-            ? { label: "Today에서 보기", href: "/today" }
+            ? { label: "달력에서 보기", href: "/calendar" }
             : { label: "날짜 잡기", onClick: () => { setComposer((c) => ({ ...c, result: null })); void loadData(); } }}
           secondary={r.scheduled
             ? "방금 만든 일정은 오늘 화면에서 볼 수 있어."
@@ -389,7 +389,7 @@ export function InputHub() {
         <ResultCard
           kind="할 일"
           status="저장됐어"
-          primary={{ label: "Today에서 보기", href: "/today" }}
+          primary={{ label: "달력에서 보기", href: "/calendar" }}
           secondary="오늘 화면에서 할 일을 확인할 수 있어."
           testId="task-result"
         />
@@ -412,7 +412,7 @@ export function InputHub() {
         kind="기록"
         title={r.eventTitle}
         status={r.parseStatus === "parsed" ? "기록됐어" : "원문 저장됨 (분석 대기)"}
-        primary={{ label: "Today에서 보기", href: "/today" }}
+        primary={{ label: "달력에서 보기", href: "/calendar" }}
         secondary="이벤트에 연결된 기록이야 — 이벤트 상세와 거울에서 볼 수 있어."
         testId="record-result"
       />
@@ -696,7 +696,7 @@ export function InputHub() {
         <ResultCard
           kind={form.mode === "event" ? "일정" : "할 일"}
           status="저장됐어"
-          primary={{ label: "Today에서 보기", href: "/today" }}
+          primary={{ label: "달력에서 보기", href: "/calendar" }}
           secondary={form.mode === "event" ? "오늘 화면에서 확인할 수 있어." : "오늘 화면에서 할 일을 확인할 수 있어."}
           testId="manual-result"
         />

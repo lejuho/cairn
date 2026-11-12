@@ -70,12 +70,12 @@ export async function apiJson<T>(input: RequestInfo, init?: RequestInit): Promis
 // real network request (the worker leaves /api/ alone); once Access lets it through,
 // the server redirects back to `to`.
 export function accessLoginUrl(href: string): string {
-  let back = "/today";
+  let back = "/calendar";
   try {
     const url = new URL(href, "http://localhost");
     back = `${url.pathname}${url.search}`;
   } catch {
-    // Unparseable location: fall back to Today.
+    // Unparseable location: fall back to the home screen.
   }
   return `/api/session/return?to=${encodeURIComponent(back)}`;
 }

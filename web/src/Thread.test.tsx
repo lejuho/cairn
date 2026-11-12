@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Thread, resumeExportFile } from "./Thread.js";
 import type { PromotionSuggestion, TaskRow, ThreadDetail, ThreadLinkView, ThreadMissingNodeSuggestion, ThreadResourceFocusData, ThreadRollup, ThreadResumeData, ThreadSettlement, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
@@ -234,7 +234,7 @@ describe("Thread — live state", () => {
     expect(screen.getByText("자료 준비")).toBeInTheDocument();
   });
 
-  it("past events appear below the divider", async () => {
+  it("past events sit in the done column, marked as passed", async () => {
     const pastEvent = {
       ...BASE_EVENT,
       id: 11,
@@ -249,8 +249,94 @@ describe("Thread — live state", () => {
       progress: { done: 0, total: 1 }
     });
     render(<Thread id={1} />);
-    await waitFor(() => expect(screen.getByText("지난 항목")).toBeInTheDocument());
-    expect(screen.getByText("지난 미팅")).toBeInTheDocument();
+    const done = await screen.findByRole("region", { name: "완료 열" });
+    expect(within(done).getByText("지난 미팅")).toBeInTheDocument();
+    expect(within(done).getByText("지남")).toBeInTheDocument();
+  });
+});
+
+describe("Thread — board", () => {
+  const task = (over: Partial<ThreadDetail["tasks"][number]>): ThreadDetail["tasks"][number] => ({ ...BASE_TASK, ...over });
+
+  it("sorts tasks, events and child threads into columns by state, with dates on the cards", async () => {
+    mockFetch({
+      thread: BASE_THREAD,
+      events: [
+        BASE_EVENT,
+        { ...BASE_EVENT, id: 11, title: "지난 미팅", start: "2020-01-01T10:00:00+09:00", end: "2020-01-01T11:00:00+09:00" },
+        { ...BASE_EVENT, id: 12, title: "취소된 발표", status: "cancelled" as const },
+        { ...BASE_EVENT, id: 13, title: "날짜 미정 회식", start: null, end: null }
+      ],
+      tasks: [
+        task({ id: 20, title: "자료 준비", due: "2026-11-20", estMinutes: 30 }),
+        task({ id: 21, title: "초안 쓰기", status: "doing" }),
+        task({ id: 22, title: "주제 정하기", status: "done" }),
+        task({ id: 23, title: "안 하기로 한 것", status: "dropped" })
+      ],
+      progress: { done: 1, total: 7 },
+      rollup: { ...EMPTY_ROLLUP, children: [{ thread: { id: 5, name: "실험 설계" }, depth: 1, relationId: 9, progress: { done: 2, total: 5 }, energyHours: 0, paidCost: EMPTY_SETTLEMENT_T.paidCost, descendantCount: 0 }] },
+      childThreads: [
+        { id: 5, name: "실험 설계", status: "active", deadline: null, period: { from: "2026-11-03", to: "2026-12-15" } },
+        { id: 6, name: "보류한 갈래", status: "paused", deadline: null, period: null }
+      ]
+    });
+    render(<Thread id={1} />);
+    const todo = await screen.findByRole("region", { name: "할 일 열" });
+    const doing = screen.getByRole("region", { name: "진행 중 열" });
+    const done = screen.getByRole("region", { name: "완료 열" });
+    const titles = (el: HTMLElement) => [...el.querySelectorAll(".card-title")].map((n) => n.textContent);
+
+    expect(titles(todo)).toEqual(["자료 준비", "킥오프 미팅", "날짜 미정 회식"]);
+    expect(titles(doing)).toEqual(["실험 설계", "초안 쓰기"]);
+    expect(titles(done)).toEqual(["주제 정하기", "지난 미팅"]);
+
+    // 날짜는 카드에: 할 일은 마감, 하위 스레드는 계산된 기간과 진행도.
+    expect(within(todo).getByText("마감 11/20 · 30분")).toBeInTheDocument();
+    expect(within(doing).getByText("2/5 완료 · 11/3 – 12/15")).toBeInTheDocument();
+    expect(within(doing).getByRole("link", { name: "실험 설계" })).toHaveAttribute("href", "/threads/5");
+
+    // 드롭·취소·중지는 접어둔다.
+    const folded = screen.getByText("접어둔 것 3").closest("details")!;
+    expect(titles(folded)).toEqual(["보류한 갈래", "안 하기로 한 것", "취소된 발표"]);
+
+    // 폰에서는 열을 탭으로 넘긴다. 처음엔 내용이 있는 첫 열.
+    const tabs = within(screen.getByRole("tablist", { name: "보드 열" })).getAllByRole("tab");
+    expect(tabs.map((t) => [t.textContent, t.getAttribute("aria-selected")])).toEqual([["할 일3", "true"], ["진행 중2", "false"], ["완료2", "false"]]);
+    fireEvent.click(tabs[2]!);
+    expect(done).toHaveAttribute("data-active", "true");
+    expect(todo).toHaveAttribute("data-active", "false");
+  });
+
+  it("moves a task to the next state in one tap", async () => {
+    const calls: Array<{ url: string; body: unknown }> = [];
+    let status: "todo" | "doing" | "done" = "todo";
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
+      if (opts?.method === "PATCH") {
+        const body = JSON.parse(String(opts.body));
+        calls.push({ url, body });
+        status = body.status;
+        return Promise.resolve(makeResponse({ ok: true, data: {} }, url));
+      }
+      if (url.includes("promotion-suggestions")) return Promise.resolve(makeResponse({ ok: true, data: { suggestions: [] } }, url));
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: {
+        thread: BASE_THREAD, events: [], tasks: [task({ status })], progress: { done: 0, total: 1 },
+        relations: EMPTY_RELATIONS, rollup: EMPTY_ROLLUP, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T,
+        missingNodeSuggestions: [], resume: EMPTY_RESUME_T, personFocus: EMPTY_PERSON_FOCUS_T
+      } }, url));
+    }));
+    render(<Thread id={1} />);
+    expect(within(await screen.findByRole("region", { name: "할 일 열" })).getByText("자료 준비")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "자료 준비 시작" }));
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "진행 중 열" })).getByText("자료 준비")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "자료 준비 완료로" }));
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "완료 열" })).getByText("자료 준비")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "자료 준비 다시 열기" })).toBeInTheDocument();
+    expect(calls).toEqual([
+      { url: "/api/tasks/20/status", body: { status: "doing" } },
+      { url: "/api/tasks/20/status", body: { status: "done" } }
+    ]);
   });
 });
 

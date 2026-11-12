@@ -169,9 +169,7 @@ function DayOutcomes({ day, events, onRecorded }: { day: string; events: EventRo
   );
 }
 
-function DaySchedule({ day, bucket }: { day: string; bucket: DayBucket }) {
-  const [openId, setOpenId] = useState<number | null>(null);
-
+function DaySchedule({ day, bucket, onOpenEvent }: { day: string; bucket: DayBucket; onOpenEvent: (id: number) => void }) {
   if (bucket.events.length === 0 && bucket.tasks.length === 0) {
     return <p className="day-panel-quiet">이 날은 잡힌 일정도, 마감도 없어.</p>;
   }
@@ -180,29 +178,16 @@ function DaySchedule({ day, bucket }: { day: string; bucket: DayBucket }) {
     <div className="day-schedule">
       {bucket.events.length > 0 && (
         <ul className="day-event-list" role="list" aria-label="일정">
-          {bucket.events.map((event) => {
-            const open = openId === event.id;
-            return (
-              <li key={event.id} className="day-event" data-status={event.status ?? undefined}>
-                <button type="button" className="day-event-row" aria-expanded={open} onClick={() => setOpenId(open ? null : event.id)}>
-                  <span className="day-event-time">{eventTime(event, day)}</span>
-                  <span className="day-event-title">{event.title}</span>
-                </button>
-                {open && (
-                  <div className="day-event-detail">
-                    <p className="day-event-meta">
-                      {[event.status ? STATUS_LABEL[event.status] ?? event.status : null, event.location].filter(Boolean).join(" · ") || "추가 정보 없음"}
-                    </p>
-                    {event.threadId != null && <a className="note-meta-link" href={`/threads/${event.threadId}`}>스레드 열기</a>}
-                    <AttachedNotes
-                      title="이 일정 메모"
-                      target={{ targetType: "event", targetId: event.id, label: event.title, when: event.start, status: event.status, exists: true }}
-                    />
-                  </div>
-                )}
-              </li>
-            );
-          })}
+          {bucket.events.map((event) => (
+            <li key={event.id} className="day-event" data-status={event.status ?? undefined}>
+              <button type="button" className="day-event-row" onClick={() => onOpenEvent(event.id)} aria-label={`${eventTime(event, day)} ${event.title} 상세 보기`}>
+                <span className="day-event-time">
+                  {[eventTime(event, day), event.status && event.status !== "planned" ? STATUS_LABEL[event.status] ?? event.status : null, event.location].filter(Boolean).join(" · ")}
+                </span>
+                <span className="day-event-title">{event.title}</span>
+              </button>
+            </li>
+          ))}
         </ul>
       )}
       {bucket.tasks.length > 0 && (
@@ -230,6 +215,7 @@ function DayPanel({ day, today, bucket, open, onClose, onReload }: DayPanelProps
   const [writing, setWriting] = useState(false);
   const [cardCount, setCardCount] = useState(0);
   const [addSeq, setAddSeq] = useState(0);
+  const [openEvent, setOpenEvent] = useState<{ id: number; seq: number } | null>(null);
   const scheduleCount = bucket.events.length + bucket.tasks.length;
   const actionCount = bucket.pending.length + cardCount;
   // Tabs follow the order of work: see the day → deal with what needs a decision → notes → headroom.
@@ -269,7 +255,7 @@ function DayPanel({ day, today, bucket, open, onClose, onReload }: DayPanelProps
         <div className="day-panel-body" role="tabpanel" id={`day-tabpanel-${tab}`} aria-labelledby={`day-tab-${tab}`}>
           {tab === "schedule" && (
             <>
-              <DaySchedule key={day} day={day} bucket={bucket} />
+              <DaySchedule key={day} day={day} bucket={bucket} onOpenEvent={(id) => setOpenEvent((prev) => ({ id, seq: (prev?.seq ?? 0) + 1 }))} />
               <button type="button" className="note-btn day-panel-action" onClick={() => setAddSeq((n) => n + 1)}>+ 일정·할 일</button>
             </>
           )}
@@ -293,6 +279,7 @@ function DayPanel({ day, today, bucket, open, onClose, onReload }: DayPanelProps
             onCount={setCardCount}
             onChanged={onReload}
             addRequest={addSeq}
+            openEvent={openEvent}
           />}
         </div>
       </aside>
@@ -308,10 +295,6 @@ type LoadState =
   | { tag: "ready" }
   | { tag: "error"; message: string; needsLogin: boolean };
 
-function wideWithMouse(): boolean {
-  return typeof window.matchMedia === "function" && window.matchMedia("(min-width: 900px) and (pointer: fine)").matches;
-}
-
 function initialDay(): string | null {
   const date = new URLSearchParams(window.location.search).get("date");
   return date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
@@ -322,10 +305,10 @@ export function CalendarPage() {
   const linked = useMemo(initialDay, []);
   const [month, setMonth] = useState(() => monthOf(linked ?? today));
   const [selected, setSelected] = useState(linked ?? today);
-  // The day panel is a toggle: tapping a date brings it out, tapping that date again (or ✕) puts it
-  // away and the calendar takes the whole screen. It starts out only where there is room beside the
-  // calendar (a wide screen with a mouse) or when a date was linked to.
-  const [panelOpen, setPanelOpen] = useState(() => linked !== null || wideWithMouse());
+  // The calendar is the home screen, so it opens on today's panel: what is on, what needs a
+  // decision. The panel is a toggle — tapping the selected date again (or ✕) puts it away and
+  // the calendar takes the whole screen.
+  const [panelOpen, setPanelOpen] = useState(true);
   const [data, setData] = useState<CalendarData | null>(null);
   const [state, setState] = useState<LoadState>({ tag: "loading" });
   const days = useMemo(() => gridDays(month), [month]);

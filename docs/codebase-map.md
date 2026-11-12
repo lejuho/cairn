@@ -83,6 +83,18 @@ Use this file to narrow read scope. Do not treat it as full spec. Product rules 
   - Web: `web/src/Notes.tsx` — `NotesPage` (`/notes`), `QuickNoteSheet` (opened from `AppNav` on every
     screen), `AttachedNotes` (Today day notes, event sheets in Today/ItemIndex, task sheet, Thread page),
     `NoteComposer`, `NoteCard`. A saved note fires `cairn:notes-changed` so open lists reload.
+  - Note → event/task (migration 0019, additive `note_items.task_id`): `POST /api/notes/:id/event-draft`
+    asks the LLM gateway (`parseFlatEvent`) for title/start and saves nothing — without a gateway or a date it
+    returns `parseStatus: "unparsed"` with the note's headline; `POST /api/notes/:id/event` creates the event from
+    the user-confirmed values and links the note to it; `POST /api/notes/:id/items/:itemId/task` makes a task from
+    one checklist item (once), after which checking the item moves the task between todo and done. A note linked
+    to exactly one thread passes that thread on. Web: `NoteToEvent` dialog and per-item "할 일로" in `NoteCard`;
+    `NoteFlow`/`NoteToEvent` render through a portal so they are not clipped inside sheets.
+  - Quick record: `NoteFlow` step 2 asks what the writing becomes — 메모 (note, as before), 할 일 (one task from
+    a plain note via `POST /api/tasks`; a checklist is saved and each item converted), 일정 (AI prefill through
+    `POST /api/notes/event-draft` {text}, which saves nothing; a one-liner goes to `POST /api/events`, longer
+    writing is saved as a note and converted so it stays attached). User-edited fields are never overwritten by
+    a late AI answer. The `/input` composer still has its own 일정/할 일 modes.
   - MCP: `cairn_note_add`, `cairn_notes_search` (local and remote).
   - Remote visibility (migration 0018, hand-written additive ALTER): `notes.remote_visible` 0|1, default 0.
     `mcp/src/remote.ts` sets `audience: "remote"` on its API client → header `X-Cairn-Audience: remote`
@@ -108,7 +120,18 @@ Use this file to narrow read scope. Do not treat it as full spec. Product rules 
     in one transaction (no LLM; the mirror ledger reads it). `CalendarData.outcomeRecordedEventIds` keeps a
     recorded event from being asked about again even if GCal sync resets its status. The panel asks only for
     timed events that ended within 14 days (`OUTCOME_WINDOW_MS`).
-    Next step (not done): make the calendar the home screen and retire `/today`.
+  - Step 3: the calendar is the home screen. `/` and `/today` render it and rewrite the URL to `/calendar`
+    (`App.tsx`); the nav has no Today link; PWA `start_url` is `/calendar`; it opens with today's panel out.
+    Schedule rows open Today's event detail sheet through the embedded instance (`openEvent` prop).
+    `Today` is no longer routed as a page — it lives on as the embedded engine (its page-mode render and
+    tests remain). Not carried over: the 개인/업무 domain filter and the free-text "한 줄로 남겨줘" reply.
+- Thread board (`web/src/Thread.tsx` `ThreadBoard`): the thread's tasks, events and directly contained threads
+  in columns 할 일 / 진행 중 / 완료 by state, with drop·cancel·pause folded under "접어둔 것". `placeTask` /
+  `placeEvent` / `placeChild` decide the column (an event that is over counts as done, chip "지남"); dates stay
+  on the cards. Task cards move one state per tap through `PATCH /api/tasks/:id/status`. Touch screens show one
+  column behind tabs; a wide screen with a mouse shows all three. `ThreadDetail.childThreads` (optional,
+  `buildChildCards` in `server/src/services/threads.ts`) carries each direct child's status and a period computed
+  from its items' dates and deadline — nothing is stored. The other thread sections still stack below the board.
 - App shell / theme (web): `AppNav.tsx` renders a bottom tab bar on mobile (primary links + 더보기) and a
   left sidebar from 900px; `App.tsx` wraps pages in `.app-frame > .app-main`. Tokens live at the top of
   `web/src/styles.css` (light default, dark via OS or `data-theme`); `web/src/theme.ts` stores the pinned

@@ -24,8 +24,8 @@ function note(over: Partial<NoteView> = {}): NoteView {
 const CHECKLIST = note({
   id: 2, kind: "checklist", title: "면담 준비", body: null,
   items: [
-    { id: 11, text: "슬라이드", done: false, doneAt: null, position: 0 },
-    { id: 12, text: "질문 목록", done: true, doneAt: "2026-03-11T01:00:00.000Z", position: 1 }
+    { id: 11, text: "슬라이드", done: false, doneAt: null, position: 0, taskId: null },
+    { id: 12, text: "질문 목록", done: true, doneAt: "2026-03-11T01:00:00.000Z", position: 1, taskId: null }
   ],
   links: [{ targetType: "event", targetId: 7, label: "지도교수 면담", when: "2026-03-12T15:00:00+09:00", status: "done", exists: true }]
 });
@@ -123,7 +123,7 @@ describe("NotesPage", () => {
     fireEvent.change(screen.getByLabelText("1번째 줄"), { target: { value: "잃으면 안 되는 글" } });
     fireEvent.click(screen.getByRole("button", { name: "오늘로 바로 저장" }));
     expect(await screen.findByText("저장 실패")).toBeInTheDocument();
-    expect(screen.getByRole("dialog", { name: "빠른 메모" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "빠른 기록" })).toBeInTheDocument();
     expect(screen.getByLabelText("1번째 줄")).toHaveValue("잃으면 안 되는 글");
   });
 });
@@ -260,6 +260,142 @@ describe("note flow", () => {
     expect(posts[0]).toMatchObject({ body: "공유해도 되는 것", remoteVisible: true });
   });
 
+  function recorder(handler: (url: string, body: unknown) => unknown = () => ({})) {
+    const posts: Array<{ url: string; body: unknown }> = [];
+    stubFetch((url, init) => {
+      if (init?.method === "POST") {
+        const body = init.body ? JSON.parse(String(init.body)) : null;
+        if (!url.endsWith("/event-draft")) posts.push({ url, body });
+        return json(handler(url, body));
+      }
+      return json({ targets: [THREAD] });
+    });
+    return posts;
+  }
+
+  it("turns the writing into one task: first line is the title, the rest its description", async () => {
+    const posts = recorder();
+    const onClose = vi.fn();
+    render(<NoteFlow defaultDate="2026-11-12" onClose={onClose} />);
+    fireEvent.change(screen.getByLabelText("1번째 줄"), { target: { value: "보고서 초안 쓰기\n서론은 지난번 것 재사용" } });
+    fireEvent.click(screen.getByRole("button", { name: "다음: 붙일 곳 →" }));
+
+    // 무엇으로 남길지는 다 쓴 뒤에 고른다.
+    fireEvent.click(screen.getByRole("button", { name: "할 일" }));
+    expect(screen.getByText("첫 줄이 할 일 제목, 나머지는 설명이 돼.")).toBeInTheDocument();
+    expect(screen.getByLabelText("마감 날짜")).toHaveValue("2026-11-12");
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "30분" }));
+    fireEvent.click(await screen.findByRole("button", { name: /졸업 프로젝트/ }));
+
+    fireEvent.click(screen.getByRole("button", { name: "할 일 만들기" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(posts).toEqual([{
+      url: "/api/tasks",
+      body: { title: "보고서 초안 쓰기", context: "서론은 지난번 것 재사용", due: "2026-11-12", estMinutes: 30, threadId: 3 }
+    }]);
+  });
+
+  it("turns a checklist into one task per item and keeps the checklist", async () => {
+    const saved = note({ id: 9, kind: "checklist", body: null, items: [
+      { id: 91, text: "장보기", done: false, doneAt: null, position: 0, taskId: null },
+      { id: 92, text: "세탁소", done: false, doneAt: null, position: 1, taskId: null }
+    ] });
+    const posts = recorder((url) => (url === "/api/notes" ? { note: saved } : { note: saved, taskId: 1 }));
+    const onClose = vi.fn();
+    render(<NoteFlow defaultDate="2026-11-12" onClose={onClose} />);
+    fireEvent.click(screen.getByRole("button", { name: "체크리스트" }));
+    fireEvent.change(screen.getByLabelText("1번째 줄"), { target: { value: "장보기\n세탁소" } });
+    fireEvent.click(screen.getByRole("button", { name: "다음: 붙일 곳 →" }));
+    fireEvent.click(screen.getByRole("button", { name: "할 일" }));
+    expect(screen.getByText("항목 2개가 각각 할 일이 돼. 체크리스트도 같이 남아.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "없음" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "할 일 만들기 (2개)" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(posts.map((p) => p.url)).toEqual(["/api/notes", "/api/notes/9/items/91/task", "/api/notes/9/items/92/task"]);
+    expect(posts[0]!.body).toEqual({ kind: "checklist", items: [{ text: "장보기", done: false }, { text: "세탁소", done: false }], addedBy: "web" });
+  });
+
+  it("turns one line into an event, filling date and time from AI unless the user already chose", async () => {
+    let resolveDraft: (value: unknown) => void = () => undefined;
+    const posts: Array<{ url: string; body: unknown }> = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (String(url) === "/api/notes/event-draft") return new Promise((resolve) => { resolveDraft = resolve; });
+      if (init?.method === "POST") {
+        posts.push({ url: String(url), body: JSON.parse(String(init.body)) });
+        return Promise.resolve(json({}));
+      }
+      return Promise.resolve(json({ targets: [] }));
+    }));
+    const onClose = vi.fn();
+    render(<NoteFlow defaultDate="2026-11-12" onClose={onClose} />);
+    fireEvent.change(screen.getByLabelText("1번째 줄"), { target: { value: "다음 주 화요일 2시 은행 방문" } });
+    fireEvent.click(screen.getByRole("button", { name: "다음: 붙일 곳 →" }));
+    fireEvent.click(screen.getByRole("button", { name: "일정" }));
+
+    // 읽는 동안에도 바로 고를 수 있다.
+    expect(screen.getByText(/쓴 글에서 날짜와 시간을 읽는 중/)).toBeInTheDocument();
+    expect(screen.getByLabelText("일정 제목")).toHaveValue("다음 주 화요일 2시 은행 방문");
+    expect(screen.getByLabelText("일정 날짜")).toHaveValue("2026-11-12");
+    expect(screen.getByRole("button", { name: "일정 만들기" })).toBeEnabled();
+
+    await act(async () => {
+      resolveDraft(json({ title: "은행 방문", start: "2026-11-17T14:00:00+09:00", end: "2026-11-17T15:00:00+09:00", parseStatus: "parsed" }));
+    });
+    expect(await screen.findByText("쓴 글에서 읽은 값이야. 맞는지 보고 고쳐줘.")).toBeInTheDocument();
+    expect(screen.getByLabelText("일정 제목")).toHaveValue("은행 방문");
+    expect(screen.getByLabelText("일정 날짜")).toHaveValue("2026-11-17");
+    expect(screen.getByLabelText("시작 시간")).toHaveValue("14:00");
+
+    fireEvent.click(screen.getByRole("button", { name: "일정 만들기" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(posts).toEqual([{ url: "/api/events", body: { title: "은행 방문", start: "2026-11-17T14:00:00+09:00", end: "2026-11-17T15:00:00+09:00" } }]);
+  });
+
+  it("keeps the user's own time when AI answers late, and saves longer writing as a note on the event", async () => {
+    let resolveDraft: (value: unknown) => void = () => undefined;
+    const posts: Array<{ url: string; body: unknown }> = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (String(url) === "/api/notes/event-draft") return new Promise((resolve) => { resolveDraft = resolve; });
+      if (init?.method === "POST") {
+        posts.push({ url: String(url), body: JSON.parse(String(init.body)) });
+        return Promise.resolve(json({ note: note({ id: 5 }), eventId: 8 }));
+      }
+      return Promise.resolve(json({ targets: [] }));
+    }));
+    const onClose = vi.fn();
+    render(<NoteFlow defaultDate="2026-11-12" onClose={onClose} />);
+    fireEvent.change(screen.getByLabelText("1번째 줄"), { target: { value: "은행 방문\n신분증 챙기기" } });
+    fireEvent.click(screen.getByRole("button", { name: "다음: 붙일 곳 →" }));
+    fireEvent.click(screen.getByRole("button", { name: "일정" }));
+    expect(screen.getByText("일정을 만들고, 쓴 글은 그 일정의 메모로 붙어.")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("일정 날짜"), { target: { value: "2026-11-13" } });
+    fireEvent.change(screen.getByLabelText("시작 시간"), { target: { value: "11:00" } });
+    fireEvent.change(screen.getByLabelText("끝 시간"), { target: { value: "11:30" } });
+    await act(async () => {
+      resolveDraft(json({ title: "AI 제목", start: "2026-11-17T14:00:00+09:00", end: "2026-11-17T15:00:00+09:00", parseStatus: "parsed" }));
+    });
+    expect(screen.getByLabelText("시작 시간")).toHaveValue("11:00");
+    expect(screen.getByLabelText("일정 날짜")).toHaveValue("2026-11-13");
+
+    fireEvent.click(screen.getByRole("button", { name: "일정 만들기" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(posts).toEqual([
+      { url: "/api/notes", body: { kind: "note", body: "은행 방문\n신분증 챙기기", noteDate: "2026-11-13", addedBy: "web" } },
+      { url: "/api/notes/5/event", body: { title: "은행 방문", start: "2026-11-13T11:00:00+09:00", end: "2026-11-13T11:30:00+09:00" } }
+    ]);
+  });
+
+  it("does not offer task or event when editing a saved note", async () => {
+    stubFetch(() => json({ targets: [] }));
+    render(<NoteFlow note={note()} onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: "다음: 붙일 곳 →" }));
+    expect(screen.queryByRole("group", { name: "무엇으로 남길까" })).not.toBeInTheDocument();
+    expect(screen.getByRole("switch")).toBeInTheDocument();
+  });
+
   it("goes back to the text from the attach step without losing choices", async () => {
     stubFetch(() => json({ targets: [THREAD] }));
     render(<NoteFlow defaultDate="2026-11-12" onClose={() => undefined} />);
@@ -346,6 +482,72 @@ describe("note cards", () => {
     expect(screen.getByRole("button", { name: "AI 비공개로" })).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("turns a note into an event: AI reads the time, the user confirms or corrects it", async () => {
+    const posts: Array<{ url: string; body: unknown }> = [];
+    const linked = note({ links: [{ targetType: "event", targetId: 40, label: "치과 정기검진", when: "2026-11-20T15:30:00+09:00", status: "planned", exists: true }] });
+    stubFetch((url, init) => {
+      if (url === "/api/notes/1/event-draft") {
+        return json({ title: "치과 정기검진", start: "2026-11-20T15:00:00+09:00", end: "2026-11-20T16:00:00+09:00", parseStatus: "parsed" });
+      }
+      if (url === "/api/notes/1/event") {
+        posts.push({ url, body: JSON.parse(String(init?.body)) });
+        return json({ note: linked, eventId: 40 });
+      }
+      return json({ notes: [linked], total: 1, related: [] });
+    });
+    render(<AttachedNotes date="2026-03-12" initial={[note()]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "일정으로" }));
+    const dialog = screen.getByRole("dialog", { name: "메모를 일정으로" });
+    expect(within(dialog).getByText("메모에서 날짜와 시간을 읽는 중…")).toBeInTheDocument();
+    expect(await within(dialog).findByText("메모에서 읽은 값이야. 맞는지 보고 고쳐줘.")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("일정 제목")).toHaveValue("치과 정기검진");
+    expect(within(dialog).getByLabelText("일정 날짜")).toHaveValue("2026-11-20");
+    expect(within(dialog).getByLabelText("시작 시간")).toHaveValue("15:00");
+    expect(posts).toHaveLength(0); // 확인 전에는 아무것도 만들지 않는다
+
+    fireEvent.change(within(dialog).getByLabelText("시작 시간"), { target: { value: "15:30" } });
+    fireEvent.change(within(dialog).getByLabelText("끝 시간"), { target: { value: "15:00" } });
+    expect(within(dialog).getByRole("button", { name: "일정 만들기" })).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText("끝 시간"), { target: { value: "16:30" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "일정 만들기" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "메모를 일정으로" })).not.toBeInTheDocument());
+    expect(posts).toEqual([{ url: "/api/notes/1/event", body: { title: "치과 정기검진", start: "2026-11-20T15:30:00+09:00", end: "2026-11-20T16:30:00+09:00" } }]);
+    expect(await screen.findByRole("link", { name: /치과 정기검진/ })).toBeInTheDocument();
+  });
+
+  it("lets the user pick the date by hand when AI could not read one", async () => {
+    stubFetch((url) => (url.endsWith("/event-draft")
+      ? json({ title: "평가 기준은 재현성 위주", start: null, end: null, parseStatus: "unparsed", llmError: "unavailable" })
+      : json({ notes: [], total: 0, related: [] })));
+    render(<AttachedNotes date="2026-03-12" initial={[note()]} />);
+    fireEvent.click(screen.getByRole("button", { name: "일정으로" }));
+    const dialog = screen.getByRole("dialog", { name: "메모를 일정으로" });
+    expect(await within(dialog).findByText("날짜를 읽지 못했어. 직접 골라줘.")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("일정 날짜")).toHaveValue("2026-03-12"); // 메모 날짜에서 시작
+    expect(within(dialog).getByLabelText("시작 시간")).toHaveValue("09:00");
+    expect(within(dialog).getByRole("button", { name: "일정 만들기" })).toBeEnabled();
+  });
+
+  it("makes a task from one checklist item and marks it", async () => {
+    const calls: string[] = [];
+    const after = { ...CHECKLIST, items: CHECKLIST.items.map((i) => (i.id === 11 ? { ...i, taskId: 77 } : i)) };
+    stubFetch((url, init) => {
+      if (init?.method === "POST") {
+        calls.push(url);
+        return json({ note: after, taskId: 77 });
+      }
+      return json({ notes: [after], total: 1, related: [] });
+    });
+    render(<AttachedNotes date="2026-03-12" initial={[CHECKLIST]} />);
+    fireEvent.click(screen.getByRole("button", { name: "슬라이드 할 일로 만들기" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "슬라이드 할 일로 만들기" })).not.toBeInTheDocument());
+    expect(calls).toEqual(["/api/notes/2/items/11/task"]);
+    expect(screen.getByText("할 일", { selector: ".note-badge" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "질문 목록 할 일로 만들기" })).toBeInTheDocument();
+  });
+
   it("asks twice before deleting", async () => {
     const fetchMock = stubFetch((_url, init) => (init?.method === "DELETE" ? json({ deleted: 1 }) : json({ notes: [], total: 0, related: [] })));
     render(<AttachedNotes date="2026-03-12" initial={[note()]} />);
@@ -388,12 +590,12 @@ describe("AppNav", () => {
     expect(screen.getByRole("link", { name: "메모" })).toHaveAttribute("href", "/notes");
     expect(screen.getByRole("link", { name: "스레드" })).toHaveAttribute("aria-current", "page");
 
-    fireEvent.click(screen.getByRole("button", { name: "빠른 메모 쓰기" }));
-    const dialog = screen.getByRole("dialog", { name: "빠른 메모" });
+    fireEvent.click(screen.getByRole("button", { name: "빠른 기록 쓰기" }));
+    const dialog = screen.getByRole("dialog", { name: "빠른 기록" });
     expect(within(dialog).getByLabelText("1번째 줄")).toHaveFocus();
 
     fireEvent.keyDown(window, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "빠른 메모" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "빠른 기록" })).not.toBeInTheDocument());
   });
 
   it("cycles and remembers the theme", () => {

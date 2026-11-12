@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildServer } from "../app.js";
 import { createSqliteConnection, runMigrations, type SqliteConnection } from "../db/index.js";
 import { events, tasks, threads } from "../db/schema.js";
+import type { LlmGateway } from "../llm/gateway.js";
 
 const tempDirs: string[] = [];
 
@@ -252,5 +253,131 @@ describe("notes and remote connectors", () => {
       expect([method, url, res.statusCode]).toEqual([method, url, 403]);
     }
     expect((await app.inject({ method: "GET", url: `/api/notes/${own.id}` })).json().data.note.body).toBe("내 메모");
+  });
+});
+
+describe("turning notes into events and tasks", () => {
+  function gateway(content: string | null): LlmGateway {
+    return {
+      chatCompletionsUrl: new URL("http://localhost:8000/v1/chat/completions"),
+      completeChat: async () => content === null
+        ? { ok: false, error: { code: "unavailable", message: "unavailable" } }
+        : {
+            ok: true,
+            data: {
+              id: "test", object: "chat.completion", created: 0, model: "test",
+              choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }]
+            }
+          }
+    };
+  }
+
+  let conn: SqliteConnection;
+  let threadId: number;
+  beforeEach(() => {
+    conn = makeTestDb();
+    const [th] = conn.db.insert(threads).values({ name: "졸업 프로젝트" }).returning().all();
+    threadId = th!.id;
+  });
+
+  it("drafts an event from the note with AI without saving anything, then creates it on confirmation", async () => {
+    const app = buildServer(conn.db, gateway(JSON.stringify({ title: "치과 정기검진", start: "2026-11-20T15:00:00+09:00" })));
+    const note = (await app.inject({
+      method: "POST", url: "/api/notes",
+      payload: { body: "다음 주 금요일 3시 치과 정기검진\n보험증 챙기기", links: [{ targetType: "thread", targetId: threadId }] }
+    })).json().data.note;
+
+    const draft = await app.inject({ method: "POST", url: `/api/notes/${note.id}/event-draft` });
+    expect(draft.json().data).toEqual({
+      title: "치과 정기검진", start: "2026-11-20T15:00:00+09:00", end: "2026-11-20T16:00:00+09:00", parseStatus: "parsed"
+    });
+    expect(conn.db.select().from(events).all()).toHaveLength(0);
+
+    const bad = await app.inject({
+      method: "POST", url: `/api/notes/${note.id}/event`,
+      payload: { title: "치과", start: "2026-11-20T15:00:00+09:00", end: "2026-11-20T15:00:00+09:00" }
+    });
+    expect(bad.statusCode).toBe(400);
+
+    // 사용자가 시간을 고쳐서 확정한다.
+    const created = await app.inject({
+      method: "POST", url: `/api/notes/${note.id}/event`,
+      payload: { title: "치과 정기검진", start: "2026-11-20T15:30:00+09:00", end: "2026-11-20T16:30:00+09:00" }
+    });
+    expect(created.statusCode).toBe(201);
+    const [ev] = conn.db.select().from(events).all();
+    expect(ev).toMatchObject({ title: "치과 정기검진", start: "2026-11-20T15:30:00+09:00", threadId, source: "cairn", status: "planned" });
+
+    // 메모는 그대로 남고 새 일정에 붙는다.
+    const after = created.json().data.note;
+    expect(after.body).toBe(note.body);
+    expect(after.links.map((l: { targetType: string; targetId: number }) => [l.targetType, l.targetId])).toEqual([["thread", threadId], ["event", ev!.id]]);
+    expect((await app.inject({ method: "GET", url: `/api/notes?targetType=event&targetId=${ev!.id}` })).json().data.total).toBe(1);
+  });
+
+  it("still offers a draft the user can date by hand when AI is down, missing or finds no time", async () => {
+    const payload = { title: "면담 준비", body: "언제 할지 미정" };
+    for (const gw of [gateway(null), undefined, gateway(JSON.stringify({ title: "면담 준비" }))]) {
+      const app = buildServer(conn.db, gw);
+      const note = (await app.inject({ method: "POST", url: "/api/notes", payload })).json().data.note;
+      const draft = (await app.inject({ method: "POST", url: `/api/notes/${note.id}/event-draft` })).json().data;
+      expect(draft).toMatchObject({ title: "면담 준비", start: null, end: null, parseStatus: "unparsed" });
+    }
+    const app = buildServer(conn.db);
+    expect((await app.inject({ method: "POST", url: "/api/notes/9999/event-draft" })).statusCode).toBe(404);
+    expect(conn.db.select().from(events).all()).toHaveLength(0);
+  });
+
+  it("drafts an event from text that has not been saved yet", async () => {
+    const app = buildServer(conn.db, gateway(JSON.stringify({ title: "은행 방문", start: "2026-11-17T14:00:00+09:00" })));
+    const res = await app.inject({ method: "POST", url: "/api/notes/event-draft", payload: { text: "다음 주 화요일 2시 은행 방문\n신분증" } });
+    expect(res.json().data).toEqual({ title: "은행 방문", start: "2026-11-17T14:00:00+09:00", end: "2026-11-17T15:00:00+09:00", parseStatus: "parsed" });
+    expect((await app.inject({ method: "POST", url: "/api/notes/event-draft", payload: { text: "  " } })).statusCode).toBe(400);
+
+    const offline = buildServer(conn.db);
+    const fallback = (await offline.inject({ method: "POST", url: "/api/notes/event-draft", payload: { text: "\n은행 방문\n신분증" } })).json().data;
+    expect(fallback).toMatchObject({ title: "은행 방문", start: null, parseStatus: "unparsed" });
+    expect(conn.db.select().from(events).all()).toHaveLength(0);
+    expect((await app.inject({ method: "POST", url: "/api/notes/event-draft", payload: { text: "x" }, headers: { "x-cairn-audience": "remote" } })).statusCode).toBe(403);
+  });
+
+  it("makes a task from a checklist item once and keeps the checkbox and the task in step", async () => {
+    const app = buildServer(conn.db);
+    const note = (await app.inject({
+      method: "POST", url: "/api/notes",
+      payload: { kind: "checklist", noteDate: "2026-11-20", items: [{ text: "참고문헌 정리" }, { text: "초안 제출" }], links: [{ targetType: "thread", targetId: threadId }] }
+    })).json().data.note;
+    const [first] = note.items;
+
+    const made = await app.inject({ method: "POST", url: `/api/notes/${note.id}/items/${first.id}/task`, payload: { estMinutes: 30 } });
+    expect(made.statusCode).toBe(201);
+    const taskId = made.json().data.taskId;
+    expect(conn.db.select().from(tasks).all()).toEqual([
+      expect.objectContaining({ id: taskId, title: "참고문헌 정리", due: "2026-11-20", estMinutes: 30, threadId, status: "todo" })
+    ]);
+    expect(made.json().data.note.items[0].taskId).toBe(taskId);
+    expect(made.json().data.note.links.some((l: { targetType: string; targetId: number }) => l.targetType === "task" && l.targetId === taskId)).toBe(true);
+
+    // 다시 눌러도 할 일이 또 생기지 않는다.
+    const again = await app.inject({ method: "POST", url: `/api/notes/${note.id}/items/${first.id}/task` });
+    expect(again.json().data.taskId).toBe(taskId);
+    expect(conn.db.select().from(tasks).all()).toHaveLength(1);
+
+    await app.inject({ method: "PATCH", url: `/api/notes/${note.id}/items/${first.id}`, payload: { done: true } });
+    expect(conn.db.select().from(tasks).all()[0]!.status).toBe("done");
+    await app.inject({ method: "PATCH", url: `/api/notes/${note.id}/items/${first.id}`, payload: { done: false } });
+    expect(conn.db.select().from(tasks).all()[0]!.status).toBe("todo");
+
+    // 드롭한 할 일은 체크로 되살리지 않는다.
+    conn.sqlite.prepare("UPDATE tasks SET status = 'dropped' WHERE id = ?").run(taskId);
+    await app.inject({ method: "PATCH", url: `/api/notes/${note.id}/items/${first.id}`, payload: { done: true } });
+    expect(conn.db.select().from(tasks).all()[0]!.status).toBe("dropped");
+
+    // 항목을 고쳐도 연결은 남는다. 원격 커넥터는 변환을 쓸 수 없다.
+    const edited = await app.inject({ method: "PATCH", url: `/api/notes/${note.id}`, payload: { items: [{ id: first.id, text: "참고문헌 정리 (APA)" }, { id: note.items[1].id, text: "초안 제출" }] } });
+    expect(edited.json().data.note.items[0].taskId).toBe(taskId);
+    const remote = await app.inject({ method: "POST", url: `/api/notes/${note.id}/items/${note.items[1].id}/task`, headers: { "x-cairn-audience": "remote" } });
+    expect(remote.statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: `/api/notes/${note.id}/items/9999/task` })).statusCode).toBe(404);
   });
 });

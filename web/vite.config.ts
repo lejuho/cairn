@@ -24,7 +24,7 @@ export default defineConfig({
         name: "Cairn",
         short_name: "Cairn",
         description: "Local-first intention and schedule tracking",
-        start_url: "/today",
+        start_url: "/calendar",
         scope: "/",
         display: "standalone",
         background_color: "#f5f6f8",

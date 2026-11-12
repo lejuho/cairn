@@ -32,8 +32,8 @@ describe("ProviderStatusBadges (cycle-82)", () => {
 
   it("stays quiet (no badges) on initial fetch failure and keeps AppNav links usable", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("network"))));
-    render(<AppNav path="/today" />);
-    expect(screen.getByRole("link", { name: "Today" })).toBeInTheDocument();
+    render(<AppNav path="/calendar" />);
+    expect(screen.getByRole("link", { name: "달력" })).toBeInTheDocument();
     await act(async () => { await Promise.resolve(); });
     expect(screen.queryByTestId("provider-status")).not.toBeInTheDocument();
   });

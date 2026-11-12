@@ -284,6 +284,25 @@ describe("POST /api/threads/:id/links", () => {
     return res.json().data.id as number;
   }
 
+  it("lists directly contained threads with their state and the span of dates their items cover", async () => {
+    const [parent, child, quiet, grandchild] = [await makeThread("부모"), await makeThread("실험 설계"), await makeThread("빈 갈래"), await makeThread("손자")];
+    for (const [from, to] of [[parent, child], [parent, quiet], [child, grandchild]]) {
+      await app.inject({ method: "POST", url: `/api/threads/${from}/links`, payload: { toThreadId: to, kind: "contains" } });
+    }
+    await app.inject({ method: "POST", url: "/api/events", payload: { title: "파일럿", start: "2026-11-03T10:00:00+09:00", end: "2026-11-03T12:00:00+09:00", threadId: child } });
+    await app.inject({ method: "POST", url: "/api/tasks", payload: { title: "분석", due: "2026-12-15", threadId: child } });
+    await app.inject({ method: "PATCH", url: `/api/threads/${quiet}/status`, payload: { status: "paused" } });
+
+    const detail = (await app.inject({ method: "GET", url: `/api/threads/${parent}` })).json().data;
+    expect(detail.childThreads).toEqual([
+      { id: quiet, name: "빈 갈래", status: "paused", deadline: null, period: null },
+      { id: child, name: "실험 설계", status: "active", deadline: null, period: { from: "2026-11-03", to: "2026-12-15" } }
+    ]);
+    // 손자는 바로 아래가 아니라서 부모의 카드에는 없다.
+    expect((await app.inject({ method: "GET", url: `/api/threads/${child}` })).json().data.childThreads.map((c: { id: number }) => c.id)).toEqual([grandchild]);
+    expect((await app.inject({ method: "GET", url: `/api/threads/${grandchild}` })).json().data.childThreads).toEqual([]);
+  });
+
   it("creates a link and returns 201 with link row", async () => {
     const [a, b] = [await makeThread("A"), await makeThread("B")];
     const res = await app.inject({

@@ -29,13 +29,13 @@ describe("GET /api/session/return", () => {
     expect(res.headers["cache-control"]).toBe("no-store");
   });
 
-  it("falls back to Today instead of redirecting off-site", async () => {
+  it("falls back to the home screen instead of redirecting off-site", async () => {
     const app = buildServer();
     for (const to of ["https://evil.example/", "//evil.example", "/\\evil.example", "today", ""]) {
       const res = await app.inject({ method: "GET", url: `/api/session/return?to=${encodeURIComponent(to)}` });
-      expect(res.headers.location).toBe("/today");
+      expect(res.headers.location).toBe("/calendar");
     }
     const none = await app.inject({ method: "GET", url: "/api/session/return" });
-    expect(none.headers.location).toBe("/today");
+    expect(none.headers.location).toBe("/calendar");
   });
 });

@@ -411,7 +411,20 @@ export const ThreadPersonFocusSchema = z
   })
   .strict();
 
+// 바로 아래에 포함된 스레드를 보드에 카드로 올릴 때 쓰는 요약. 진행도는 rollup.children 에 있다.
+// period 는 저장된 값이 아니라 그 스레드의 일정·할 일 날짜(와 마감)에서 계산한 범위다.
+export const ThreadChildCardSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+  status: ThreadStatusSchema.nullable(),
+  deadline: z.string().nullable(),
+  period: z.object({ from: z.string(), to: z.string() }).nullable()
+});
+export type ThreadChildCard = z.infer<typeof ThreadChildCardSchema>;
+
 export const ThreadDetailSchema = z.object({
+  // 옛 응답과의 호환을 위해 optional.
+  childThreads: z.array(ThreadChildCardSchema).optional(),
   thread: ThreadRowSchema,
   events: z.array(EventRowSchema),
   tasks: z.array(TaskRowSchema),

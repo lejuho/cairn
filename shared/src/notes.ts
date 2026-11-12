@@ -114,6 +114,8 @@ export type NoteItemView = {
   done: boolean;
   doneAt: string | null;
   position: number;
+  // 이 항목에서 만든 할 일의 id. 없으면 null.
+  taskId: number | null;
 };
 
 // 메모가 붙은 대상의 현재 모습. 대상이 지워졌으면 exists=false 로 남는다.
@@ -154,3 +156,31 @@ export type NoteListData = {
 };
 
 export type NoteTargetListData = { targets: NoteTargetView[] };
+
+// 메모 → 일정. AI 가 메모 글에서 제목·시작 시각을 읽어 초안을 주고, 사용자가 확인·수정한 값으로 만든다.
+// parseStatus=unparsed 는 AI 를 못 썼거나 날짜를 못 읽은 경우 — 그래도 제목은 채워서 돌려준다.
+export type NoteEventDraftData = {
+  title: string;
+  start: string | null;
+  end: string | null;
+  parseStatus: "parsed" | "unparsed";
+  llmError?: string;
+};
+
+export const CreateEventFromNoteRequestSchema = z
+  .object({
+    title: z.string().trim().min(1).max(200),
+    start: z.string().datetime({ offset: true }),
+    end: z.string().datetime({ offset: true })
+  })
+  .strict()
+  .refine((v) => Date.parse(v.end) > Date.parse(v.start), { message: "end must be after start" });
+export type CreateEventFromNoteRequest = z.infer<typeof CreateEventFromNoteRequestSchema>;
+
+// 아직 저장하지 않은 글에서 일정 초안을 읽는다 (빠른 기록 2단계에서 "일정"을 골랐을 때).
+export const EventDraftFromTextRequestSchema = z.object({ text: z.string().trim().min(1).max(2000) }).strict();
+
+// 체크 항목을 할 일로 만들 때 함께 줄 수 있는 값.
+export const CreateTaskFromNoteItemRequestSchema = z
+  .object({ estMinutes: z.number().int().positive().max(1440).optional() })
+  .strict();

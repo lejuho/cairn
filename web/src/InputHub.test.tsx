@@ -824,9 +824,9 @@ describe("InputHub — creation result cards (cycle-68)", () => {
     const card = await screen.findByTestId("capture-result");
     expect(card).toHaveTextContent("일정");
     expect(card).toHaveTextContent("저장됐어");
-    const link = within(card).getByText("Today에서 보기");
+    const link = within(card).getByText("달력에서 보기");
     expect(link.tagName).toBe("A");
-    expect(link).toHaveAttribute("href", "/today");
+    expect(link).toHaveAttribute("href", "/calendar");
   });
 
   it("raw-stored quick capture shows a 미정 일정 result card with a 날짜 잡기 action", async () => {
@@ -855,7 +855,7 @@ describe("InputHub — creation result cards (cycle-68)", () => {
     fireEvent.click(screen.getByLabelText("일정 저장"));
     const card = await screen.findByTestId("manual-result");
     expect(card).toHaveTextContent("일정");
-    expect(within(card).getByText("Today에서 보기")).toHaveAttribute("href", "/today");
+    expect(within(card).getByText("달력에서 보기")).toHaveAttribute("href", "/calendar");
   });
 
   it("manual task success shows a 할 일 result card", async () => {
@@ -869,7 +869,7 @@ describe("InputHub — creation result cards (cycle-68)", () => {
     fireEvent.click(screen.getByLabelText("할 일 저장"));
     const card = await screen.findByTestId("manual-result");
     expect(card).toHaveTextContent("할 일");
-    expect(within(card).getByText("Today에서 보기")).toHaveAttribute("href", "/today");
+    expect(within(card).getByText("달력에서 보기")).toHaveAttribute("href", "/calendar");
   });
 });
 
@@ -961,7 +961,7 @@ describe("InputHub — Composer (cycle-69)", () => {
     fireEvent.click(screen.getByLabelText("만들기"));
     const card = await screen.findByTestId("task-result");
     expect(card).toHaveTextContent("할 일");
-    expect(within(card).getByText("Today에서 보기")).toHaveAttribute("href", "/today");
+    expect(within(card).getByText("달력에서 보기")).toHaveAttribute("href", "/calendar");
     const p = posts(calls);
     expect(p).toHaveLength(1);
     expect(p[0]!.url).toContain("/api/tasks");

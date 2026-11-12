@@ -530,7 +530,9 @@ export const noteItems = sqliteTable(
     text: text("text").notNull(),
     done: integer("done").notNull().default(0),
     position: integer("position").notNull().default(0),
-    doneAt: text("done_at")
+    doneAt: text("done_at"),
+    // 이 항목에서 만든 할 일 (migration 0019). 있으면 체크가 그 할 일의 완료와 함께 움직인다.
+    taskId: integer("task_id").references(() => tasks.id)
   },
   (table) => [
     check("note_items_done_check", sql`${table.done} in (0, 1)`),

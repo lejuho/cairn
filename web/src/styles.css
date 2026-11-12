@@ -6005,3 +6005,146 @@ p {
 .today-embed[data-embed="none"] {
   display: contents;
 }
+
+/* The panel hosts fixed-position sheets (event detail, add, conflict). A transform left on
+   it after the entrance animation would trap those sheets inside the panel, so the
+   animation must not keep its final frame. */
+.day-panel {
+  animation-fill-mode: backwards;
+}
+
+/* Note → event / task */
+.note-item-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.note-item-row .note-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.note-item-row .note-text-btn,
+.note-item-row .note-badge {
+  flex: 0 0 auto;
+}
+
+.note-to-event {
+  z-index: 111;
+}
+
+.note-to-event .sheet-title {
+  margin: 0 0 12px;
+  font-size: 1.1rem;
+}
+
+/* ═══ Thread board ══════════════════════════════════════════════════════════
+   Columns by state. Touch screens show one column at a time behind tabs; a wide
+   screen with a mouse lays the three out side by side. */
+.thread-board {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(100%, var(--content-w));
+}
+
+.thread-board-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.thread-board-col {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.thread-board-col[data-active="true"] {
+  display: flex;
+}
+
+.thread-board-col-title {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.thread-board .today-stack {
+  width: 100%;
+}
+
+.thread-board-empty {
+  padding: 16px 0;
+  text-align: center;
+}
+
+.thread-child-card {
+  border-left-color: var(--late);
+}
+
+.thread-child-link {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.thread-child-link:hover {
+  text-decoration: underline;
+}
+
+.board-card-date {
+  font-weight: 600;
+}
+
+.thread-node-move-btn {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.thread-board-folded {
+  padding: 4px 0;
+}
+
+.thread-board-folded summary {
+  min-height: 44px;
+  padding: 10px 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@media (min-width: 900px) and (pointer: fine) {
+  .thread-board {
+    width: min(100%, 1120px);
+  }
+
+  .thread-board-tabs {
+    display: none;
+  }
+
+  .thread-board-cols {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: start;
+    gap: 16px;
+  }
+
+  .thread-board-col,
+  .thread-board-col[data-active="false"] {
+    display: flex;
+    padding: 12px;
+    border-radius: var(--radius);
+    background: var(--raised);
+  }
+
+  .thread-board-col-title {
+    display: flex;
+  }
+}

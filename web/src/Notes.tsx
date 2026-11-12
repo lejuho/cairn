@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { NoteKind, NoteListData, NoteRelatedTarget, NoteTargetType, NoteTargetView, NoteView } from "@cairn/shared";
+import { createPortal } from "react-dom";
+import type { NoteEventDraftData, NoteKind, NoteListData, NoteRelatedTarget, NoteTargetType, NoteTargetView, NoteView } from "@cairn/shared";
 import { apiJson, openAccessLogin } from "./api.js";
 
 type ApiResponse<T> = { ok: true; data: T } | { ok: false; error: { message: string } };
@@ -73,7 +74,7 @@ function sameTarget(a: { targetType: string; targetId: number }, b: { targetType
 
 // ── Target picker ───────────────────────────────────────────────────────────
 
-function TargetPicker({ selected, onAdd }: { selected: NoteTargetView[]; onAdd: (t: NoteTargetView) => void }) {
+function TargetPicker({ selected, onAdd, only }: { selected: NoteTargetView[]; onAdd: (t: NoteTargetView) => void; only?: NoteTargetType }) {
   const [query, setQuery] = useState("");
   const [targets, setTargets] = useState<NoteTargetView[]>([]);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
@@ -97,7 +98,7 @@ function TargetPicker({ selected, onAdd }: { selected: NoteTargetView[]; onAdd: 
     };
   }, [query]);
 
-  const choices = targets.filter((t) => !selected.some((s) => sameTarget(s, t)));
+  const choices = targets.filter((t) => (!only || t.targetType === only) && !selected.some((s) => sameTarget(s, t)));
 
   return (
     <div className="note-picker">
@@ -106,8 +107,8 @@ function TargetPicker({ selected, onAdd }: { selected: NoteTargetView[]; onAdd: 
         type="search"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="일정·할 일·스레드 이름으로 찾기"
-        aria-label="붙일 대상 찾기"
+        placeholder={only === "thread" ? "스레드 이름으로 찾기" : "일정·할 일·스레드 이름으로 찾기"}
+        aria-label={only === "thread" ? "스레드 찾기" : "붙일 대상 찾기"}
       />
       {state === "loading" && <p className="note-hint">찾는 중…</p>}
       {state === "error" && <p className="note-hint" role="alert">대상을 불러오지 못했어. 다시 입력해 봐.</p>}
@@ -430,11 +431,53 @@ export function NoteFlow({ note, defaultDate, defaultTargets, onClose, onSaved }
   const [date, setDate] = useState<string>(note ? note.noteDate ?? "" : defaultDate ?? "");
   const [targets, setTargets] = useState<NoteTargetView[]>(note ? note.links.filter((l) => l.exists) : defaultTargets ?? []);
   const [remoteVisible, setRemoteVisible] = useState(note?.remoteVisible ?? false);
+  // What the writing becomes. Chosen in step 2, after the writing is done; editing a saved note keeps it a note.
+  const [what, setWhat] = useState<"note" | "task" | "event">("note");
+  const [thread, setThread] = useState<NoteTargetView | null>(() => (defaultTargets ?? []).find((t) => t.targetType === "thread") ?? null);
+  const [estMinutes, setEstMinutes] = useState<number | null>(null);
+  const [eventForm, setEventForm] = useState({ title: "", start: "09:00", end: "10:00", touched: false });
+  const [aiState, setAiState] = useState<"idle" | "reading" | "read" | "unread">("idle");
+  const aiText = useRef<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const ready = canSaveDraft(draft) && !saving;
+  const filled = filledLines(draft);
+  const firstLine = draft.title.trim() || filled[0]?.text.trim() || "";
+  const writtenText = [draft.title.trim(), ...filled.map((l) => l.text.trim())].filter(Boolean).join("\n");
+  const eventTitle = eventForm.touched ? eventForm.title : eventForm.title || firstLine;
+  const eventValid = eventTitle.trim().length > 0 && eventForm.start !== "" && eventForm.end > eventForm.start;
+  const ready = canSaveDraft(draft) && !saving && (what !== "event" || step === "write" || eventValid);
   const today = todayLocal();
   const tomorrow = shiftDate(today, 1);
+
+  // "일정" chosen: read the date and time out of the writing in the background. The fields stay
+  // editable meanwhile, and anything the user already changed is left alone.
+  useEffect(() => {
+    if (what !== "event" || step !== "place" || !writtenText || aiText.current === writtenText) return;
+    aiText.current = writtenText;
+    setAiState("reading");
+    let live = true;
+    call<NoteEventDraftData>("/api/notes/event-draft", jsonInit("POST", { text: writtenText.slice(0, 2000) }))
+      .then((d) => {
+        if (!live) return;
+        const start = d?.parseStatus === "parsed" ? d.start : null;
+        if (!start) {
+          setAiState("unread");
+          return;
+        }
+        setAiState("read");
+        setEventForm((f) => (f.touched ? f : { title: d.title, start: clockOf(start), end: d.end ? clockOf(d.end) : f.end, touched: false }));
+        setDate((prev) => (dateTouched.current ? prev : localDateOf(start) ?? prev));
+      })
+      .catch(() => live && setAiState("unread"));
+    return () => {
+      live = false;
+    };
+  }, [what, step, writtenText]);
+  const dateTouched = useRef(false);
+  const pickDate = (value: string) => {
+    dateTouched.current = true;
+    setDate(value);
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -448,25 +491,67 @@ export function NoteFlow({ note, defaultDate, defaultTargets, onClose, onSaved }
     if (!ready) return;
     setSaving(true);
     setError(null);
+    const kind = note || step === "write" ? "note" : what;
+    const threadTargets = thread ? [thread] : [];
     try {
-      const saved = await saveDraft(draft, { date, targets, remoteVisible }, note);
+      if (kind === "note") {
+        const saved = await saveDraft(draft, { date, targets, remoteVisible }, note);
+        onSaved?.(saved);
+      } else if (kind === "task") {
+        if (draft.kind === "checklist") {
+          // The checklist stays as a note; each item becomes a task that follows its checkbox.
+          const saved = await saveDraft(draft, { date, targets: threadTargets, remoteVisible: false }, undefined);
+          for (const item of saved.items) {
+            await call(`/api/notes/${saved.id}/items/${item.id}/task`, jsonInit("POST", estMinutes ? { estMinutes } : {}));
+          }
+        } else {
+          const rest = filled.slice(draft.title.trim() ? 0 : 1).map((l) => l.text.trim()).join("\n");
+          await call("/api/tasks", jsonInit("POST", {
+            title: firstLine.slice(0, 200),
+            ...(rest ? { context: rest } : {}),
+            ...(date ? { due: date } : {}),
+            ...(estMinutes ? { estMinutes } : {}),
+            ...(thread ? { threadId: thread.targetId } : {})
+          }));
+        }
+      } else {
+        const day = date || today;
+        const times = { title: eventTitle.trim().slice(0, 200), start: localStamp(day, eventForm.start), end: localStamp(day, eventForm.end) };
+        if (filled.length > 1 || (draft.title.trim() && filled.length > 0)) {
+          // More was written than a title: keep it as a note attached to the new event.
+          const saved = await saveDraft(draft, { date: day, targets: threadTargets, remoteVisible: false }, undefined);
+          await call(`/api/notes/${saved.id}/event`, jsonInit("POST", times));
+        } else {
+          await call("/api/events", jsonInit("POST", { ...times, ...(thread ? { threadId: thread.targetId } : {}) }));
+        }
+      }
       announceChange();
-      onSaved?.(saved);
       onClose();
     } catch (e) {
       setSaving(false);
-      setError(errorText(e, "메모를 저장하지 못했어"));
+      setError(errorText(e, kind === "note" ? "메모를 저장하지 못했어" : kind === "task" ? "할 일을 만들지 못했어" : "일정을 만들지 못했어"));
     }
   };
 
-  const heading = note ? "메모 고치기" : "빠른 메모";
+  const heading = note ? "메모 고치기" : "빠른 기록";
+  const taskCount = draft.kind === "checklist" ? filled.length : 1;
+  const whatHint = what === "note"
+    ? "쓴 글 그대로 남겨."
+    : what === "task"
+      ? draft.kind === "checklist" ? `항목 ${filled.length}개가 각각 할 일이 돼. 체크리스트도 같이 남아.` : "첫 줄이 할 일 제목, 나머지는 설명이 돼."
+      : filled.length > 1 ? "일정을 만들고, 쓴 글은 그 일정의 메모로 붙어." : "쓴 글로 일정을 만들어.";
+  const saveLabel = what === "note" || note
+    ? null
+    : what === "task" ? (taskCount > 1 ? `할 일 만들기 (${taskCount}개)` : "할 일 만들기") : "일정 만들기";
   const placeSummary = [
     date ? formatWhen(date) : "날짜 없음",
     targets.length > 0 ? `${targets.length}곳에 붙임` : null,
     remoteVisible ? "AI 공개" : null
   ].filter(Boolean).join(" · ");
 
-  return (
+  // Rendered at the document root: a note can be edited from inside a sheet or panel, and a
+  // fixed-position screen nested in a transformed ancestor would be clipped to it.
+  return createPortal(
     <>
       <div className="sheet-backdrop note-flow-backdrop" onClick={onClose} aria-hidden="true" />
       <div role="dialog" aria-modal="true" aria-label={heading} className="note-flow" data-step={step}>
@@ -514,54 +599,134 @@ export function NoteFlow({ note, defaultDate, defaultTargets, onClose, onSaved }
 
           {step === "place" && (
             <section className="note-flow-place" aria-label="붙일 곳 고르기">
-              <div className="note-flow-field">
-                <span className="note-field-label">날짜</span>
-                <div className="notes-filter-row" role="group" aria-label="날짜 고르기">
-                  <button type="button" className="notes-filter-chip" aria-pressed={date === today} onClick={() => setDate(today)}>오늘</button>
-                  <button type="button" className="notes-filter-chip" aria-pressed={date === tomorrow} onClick={() => setDate(tomorrow)}>내일</button>
-                  <button type="button" className="notes-filter-chip" aria-pressed={date === ""} onClick={() => setDate("")}>없음</button>
+              {!note && (
+                <div className="note-flow-field">
+                  <span className="note-field-label">무엇으로 남길까</span>
+                  <div className="notes-filter-row" role="group" aria-label="무엇으로 남길까">
+                    <button type="button" className="notes-filter-chip" aria-pressed={what === "note"} onClick={() => setWhat("note")}>메모</button>
+                    <button type="button" className="notes-filter-chip" aria-pressed={what === "task"} onClick={() => setWhat("task")}>할 일</button>
+                    <button type="button" className="notes-filter-chip" aria-pressed={what === "event"} onClick={() => setWhat("event")}>일정</button>
+                  </div>
+                  <p className="note-hint">{whatHint}</p>
                 </div>
-                <input className="note-input" type="date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="메모 날짜" disabled={saving} />
-              </div>
-              <div className="note-flow-field">
-                <span className="note-field-label">일정·할 일·스레드</span>
-                {targets.length > 0 && (
-                  <ul className="note-chip-list" role="list" aria-label="붙인 곳">
-                    {targets.map((t) => (
-                      <li key={`${t.targetType}:${t.targetId}`} className="note-chip">
-                        <span className="note-chip-kind">{TARGET_LABEL[t.targetType]}</span>
-                        <span className="note-chip-label">{t.label}</span>
-                        <button
-                          type="button"
-                          className="note-chip-remove"
-                          onClick={() => setTargets((prev) => prev.filter((p) => !sameTarget(p, t)))}
-                          aria-label={`${t.label} 떼기`}
-                        >
-                          ✕
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <TargetPicker selected={targets} onAdd={(t) => setTargets((prev) => [...prev, t])} />
-              </div>
-              <div className="note-flow-field">
-                <span className="note-field-label">AI 커넥터</span>
-                <label className="note-switch">
+              )}
+              {what === "event" && (
+                <div className="note-flow-field">
+                  <span className="note-field-label">일정 제목</span>
                   <input
-                    type="checkbox"
-                    role="switch"
-                    checked={remoteVisible}
-                    onChange={(e) => setRemoteVisible(e.target.checked)}
+                    className="note-input"
+                    value={eventTitle}
+                    onChange={(e) => setEventForm((f) => ({ ...f, title: e.target.value, touched: true }))}
+                    maxLength={200}
+                    aria-label="일정 제목"
                     disabled={saving}
-                    aria-describedby="note-remote-hint"
                   />
-                  <span>ChatGPT 같은 원격 AI에 공개</span>
-                </label>
-                <p className="note-hint" id="note-remote-hint">
-                  {remoteVisible ? "원격 AI가 이 메모를 읽을 수 있어." : "꺼져 있으면 이 기기와 Pi 안에서만 보여."}
-                </p>
+                </div>
+              )}
+              <div className="note-flow-field">
+                <span className="note-field-label">{what === "task" ? "마감" : "날짜"}</span>
+                <div className="notes-filter-row" role="group" aria-label="날짜 고르기">
+                  <button type="button" className="notes-filter-chip" aria-pressed={date === today} onClick={() => pickDate(today)}>오늘</button>
+                  <button type="button" className="notes-filter-chip" aria-pressed={date === tomorrow} onClick={() => pickDate(tomorrow)}>내일</button>
+                  {what !== "event" && <button type="button" className="notes-filter-chip" aria-pressed={date === ""} onClick={() => pickDate("")}>없음</button>}
+                </div>
+                <input
+                  className="note-input"
+                  type="date"
+                  value={what === "event" ? date || today : date}
+                  onChange={(e) => pickDate(e.target.value)}
+                  aria-label={what === "note" ? "메모 날짜" : what === "task" ? "마감 날짜" : "일정 날짜"}
+                  disabled={saving}
+                />
               </div>
+              {what === "event" && (
+                <div className="note-flow-field">
+                  <div className="note-attach">
+                    <label className="note-date-field">
+                      <span className="note-field-label">시작</span>
+                      <input className="note-input" type="time" value={eventForm.start} onChange={(e) => setEventForm((f) => ({ ...f, title: eventTitle, start: e.target.value, touched: true }))} aria-label="시작 시간" disabled={saving} />
+                    </label>
+                    <label className="note-date-field">
+                      <span className="note-field-label">끝</span>
+                      <input className="note-input" type="time" value={eventForm.end} onChange={(e) => setEventForm((f) => ({ ...f, title: eventTitle, end: e.target.value, touched: true }))} aria-label="끝 시간" disabled={saving} />
+                    </label>
+                  </div>
+                  <p className="note-hint" role="status">
+                    {aiState === "reading" && "쓴 글에서 날짜와 시간을 읽는 중… 기다리지 않고 직접 골라도 돼."}
+                    {aiState === "read" && "쓴 글에서 읽은 값이야. 맞는지 보고 고쳐줘."}
+                    {aiState === "unread" && "날짜를 읽지 못했어. 직접 골라줘."}
+                  </p>
+                  {eventForm.end <= eventForm.start && <p className="sheet-error" role="alert">끝 시간이 시작보다 늦어야 해.</p>}
+                </div>
+              )}
+              {what === "task" && (
+                <div className="note-flow-field">
+                  <span className="note-field-label">예상 시간</span>
+                  <div className="notes-filter-row" role="group" aria-label="예상 시간">
+                    {([[null, "모름"], [15, "15분"], [30, "30분"], [60, "1시간"], [120, "2시간"]] as const).map(([value, label]) => (
+                      <button key={label} type="button" className="notes-filter-chip" aria-pressed={estMinutes === value} onClick={() => setEstMinutes(value)}>{label}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {what === "note" ? (
+                <div className="note-flow-field">
+                  <span className="note-field-label">일정·할 일·스레드</span>
+                  {targets.length > 0 && (
+                    <ul className="note-chip-list" role="list" aria-label="붙인 곳">
+                      {targets.map((t) => (
+                        <li key={`${t.targetType}:${t.targetId}`} className="note-chip">
+                          <span className="note-chip-kind">{TARGET_LABEL[t.targetType]}</span>
+                          <span className="note-chip-label">{t.label}</span>
+                          <button
+                            type="button"
+                            className="note-chip-remove"
+                            onClick={() => setTargets((prev) => prev.filter((p) => !sameTarget(p, t)))}
+                            aria-label={`${t.label} 떼기`}
+                          >
+                            ✕
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <TargetPicker selected={targets} onAdd={(t) => setTargets((prev) => [...prev, t])} />
+                </div>
+              ) : (
+                <div className="note-flow-field">
+                  <span className="note-field-label">스레드 (선택)</span>
+                  {thread ? (
+                    <ul className="note-chip-list" role="list" aria-label="넣을 스레드">
+                      <li className="note-chip">
+                        <span className="note-chip-kind">스레드</span>
+                        <span className="note-chip-label">{thread.label}</span>
+                        <button type="button" className="note-chip-remove" onClick={() => setThread(null)} aria-label={`${thread.label} 빼기`}>✕</button>
+                      </li>
+                    </ul>
+                  ) : (
+                    <TargetPicker only="thread" selected={[]} onAdd={setThread} />
+                  )}
+                </div>
+              )}
+              {what === "note" && (
+                <div className="note-flow-field">
+                  <span className="note-field-label">AI 커넥터</span>
+                  <label className="note-switch">
+                    <input
+                      type="checkbox"
+                      role="switch"
+                      checked={remoteVisible}
+                      onChange={(e) => setRemoteVisible(e.target.checked)}
+                      disabled={saving}
+                      aria-describedby="note-remote-hint"
+                    />
+                    <span>ChatGPT 같은 원격 AI에 공개</span>
+                  </label>
+                  <p className="note-hint" id="note-remote-hint">
+                    {remoteVisible ? "원격 AI가 이 메모를 읽을 수 있어." : "꺼져 있으면 이 기기와 Pi 안에서만 보여."}
+                  </p>
+                </div>
+              )}
             </section>
           )}
         </div>
@@ -581,13 +746,125 @@ export function NoteFlow({ note, defaultDate, defaultTargets, onClose, onSaved }
             <>
               <button type="button" className="note-btn" disabled={saving} onClick={() => setStep("write")}>← 내용 고치기</button>
               <button type="button" className="note-btn note-btn--primary" disabled={!ready} onClick={() => void save()}>
-                {saving ? "저장 중…" : `저장 (${placeSummary})`}
+                {saving ? "저장 중…" : saveLabel ?? `저장 (${placeSummary})`}
               </button>
             </>
           )}
         </footer>
       </div>
-    </>
+    </>,
+    document.body
+  );
+}
+
+// ── Note → event (AI reads the date, the user confirms) ─────────────────────
+
+const clockFormat = new Intl.DateTimeFormat("en-GB", { timeZone: TIME_ZONE, hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+
+function clockOf(iso: string): string {
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? "09:00" : clockFormat.format(new Date(ms));
+}
+
+// Local date + time → RFC3339 in the app's zone (Korea has no daylight saving time).
+function localStamp(date: string, time: string): string {
+  return `${date}T${time}:00+09:00`;
+}
+
+type EventForm = { title: string; date: string; start: string; end: string };
+
+function NoteToEvent({ note, onClose, onCreated }: { note: NoteView; onClose: () => void; onCreated: (note: NoteView) => void }) {
+  const [form, setForm] = useState<EventForm | null>(null);
+  const [parsed, setParsed] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const noteId = note.id;
+  const fallbackDate = note.noteDate ?? todayLocal();
+  const fallbackTitle = note.title ?? bodyLines(note.body)[0] ?? note.items[0]?.text ?? "메모";
+
+  useEffect(() => {
+    let live = true;
+    const manual: EventForm = { title: fallbackTitle, date: fallbackDate, start: "09:00", end: "10:00" };
+    call<NoteEventDraftData>(`/api/notes/${noteId}/event-draft`, { method: "POST" })
+      .then((draft) => {
+        if (!live) return;
+        if (draft?.parseStatus === "parsed" && draft.start) {
+          setParsed(true);
+          setForm({ title: draft.title, date: localDateOf(draft.start) ?? fallbackDate, start: clockOf(draft.start), end: draft.end ? clockOf(draft.end) : "10:00" });
+        } else {
+          setForm({ ...manual, title: draft?.title || manual.title });
+        }
+      })
+      .catch(() => live && setForm(manual));
+    return () => {
+      live = false;
+    };
+  }, [noteId, fallbackDate, fallbackTitle]);
+
+  const valid = form !== null && form.title.trim().length > 0 && form.date !== "" && form.start !== "" && form.end !== "" && form.end > form.start;
+
+  const create = async () => {
+    if (!form || !valid || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const data = await call<{ note: NoteView }>(`/api/notes/${noteId}/event`, jsonInit("POST", {
+        title: form.title.trim(), start: localStamp(form.date, form.start), end: localStamp(form.date, form.end)
+      }));
+      announceChange();
+      onCreated(data.note);
+      onClose();
+    } catch (e) {
+      setSaving(false);
+      setError(errorText(e, "일정을 만들지 못했어"));
+    }
+  };
+
+  const set = (patch: Partial<EventForm>) => setForm((f) => (f ? { ...f, ...patch } : f));
+
+  return createPortal(
+    <>
+      <div className="sheet-backdrop note-flow-backdrop" onClick={onClose} aria-hidden="true" />
+      <div role="dialog" aria-modal="true" aria-label="메모를 일정으로" className="sheet sheet--entering note-to-event">
+        <span className="sheet-handle" aria-hidden="true" />
+        <h2 className="sheet-title">메모를 일정으로</h2>
+        {form === null ? (
+          <p className="note-hint" role="status">메모에서 날짜와 시간을 읽는 중…</p>
+        ) : (
+          <form className="note-composer" onSubmit={(e) => { e.preventDefault(); void create(); }}>
+            <p className="note-hint" role="status">
+              {parsed ? "메모에서 읽은 값이야. 맞는지 보고 고쳐줘." : "날짜를 읽지 못했어. 직접 골라줘."}
+            </p>
+            <label className="note-date-field">
+              <span className="note-field-label">제목</span>
+              <input className="note-input" value={form.title} onChange={(e) => set({ title: e.target.value })} maxLength={200} aria-label="일정 제목" disabled={saving} />
+            </label>
+            <div className="note-attach">
+              <label className="note-date-field">
+                <span className="note-field-label">날짜</span>
+                <input className="note-input" type="date" value={form.date} onChange={(e) => set({ date: e.target.value })} aria-label="일정 날짜" disabled={saving} />
+              </label>
+              <label className="note-date-field">
+                <span className="note-field-label">시작</span>
+                <input className="note-input" type="time" value={form.start} onChange={(e) => set({ start: e.target.value })} aria-label="시작 시간" disabled={saving} />
+              </label>
+              <label className="note-date-field">
+                <span className="note-field-label">끝</span>
+                <input className="note-input" type="time" value={form.end} onChange={(e) => set({ end: e.target.value })} aria-label="끝 시간" disabled={saving} />
+              </label>
+            </div>
+            {form.end <= form.start && <p className="sheet-error" role="alert">끝 시간이 시작보다 늦어야 해.</p>}
+            <p className="note-hint">메모는 그대로 남고, 만든 일정에 붙어.</p>
+            {error && <p className="sheet-error" role="alert">{error}</p>}
+            <div className="note-composer-actions">
+              <button type="button" className="note-btn" onClick={onClose} disabled={saving}>그만두기</button>
+              <button type="submit" className="note-btn note-btn--primary" disabled={!valid || saving}>{saving ? "만드는 중…" : "일정 만들기"}</button>
+            </div>
+          </form>
+        )}
+      </div>
+    </>,
+    document.body
   );
 }
 
@@ -606,6 +883,7 @@ export function NoteCard({ note, hideTarget, onChanged, onRemoved }: CardProps) 
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyItem, setBusyItem] = useState<number | null>(null);
+  const [toEvent, setToEvent] = useState(false);
 
   const patch = async (body: unknown, failure: string) => {
     try {
@@ -626,6 +904,20 @@ export function NoteCard({ note, hideTarget, onChanged, onRemoved }: CardProps) 
       onChanged(data.note);
     } catch (e) {
       setError(errorText(e, "체크를 저장하지 못했어"));
+    } finally {
+      setBusyItem(null);
+    }
+  };
+
+  const makeTask = async (itemId: number) => {
+    setBusyItem(itemId);
+    try {
+      const data = await call<{ note: NoteView }>(`/api/notes/${note.id}/items/${itemId}/task`, { method: "POST" });
+      setError(null);
+      announceChange();
+      onChanged(data.note);
+    } catch (e) {
+      setError(errorText(e, "할 일로 만들지 못했어"));
     } finally {
       setBusyItem(null);
     }
@@ -658,7 +950,7 @@ export function NoteCard({ note, hideTarget, onChanged, onRemoved }: CardProps) 
       {note.items.length > 0 && (
         <ul className="note-items" role="list" aria-label={`체크리스트 (${doneCount}/${note.items.length} 완료)`}>
           {note.items.map((item) => (
-            <li key={item.id}>
+            <li key={item.id} className="note-item-row">
               <label className="note-item" data-done={item.done ? "true" : undefined}>
                 <input
                   type="checkbox"
@@ -668,6 +960,13 @@ export function NoteCard({ note, hideTarget, onChanged, onRemoved }: CardProps) 
                 />
                 <span>{item.text}</span>
               </label>
+              {item.taskId != null ? (
+                <span className="note-badge note-badge--muted">할 일</span>
+              ) : (
+                <button type="button" className="note-text-btn" disabled={busyItem === item.id} onClick={() => void makeTask(item.id)} aria-label={`${item.text} 할 일로 만들기`}>
+                  할 일로
+                </button>
+              )}
             </li>
           ))}
         </ul>
@@ -689,6 +988,7 @@ export function NoteCard({ note, hideTarget, onChanged, onRemoved }: CardProps) 
       </div>
       <div className="note-card-actions">
         <button type="button" className="note-text-btn" onClick={() => setEditing(true)}>고치기</button>
+        <button type="button" className="note-text-btn" onClick={() => setToEvent(true)}>일정으로</button>
         <button type="button" className="note-text-btn" onClick={() => void patch({ pinned: !note.pinned }, "고정을 바꾸지 못했어")}>
           {note.pinned ? "고정 풀기" : "고정"}
         </button>
@@ -714,6 +1014,7 @@ export function NoteCard({ note, hideTarget, onChanged, onRemoved }: CardProps) 
       </div>
       {error && <p className="sheet-error" role="alert">{error}</p>}
       {editing && <NoteFlow note={note} onClose={() => setEditing(false)} onSaved={onChanged} />}
+      {toEvent && <NoteToEvent note={note} onClose={() => setToEvent(false)} onCreated={onChanged} />}
     </li>
   );
 }

@@ -410,22 +410,11 @@ export function Thread({ id }: { id: number }) {
   }
 
   const { detail } = view;
-  const now = new Date();
-
-  const futureEvents = detail.events.filter(
-    (e) => e.start != null && new Date(e.start) > now
-  );
-  const pastEvents = detail.events.filter(
-    (e) => e.start == null || new Date(e.start) <= now
-  );
-
-  const doneTasks = detail.tasks.filter((t) => t.status === "done" || t.status === "dropped");
-  const activeTasks = detail.tasks.filter((t) => t.status !== "done" && t.status !== "dropped");
 
   const { progress } = detail;
   const { incoming, outgoing } = detail.relations;
   const hasRelations = incoming.length > 0 || outgoing.length > 0;
-  const hasItems = detail.events.length > 0 || detail.tasks.length > 0;
+  const hasItems = detail.events.length > 0 || detail.tasks.length > 0 || (detail.childThreads?.length ?? 0) > 0;
 
   // Compute highlighted ids for the active resource.
   const activeItem = focus?.resources.find((r) => r.resource.id === activeResourceId) ?? null;
@@ -499,54 +488,14 @@ export function Thread({ id }: { id: number }) {
           )}
         </div>
 
-        <ul className="today-stack" role="list" style={{ width: "min(100%, var(--content-w))" }}>
-          {activeTasks.map((task) => (
-            <TaskNodeCard
-              key={`task-${task.id}`}
-              task={task}
-              liClassName={nodeClass("today-card today-card--task", highlightedTaskIds.has(task.id), false)}
-              chip="작업"
-              onSaved={refresh}
-              droppable
-            />
-          ))}
-
-          {futureEvents.map((event) => (
-            <EventNodeCard
-              key={`event-${event.id}`}
-              event={event}
-              liClassName={nodeClass("today-card today-card--event", highlightedEventIds.has(event.id), personEventIds.has(event.id))}
-              chip="예정"
-              onSaved={refresh}
-            />
-          ))}
-
-          {(pastEvents.length > 0 || doneTasks.length > 0) && (
-            <li className="thread-divider" aria-hidden="true">
-              <span className="thread-divider-label">지난 항목</span>
-            </li>
-          )}
-
-          {pastEvents.map((event) => (
-            <EventNodeCard
-              key={`event-past-${event.id}`}
-              event={event}
-              liClassName={nodeClass("today-card today-card--event thread-node--past", highlightedEventIds.has(event.id), personEventIds.has(event.id))}
-              chip={event.status === "done" ? "완료" : event.start ? "지남" : "미정"}
-              onSaved={refresh}
-            />
-          ))}
-
-          {doneTasks.map((task) => (
-            <TaskNodeCard
-              key={`task-done-${task.id}`}
-              task={task}
-              liClassName={nodeClass("today-card today-card--task thread-node--past", highlightedTaskIds.has(task.id), false)}
-              chip={task.status === "dropped" ? "드롭" : "완료"}
-              onSaved={refresh}
-            />
-          ))}
-        </ul>
+        <ThreadBoard
+          detail={detail}
+          nodeClass={nodeClass}
+          highlightedTaskIds={highlightedTaskIds}
+          highlightedEventIds={highlightedEventIds}
+          personEventIds={personEventIds}
+          onSaved={refresh}
+        />
 
         {!hasItems && (
           <p
@@ -786,6 +735,155 @@ export function Thread({ id }: { id: number }) {
 
 // Event node card (cycle-50 FR-THR-06). Display + inline 수정 form for
 // title/type/location/mode. GCal events are read-only (no 수정 button).
+// ── Board ───────────────────────────────────────────────────────────────────
+// The thread's events, tasks and directly contained threads laid out by state.
+// Dates are shown on the cards; they do not decide the column.
+
+type BoardColumnId = "todo" | "doing" | "done";
+type BoardPlace = { column: BoardColumnId | "folded"; chip: string };
+
+const BOARD_COLUMNS: Array<{ id: BoardColumnId; label: string }> = [
+  { id: "todo", label: "할 일" },
+  { id: "doing", label: "진행 중" },
+  { id: "done", label: "완료" }
+];
+
+function placeTask(task: TaskRow): BoardPlace {
+  if (task.status === "dropped") return { column: "folded", chip: "드롭" };
+  if (task.status === "done") return { column: "done", chip: "완료" };
+  if (task.status === "doing") return { column: "doing", chip: "진행 중" };
+  return { column: "todo", chip: "작업" };
+}
+
+// An event that is over counts as finished even when no outcome was recorded ("지남");
+// only one happening right now is "in progress".
+function placeEvent(event: EventRow, nowMs: number): BoardPlace {
+  if (event.status === "cancelled") return { column: "folded", chip: "취소" };
+  if (event.status === "done") return { column: "done", chip: "완료" };
+  if (event.status === "moved") return { column: "done", chip: "이동" };
+  if (event.status === "late") return { column: "done", chip: "늦음" };
+  if (event.start == null) return { column: "todo", chip: "미정" };
+  const startMs = Date.parse(event.start);
+  if (startMs > nowMs) return { column: "todo", chip: "예정" };
+  const endMs = event.end ? Date.parse(event.end) : startMs;
+  return endMs <= nowMs ? { column: "done", chip: "지남" } : { column: "doing", chip: "진행 중" };
+}
+
+function placeChild(status: ThreadStatus | null): BoardColumnId | "folded" {
+  if (status === "done") return "done";
+  if (status === "paused" || status === "dropped") return "folded";
+  return "doing";
+}
+
+function shortDay(value: string): string {
+  const [, m, d] = value.slice(0, 10).split("-");
+  return m && d ? `${Number(m)}/${Number(d)}` : value;
+}
+
+type ChildCard = NonNullable<ThreadDetail["childThreads"]>[number];
+
+function ChildThreadCard({ child, progress }: { child: ChildCard; progress: { done: number; total: number } | undefined }) {
+  const period = child.period
+    ? child.period.from === child.period.to ? shortDay(child.period.from) : `${shortDay(child.period.from)} – ${shortDay(child.period.to)}`
+    : null;
+  return (
+    <li className="today-card thread-child-card" data-child-thread-id={child.id}>
+      <span className="card-chip">스레드{child.status && child.status !== "active" ? ` · ${THREAD_STATUS_LABEL[child.status]}` : ""}</span>
+      <a className="card-title thread-child-link" href={`/threads/${child.id}`}>{child.name}</a>
+      <p className="card-meta">
+        {[progress && progress.total > 0 ? `${progress.done}/${progress.total} 완료` : "항목 없음", period ?? "날짜 없음"].join(" · ")}
+      </p>
+    </li>
+  );
+}
+
+type ThreadBoardProps = {
+  detail: ThreadDetail;
+  nodeClass: (base: string, resourceHL: boolean, personHL: boolean) => string;
+  highlightedTaskIds: Set<number>;
+  highlightedEventIds: Set<number>;
+  personEventIds: Set<number>;
+  onSaved: () => void;
+};
+
+function ThreadBoard({ detail, nodeClass, highlightedTaskIds, highlightedEventIds, personEventIds, onSaved }: ThreadBoardProps) {
+  const nowMs = Date.now();
+  const tasks = detail.tasks.map((task) => ({ task, place: placeTask(task) }));
+  const events = detail.events.map((event) => ({ event, place: placeEvent(event, nowMs) }));
+  const children = (detail.childThreads ?? []).map((child) => ({ child, column: placeChild(child.status) }));
+  const progressById = new Map(detail.rollup.children.map((c) => [c.thread.id, c.progress]));
+  const countIn = (column: BoardColumnId | "folded") =>
+    tasks.filter((t) => t.place.column === column).length + events.filter((e) => e.place.column === column).length + children.filter((c) => c.column === column).length;
+  // Phones show one column at a time; start on the first one that has something in it.
+  const [active, setActive] = useState<BoardColumnId>(() => BOARD_COLUMNS.find((c) => countIn(c.id) > 0)?.id ?? "todo");
+
+  const cards = (column: BoardColumnId | "folded") => (
+    <>
+      {children.filter((c) => c.column === column).map(({ child }) => (
+        <ChildThreadCard key={`thread-${child.id}`} child={child} progress={progressById.get(child.id)} />
+      ))}
+      {tasks.filter((t) => t.place.column === column).map(({ task, place }) => (
+        <TaskNodeCard
+          key={`task-${task.id}`}
+          task={task}
+          liClassName={nodeClass(`today-card today-card--task${column === "done" || column === "folded" ? " thread-node--past" : ""}`, highlightedTaskIds.has(task.id), false)}
+          chip={place.chip}
+          onSaved={onSaved}
+          droppable={column === "todo" || column === "doing"}
+        />
+      ))}
+      {events.filter((e) => e.place.column === column).map(({ event, place }) => (
+        <EventNodeCard
+          key={`event-${event.id}`}
+          event={event}
+          liClassName={nodeClass(`today-card today-card--event${column === "done" || column === "folded" ? " thread-node--past" : ""}`, highlightedEventIds.has(event.id), personEventIds.has(event.id))}
+          chip={place.chip}
+          onSaved={onSaved}
+        />
+      ))}
+    </>
+  );
+
+  const folded = countIn("folded");
+
+  return (
+    <section className="thread-board" aria-label="보드" data-testid="thread-board">
+      <div className="thread-board-tabs" role="tablist" aria-label="보드 열">
+        {BOARD_COLUMNS.map((col) => (
+          <button
+            key={col.id}
+            type="button"
+            role="tab"
+            className="day-panel-tab"
+            aria-selected={active === col.id}
+            onClick={() => setActive(col.id)}
+          >
+            {col.label}<span className="day-panel-tab-count">{countIn(col.id)}</span>
+          </button>
+        ))}
+      </div>
+      <div className="thread-board-cols">
+        {BOARD_COLUMNS.map((col) => (
+          <section key={col.id} className="thread-board-col" data-active={active === col.id ? "true" : "false"} data-column={col.id} aria-label={`${col.label} 열`}>
+            <h2 className="thread-board-col-title">{col.label}<span className="day-panel-tab-count">{countIn(col.id)}</span></h2>
+            {countIn(col.id) > 0 ? (
+              <ul className="today-stack" role="list">{cards(col.id)}</ul>
+            ) : (
+              <p className="note-hint thread-board-empty">비어 있어.</p>
+            )}
+          </section>
+        ))}
+      </div>
+      {folded > 0 && (
+        <details className="thread-board-folded">
+          <summary>접어둔 것 {folded}</summary>
+          <ul className="today-stack" role="list">{cards("folded")}</ul>
+        </details>
+      )}
+    </section>
+  );
+}
+
 function EventNodeCard({ event, liClassName, chip, onSaved }: { event: EventRow; liClassName: string; chip: string; onSaved: () => void }) {
   const [editing, setEditing] = useState(false);
   const [slotState, setSlotState] = useState<EventSlotState>({ tag: "idle" });
@@ -907,6 +1005,27 @@ function TaskNodeCard({ task, liClassName, chip, onSaved, droppable = false }: {
   const [dropError, setDropError] = useState<string | null>(null);
   const [slotState, setSlotState] = useState<TaskSlotState>({ tag: "idle" });
   const canSuggestTime = task.status !== "done" && task.status !== "dropped";
+  const [moving, setMoving] = useState(false);
+  // Board moves: one tap to the neighbouring state, through the existing status route.
+  const moves: Array<{ to: "todo" | "doing" | "done"; label: string; name: string }> =
+    task.status === "doing" ? [{ to: "done", label: "완료", name: "완료로" }, { to: "todo", label: "할 일로", name: "할 일로" }]
+    : task.status === "done" || task.status === "dropped" ? [{ to: "todo", label: "다시 열기", name: "다시 열기" }]
+    : [{ to: "doing", label: "시작", name: "시작" }, { to: "done", label: "완료", name: "완료로" }];
+  async function move(to: "todo" | "doing" | "done") {
+    setMoving(true); setDropError(null);
+    try {
+      const res = await apiJson<{ ok: boolean; error?: { message: string } }>(`/api/tasks/${task.id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: to })
+      });
+      if (!res.ok) { setDropError(res.error?.message ?? "상태를 바꾸지 못했어"); setMoving(false); return; }
+      setMoving(false);
+      onSaved();
+    } catch {
+      setDropError("상태를 바꾸지 못했어"); setMoving(false);
+    }
+  }
   // Soft-remove (cycle-81): reuse the existing task status route, sending ONLY
   // {status:"dropped"}. On success refresh moves the task into the dropped/done
   // history group; a failure keeps the row with a scoped error.
@@ -956,7 +1075,15 @@ function TaskNodeCard({ task, liClassName, chip, onSaved, droppable = false }: {
           <span className="card-chip">{chip}</span>
           <p className="card-title">{task.title}</p>
           {task.context && <p className="card-meta">{task.context}</p>}
+          {(task.due || task.estMinutes != null) && (
+            <p className="card-meta board-card-date">
+              {[task.due ? `마감 ${shortDay(task.due)}` : null, task.estMinutes != null ? `${task.estMinutes}분` : null].filter(Boolean).join(" · ")}
+            </p>
+          )}
           <div className="thread-node-actions">
+            {moves.map((m) => (
+              <button key={m.to} className="thread-node-edit-btn thread-node-move-btn" disabled={moving} onClick={() => void move(m.to)} aria-label={`${task.title} ${m.name}`}>{m.label}</button>
+            ))}
             <button className="thread-node-edit-btn" data-testid={`task-edit-${task.id}`} onClick={() => setEditing(true)}>수정</button>
             {droppable && (
               <button className="thread-node-drop-btn" data-testid={`task-drop-${task.id}`} disabled={dropping} onClick={() => void drop()} aria-label={`${task.title} 드롭 (활성에서 제거)`}>드롭</button>
@@ -974,7 +1101,7 @@ function TaskNodeCard({ task, liClassName, chip, onSaved, droppable = false }: {
               />
             )
           )}
-          {droppable && dropError && <p className="card-meta" role="alert" data-testid={`task-drop-error-${task.id}`} style={{ color: "var(--cancelled)" }}>{dropError}</p>}
+          {dropError && <p className="card-meta" role="alert" data-testid={`task-drop-error-${task.id}`} style={{ color: "var(--cancelled)" }}>{dropError}</p>}
         </>
       )}
       {editing && (

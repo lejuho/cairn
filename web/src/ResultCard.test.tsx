@@ -6,7 +6,7 @@ afterEach(() => cleanup());
 
 describe("ResultCard (cycle-68)", () => {
   it("renders kind, title, status and an accessible status region", () => {
-    render(<ResultCard kind="일정" title="치과" status="저장됐어" primary={{ label: "Today에서 보기", href: "/today" }} testId="rc" />);
+    render(<ResultCard kind="일정" title="치과" status="저장됐어" primary={{ label: "달력에서 보기", href: "/calendar" }} testId="rc" />);
     const card = screen.getByTestId("rc");
     expect(card).toHaveAttribute("role", "status");
     expect(card).toHaveAttribute("aria-live", "polite");
@@ -33,7 +33,7 @@ describe("ResultCard (cycle-68)", () => {
   });
 
   it("renders optional secondary content", () => {
-    render(<ResultCard kind="할 일" status="저장됐어" primary={{ label: "x", href: "/today" }} secondary={<span>부가 설명</span>} />);
+    render(<ResultCard kind="할 일" status="저장됐어" primary={{ label: "x", href: "/calendar" }} secondary={<span>부가 설명</span>} />);
     expect(screen.getByText("부가 설명")).toBeInTheDocument();
   });
 });

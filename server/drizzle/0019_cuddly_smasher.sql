@@ -1,0 +1,1 @@
+ALTER TABLE `note_items` ADD COLUMN `task_id` integer REFERENCES `tasks`(`id`);

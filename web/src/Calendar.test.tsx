@@ -85,7 +85,7 @@ describe("CalendarPage", () => {
     expect(screen.getByRole("heading", { name: "2026년 11월" })).toBeInTheDocument();
     expect(screen.getByRole("grid", { name: "2026년 11월" })).toHaveAttribute("aria-busy", "true");
     expect(screen.getAllByRole("gridcell")).toHaveLength(42);
-    expect(String((fetchMock.mock.calls as unknown as string[][])[0]![0])).toBe("/api/calendar?from=2026-11-01&to=2026-12-12");
+    expect((fetchMock.mock.calls as unknown as string[][]).some(([url]) => String(url) === "/api/calendar?from=2026-11-01&to=2026-12-12")).toBe(true);
   });
 
   it("highlights today and summarises each day", async () => {
@@ -101,34 +101,40 @@ describe("CalendarPage", () => {
     expect(screen.getByRole("button", { name: "2026년 11월 22일 (일)" })).toBeInTheDocument();
   });
 
-  it("keeps the day panel closed until a date is tapped, then walks schedule → notes", async () => {
-    const fetchMock = calendarOnly();
+  it("opens on today's panel and walks schedule → notes, with event details one tap away", async () => {
+    const DETAIL = {
+      event: DATA.events[0], people: [], annotations: [], thread: null, materials: [], notes: [],
+      scheduleBrief: { mode: null, thread: null, previousEvent: null, previousAnnotation: null, people: [], preparations: [], preparationSuggestions: [], reasonCodes: [] }
+    };
+    const fetchMock = stubFetch((url) => {
+      if (url.startsWith("/api/calendar")) return json(DATA);
+      if (url.startsWith("/api/today")) return json(surface());
+      if (url === "/api/events/1") return json(DETAIL);
+      return json({ notes: [], total: 0, related: [], targets: [] });
+    });
     render(<CalendarPage />);
-    await screen.findByRole("button", { name: /11월 12일 \(목\), 오늘/ });
-    expect(screen.getByRole("complementary", { name: "2026년 11월 12일 (목) 상세" })).toHaveAttribute("data-open", "false");
 
-    fireEvent.click(screen.getByRole("button", { name: /11월 12일 \(목\), 오늘/ }));
+    // 첫 화면: 오늘 패널이 나와 있다.
     const panel = screen.getByRole("complementary", { name: "2026년 11월 12일 (목) 상세" });
     expect(panel).toHaveAttribute("data-open", "true");
     expect(within(panel).getByText("오늘")).toBeInTheDocument();
 
     // 1단계: 일정 탭 — 시간표와 그날 마감.
-    expect(within(panel).getByRole("tab", { name: /^일정\s*2$/ })).toHaveAttribute("aria-selected", "true");
-    expect(within(panel).getByRole("button", { name: /14:00 – 15:00\s*팀 회의/ })).toBeInTheDocument();
+    expect(await within(panel).findByRole("tab", { name: /^일정\s*2$/ })).toHaveAttribute("aria-selected", "true");
+    const row = within(panel).getByRole("button", { name: "14:00 – 15:00 팀 회의 상세 보기" });
+    expect(row).toHaveTextContent("T동 501");
     expect(within(within(panel).getByRole("region", { name: "마감인 할 일" })).getByText("보고서 초안")).toBeInTheDocument();
 
-    // 일정을 누르면 그 자리에서 펼쳐지고, 그 일정의 메모를 그때 불러온다.
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("targetType=event"))).toBe(false);
-    fireEvent.click(within(panel).getByRole("button", { name: /팀 회의/ }));
-    expect(within(panel).getByText("예정 · T동 501")).toBeInTheDocument();
-    expect(within(panel).getByRole("link", { name: "스레드 열기" })).toHaveAttribute("href", "/threads/3");
-    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url) === "/api/notes?targetType=event&targetId=1")).toBe(true));
+    // 일정을 누르면 Today 에서 쓰던 일정 상세 시트가 그대로 열린다.
+    fireEvent.click(row);
+    expect(await screen.findByRole("dialog", { name: "일정 상세" })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([url]) => String(url) === "/api/events/1")).toBe(true);
 
-    // 2단계: 메모 탭 — 그날 메모.
+    // 메모 탭 — 그날 메모.
     fireEvent.click(within(panel).getByRole("tab", { name: /^메모\s*2$/ }));
     expect(within(panel).getByRole("tab", { name: /^메모\s*2$/ })).toHaveAttribute("aria-selected", "true");
     await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url) === "/api/notes?date=2026-11-12")).toBe(true));
-    expect(within(panel).queryByRole("button", { name: /팀 회의/ })).not.toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: /팀 회의 상세 보기/ })).not.toBeInTheDocument();
 
     fireEvent.click(within(panel).getByRole("button", { name: "날짜 상세 닫기" }));
     expect(screen.getByRole("complementary", { name: "2026년 11월 12일 (목) 상세" })).toHaveAttribute("data-open", "false");
@@ -139,9 +145,6 @@ describe("CalendarPage", () => {
     render(<CalendarPage />);
     const today = await screen.findByRole("button", { name: /11월 12일 \(목\), 오늘/ });
     const page = screen.getByRole("main");
-    expect(page).toHaveAttribute("data-panel", "closed");
-
-    fireEvent.click(today);
     expect(page).toHaveAttribute("data-panel", "open");
     expect(today).toHaveAttribute("aria-expanded", "true");
 
@@ -210,7 +213,6 @@ describe("CalendarPage", () => {
     });
     const fetchMock = calendarOnly(DATA, today);
     render(<CalendarPage />);
-    fireEvent.click(await screen.findByRole("button", { name: /11월 12일 \(목\), 오늘/ }));
     const panel = screen.getByRole("complementary", { name: "2026년 11월 12일 (목) 상세" });
     await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("/api/today?date=2026-11-12"))).toBe(true));
 
@@ -275,7 +277,7 @@ describe("CalendarPage", () => {
 
     fireEvent.click(within(panel).getByRole("tab", { name: "메모" }));
     fireEvent.click(within(panel).getByRole("button", { name: "+ 메모" }));
-    const flow = screen.getByRole("dialog", { name: "빠른 메모" });
+    const flow = screen.getByRole("dialog", { name: "빠른 기록" });
     fireEvent.change(within(flow).getByLabelText("1번째 줄"), { target: { value: "준비물" } });
     fireEvent.click(within(flow).getByRole("button", { name: "다음: 붙일 곳 →" }));
     expect(within(flow).getByLabelText("메모 날짜")).toHaveValue("2026-11-22");

@@ -11,25 +11,21 @@ import { PersonDetail } from "./PersonDetail.js";
 import { Thread } from "./Thread.js";
 import { ThreadIndex } from "./ThreadIndex.js";
 import { ThreadNew } from "./ThreadNew.js";
-import { Today } from "./Today.js";
 import { Watchers } from "./Watchers.js";
 
 export function App() {
   const path = useMemo(() => window.location.pathname, []);
 
+  // The calendar replaced the Today page as the home screen. Old bookmarks and installed
+  // apps still start at /today (or /), so both land on the calendar.
+  const home = path === "/" || path === "/today";
   useEffect(() => {
-    if (window.location.pathname === "/") {
-      window.history.replaceState(null, "", "/today");
-    }
-  }, []);
+    if (home) window.history.replaceState(null, "", "/calendar");
+  }, [home]);
 
   const nav = <AppNav path={path} />;
 
-  if (path === "/" || path === "/today") {
-    return <div className="app-frame"><AppNav path="/today" /><div className="app-main"><Today /></div></div>;
-  }
-
-  if (path === "/calendar") {
+  if (home || path === "/calendar") {
     return <div className="app-frame"><AppNav path="/calendar" /><div className="app-main"><CalendarPage /></div></div>;
   }
 
@@ -91,7 +87,8 @@ export function App() {
         <section className="quiet-card">
           <span className="quiet-dot" aria-hidden="true" />
           <h1 id="not-found-title">아직 없는 길이야</h1>
-          <p>오늘 화면으로 돌아오면 지금 필요한 것만 올려둘게.</p>
+          <p>달력으로 돌아가면 오늘 것부터 보여줄게.</p>
+          <a className="action-btn" href="/calendar">달력으로</a>
         </section>
       </main>
       </div>

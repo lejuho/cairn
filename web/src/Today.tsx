@@ -177,6 +177,8 @@ export type TodayProps = {
   onChanged?: () => void;
   // Embedded: bump to open the add sheet prefilled for `date`.
   addRequest?: number;
+  // Embedded: open the event detail sheet for this event (bump `seq` to reopen the same one).
+  openEvent?: { id: number; seq: number } | null;
 };
 
 async function loadSurface(domain: DomainFilter, day?: string): Promise<TodaySurface> {
@@ -1039,7 +1041,7 @@ function SlotReasonList({
   );
 }
 
-export function Today({ date, embed, onCount, onChanged, addRequest }: TodayProps = {}) {
+export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }: TodayProps = {}) {
   const isToday = date === undefined || date === localDateString();
   const isPast = date !== undefined && date < localDateString();
   const [view, setView] = useState<ViewState>({ tag: "loading" });
@@ -1685,6 +1687,12 @@ export function Today({ date, embed, onCount, onChanged, addRequest }: TodayProp
       setEventDetail({ tag: "error", message: e instanceof Error ? e.message : "오류" });
     }
   }, [loadGeocode]);
+
+  const openEventId = openEvent?.id;
+  const openEventSeq = openEvent?.seq;
+  useEffect(() => {
+    if (openEventId != null) void handleOpenEventDetail(openEventId);
+  }, [openEventId, openEventSeq, handleOpenEventDetail]);
 
   // Pinned transit fact controller (cycle-78). Submit PUTs event ids + duration
   // (the server derives the location pair + coordinates); on success refresh Today
@@ -2833,7 +2841,9 @@ export function Today({ date, embed, onCount, onChanged, addRequest }: TodayProp
   if (embed) {
     // With no section showing, a failed or pending load has nothing to say here; the tabs
     // that do show a section report it.
-    if (embed === "none" && view.tag !== "quiet" && view.tag !== "live") return null;
+    if (embed === "none" && view.tag !== "quiet" && view.tag !== "live") {
+      return <>{sheetEl}{eventDetailSheetEl}</>;
+    }
     if (view.tag === "loading") {
       return <div className="today-embed" aria-busy="true" aria-label="불러오는 중"><div className="today-skel" /></div>;
     }
