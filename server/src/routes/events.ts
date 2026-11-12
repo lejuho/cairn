@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { CreateEventPreparationRequestSchema, CreateEventRequestSchema, DismissSchedulePromptRequestSchema, PatchEventStatusRequestSchema, PatchThreadEventNodeRequestSchema } from "@cairn/shared";
+import { CreateEventPreparationRequestSchema, CreateEventRequestSchema, DismissSchedulePromptRequestSchema, PatchEventStatusRequestSchema, PatchThreadEventNodeRequestSchema, RecordEventOutcomeRequestSchema } from "@cairn/shared";
 import { createEventWithPeople, dismissSchedulePromptForDate, findEventById, findNearestPriorThreadEvent, updateEventStatus, updateEventThreadNode } from "../repositories/events.js";
 import { findAnnotationsByEvent } from "../repositories/annotations.js";
 import { findEventWithPeople, findPeopleByIds } from "../repositories/people.js";
@@ -8,9 +8,13 @@ import { addEventPreparation, findPreparationLinkData } from "../repositories/re
 import { eventExists } from "../repositories/resources.js";
 import { buildScheduleBrief, pickNewestAnnotation } from "../services/scheduleBrief.js";
 import { listEventMaterials } from "../services/event-materials.js";
+import { listNotes } from "../services/notes.js";
+import { isRemoteAudience } from "../utils/audience.js";
 import { buildPreparations } from "../services/preparationBrief.js";
 import { buildPreparationSuggestions } from "../services/preparationSuggestions.js";
 import type { CairnDatabase } from "../db/index.js";
+import { annotations, events as eventsTable } from "../db/schema.js";
+import { eq } from "drizzle-orm";
 
 export function registerEventRoutes(app: FastifyInstance, db: CairnDatabase): void {
   app.post("/api/events", async (req, reply) => {
@@ -87,7 +91,7 @@ export function registerEventRoutes(app: FastifyInstance, db: CairnDatabase): vo
     const preparationSuggestions = buildPreparationSuggestions(result.event, thread, preparations);
     const scheduleBrief = buildScheduleBrief(result.event, thread, previousEvent, previousAnnotation, result.people, preparations, preparationSuggestions);
 
-    return reply.send({ ok: true, data: { event: result.event, people: result.people, annotations, thread: compactThread, scheduleBrief, materials: listEventMaterials(db, result.event.id) } });
+    return reply.send({ ok: true, data: { event: result.event, people: result.people, annotations, thread: compactThread, scheduleBrief, materials: listEventMaterials(db, result.event.id), notes: listNotes(db, { targetType: "event", targetId: result.event.id, limit: 100 }, { remoteOnly: isRemoteAudience(req) }).notes } });
   });
 
   app.patch("/api/events/:id/status", async (req, reply) => {
@@ -109,6 +113,28 @@ export function registerEventRoutes(app: FastifyInstance, db: CairnDatabase): vo
     updateEventStatus(db, id, parsed.data.status);
     const updated = findEventById(db, id)!;
     return reply.send({ ok: true, data: { event: updated } });
+  });
+
+  // One-tap outcome (calendar day panel). Deterministic: sets the status and stores an
+  // annotation with the same outcome in one transaction, so the mirror ledger sees it.
+  app.post("/api/events/:id/outcome", async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: "id must be a positive integer" } });
+    }
+    const parsed = RecordEventOutcomeRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: parsed.error.message } });
+    }
+    if (!findEventById(db, id)) {
+      return reply.code(404).send({ ok: false, error: { code: "NOT_FOUND", message: "event not found" } });
+    }
+    const { outcome, reasonText } = parsed.data;
+    db.transaction((tx) => {
+      tx.update(eventsTable).set({ status: outcome, updatedAt: new Date().toISOString() }).where(eq(eventsTable.id, id)).run();
+      tx.insert(annotations).values({ eventId: id, outcome, reasonText: reasonText || null }).run();
+    });
+    return reply.code(201).send({ ok: true, data: { event: findEventById(db, id)!, annotations: findAnnotationsByEvent(db, id) } });
   });
 
   // Thread node inline edit (cycle-50 FR-THR-06). Edits only title/type/

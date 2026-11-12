@@ -113,7 +113,7 @@ describe("PersonDetail", () => {
     render(<PersonDetail id={1} />);
     await waitFor(() => expect(screen.getByRole("button", { name: "Access 로그인 다시 열기" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Access 로그인 다시 열기" }));
-    expect(assignMock).toHaveBeenCalledWith("http://localhost/people/1");
+    expect(assignMock).toHaveBeenCalledWith("/api/session/return?to=%2Fpeople%2F1");
   });
 });
 

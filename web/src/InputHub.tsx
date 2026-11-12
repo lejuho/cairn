@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { CreateThreadDraftResponseData, EventMode, EventRow, PersonRow, SlotCandidate, ThreadSummary, TodaySurface, Weekday } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString, localNowRfc3339 } from "./dateUtils.js";
-import { apiJson, type AccessSessionError } from "./api.js";
+import { apiJson, type AccessSessionError, openAccessLogin } from "./api.js";
 import { ResultCard } from "./ResultCard.js";
 import { CreationComposer, type ComposerMode } from "./CreationComposer.js";
 import { WatcherFieldsPanel, RecordTargetSelect, createWatcher, createRecord, dedupeTargets, watcherSubtypeValid, watcherSubtypeLabel, EMPTY_WATCHER_FIELDS, type WatcherSubtype, type WatcherFields, type RecordTarget } from "./composerModes.js";
@@ -768,7 +768,7 @@ export function InputHub() {
       <main className="app-shell input-hub" aria-label="입력 허브">
         <p className="input-error" role="alert" data-testid="input-error">로그인 세션이 필요해</p>
         <p>Cloudflare Access 세션이 만료됐거나 아직 인증되지 않았어. 다시 로그인한 뒤 이 화면으로 돌아오면 돼.</p>
-        <button className="input-submit-btn" onClick={() => { window.location.assign(window.location.href); }}>
+        <button className="input-submit-btn" onClick={() => { openAccessLogin(); }}>
           Access 로그인 다시 열기
         </button>
         <button className="input-submit-btn" onClick={() => void loadData()}>다시 시도</button>

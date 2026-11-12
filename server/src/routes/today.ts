@@ -10,6 +10,8 @@ import { findThreadIdsByDomain, findThreadLinksAmong } from "../repositories/thr
 import { findEventDependencyLinks } from "../repositories/links.js";
 import { listNeedsReviewEvents } from "../services/needsReview.js";
 import { buildTodaySurface } from "../services/today.js";
+import { listNotes } from "../services/notes.js";
+import { isRemoteAudience } from "../utils/audience.js";
 import { buildTodayLocationContexts } from "../services/today-location-context.js";
 import { buildDayTravelFacts, buildPinnedPairMap } from "../services/travel-time.js";
 import { dayScheduledEvents } from "../services/feasibility.js";
@@ -92,6 +94,6 @@ export function registerTodayRoute(app: FastifyInstance, db: CairnDatabase, mapG
     const locationContexts = buildTodayLocationContexts(contextEvents, cacheRows);
 
     const surface = buildTodaySurface(date, now, dayEvents, twoMinuteTasks, watcherBubbles, needsReviewEvents, unscheduledEvents, dueTaskSchedulePrompts, feasibility, locationContexts);
-    return reply.send({ ok: true, data: surface });
+    return reply.send({ ok: true, data: { ...surface, notes: listNotes(db, { date, limit: 100 }, { remoteOnly: isRemoteAudience(req) }).notes } });
   });
 }

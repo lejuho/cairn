@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { EventDetailData, EventRow, EventStatus, ItemListData, ItemListScope, PatchThreadTaskNodeRequest, SlotCandidate, TaskRow, TaskStatus } from "@cairn/shared";
 import { apiJson } from "./api.js";
 import { localDateString, localNowRfc3339 } from "./dateUtils.js";
+import { AttachedNotes } from "./Notes.js";
 import { SlotCandidatePicker } from "./SlotCandidatePicker.js";
 
 const EVENT_STATUS_LABEL: Record<string, string> = {
@@ -536,6 +537,19 @@ export function ItemIndex() {
                   {eventSheet.data.event.location && <p>{eventSheet.data.event.location}</p>}
                   {eventSheet.data.thread && <a href={`/threads/${eventSheet.data.thread.id}`}>{eventSheet.data.thread.name}</a>}
                 </header>
+                <AttachedNotes
+                  key={eventSheet.data.event.id}
+                  title="메모·체크리스트"
+                  target={{
+                    targetType: "event",
+                    targetId: eventSheet.data.event.id,
+                    label: eventSheet.data.event.title,
+                    when: eventSheet.data.event.start,
+                    status: eventSheet.data.event.status,
+                    exists: true
+                  }}
+                  initial={eventSheet.data.notes ?? []}
+                />
                 <section className="item-detail-actions" aria-labelledby="event-slot-title">
                   <p id="event-slot-title" className="event-detail-section-label">시간 추천</p>
                   {eventSheet.data.event.source === "gcal" ? (
@@ -605,6 +619,18 @@ export function ItemIndex() {
                 {taskSheet.task.context && <p>{taskSheet.task.context}</p>}
                 {taskSheet.task.threadId != null && <a href={`/threads/${taskSheet.task.threadId}`}>스레드 #{taskSheet.task.threadId}</a>}
               </header>
+              <AttachedNotes
+                key={taskSheet.task.id}
+                title="메모·체크리스트"
+                target={{
+                  targetType: "task",
+                  targetId: taskSheet.task.id,
+                  label: taskSheet.task.title,
+                  when: taskSheet.task.due,
+                  status: taskSheet.task.status,
+                  exists: true
+                }}
+              />
               <section className="item-detail-actions" aria-labelledby="task-detail-edit-title">
                 <p id="task-detail-edit-title" className="event-detail-section-label">세부 정보</p>
                 <TaskDetailEditor task={taskSheet.task} onSave={updateTaskDetail} />

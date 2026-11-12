@@ -5,6 +5,7 @@ import { WatcherABubbleSchema } from "./watchers.js";
 import { DayFeasibilitySchema } from "./feasibility.js";
 import { DomainFilterSchema } from "./threads.js";
 import { GeocodeConfidenceSchema, GeocodeUncertaintySchema } from "./maps.js";
+import type { NoteView } from "./notes.js";
 
 // Today location context (cycle-75). Cache-only, provider-neutral location
 // metadata attached to event-bearing Today rows. `missing` (blank location) and
@@ -88,7 +89,9 @@ export const TodaySurfaceSchema = z.object({
   feasibility: DayFeasibilitySchema,
   // Cache-only location context per event-bearing row (cycle-75). Additive; does
   // not change card discriminants, order, or priority.
-  locationContexts: z.array(TodayEventLocationContextSchema)
+  locationContexts: z.array(TodayEventLocationContextSchema),
+  // 오늘 날짜에 걸린 메모·체크리스트 (메모 날짜 또는 붙은 일정·할 일의 날짜). 옛 응답과의 호환을 위해 optional.
+  notes: z.array(z.custom<NoteView>()).optional()
 });
 
 export type TodayQuery = z.infer<typeof TodayQuerySchema>;

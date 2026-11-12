@@ -22,7 +22,10 @@ const TOOL_SCOPES: Record<string, string> = {
   cairn_observe: "cairn.confirm",
   cairn_event_capture_check: "cairn.read",
   cairn_material_attach: "cairn.confirm",
-  cairn_material_update: "cairn.confirm"
+  cairn_material_update: "cairn.confirm",
+  // 메모: 원격에는 사용자가 공개로 표시한 것만 보인다 (API 가 X-Cairn-Audience 로 걸러낸다).
+  cairn_notes_search: "cairn.read",
+  cairn_note_add: "cairn.confirm"
 };
 
 const REMOTE_INSTRUCTIONS =
@@ -32,6 +35,7 @@ const REMOTE_INSTRUCTIONS =
   "When you find an event (mail, X, Luma, conversation) with a concrete time, call cairn_propose_event with structured fields and the source URL; if alreadyKnown is true, do not ask again. " +
   "For 'can I make it?' or 'can I schedule X on that day?' questions call cairn_check_feasibility (pass people and kind=trip/abroad when relevant). Never estimate travel time yourself: relay Cairn's verdict, horizon, reasons, risks and assumptions in detail. " +
   "Follow analysisRequests: person_profile -> ask about that person and record with cairn_confirm; companion_check -> remind to confirm with companions; prep_check -> research requirements from official sources, agree steps with the user, then cairn_plan_prep; capture_check -> once the event exists, call cairn_event_capture_check and record what official sources say about slides/VOD/recordings with cairn_material_attach (status=expected + expectedAt + sourceUrl if not yet out). " +
+  "When the user asks you to jot something down, use cairn_note_add (kind=checklist with items for to-do lists; noteDate and links attach it to a day, event, task or thread). cairn_notes_search finds only the notes the user chose to share with connectors, so an empty result does not mean the user has no notes. " +
   "When the user shares slides, recordings or links from an event they attended, attach them with cairn_material_attach. For material_due inbox items, check the sourceUrl yourself before asking the user. " +
   "Follow analysisRequests: for route_check, check the route live (naverUrl) and tell the user the route; for origin_check, ask where they will be. " +
   "Do not store route details anywhere; only if the user confirms a duration, record it with cairn_pin_route. " +
@@ -50,6 +54,7 @@ export function argsForGrant(grant: Grant) {
   return (name: string, args: JsonObject): JsonObject => {
     if (name === "cairn_confirm") return { ...args, answeredBy: label };
     if (name === "cairn_material_attach") return { ...args, addedBy: label };
+    if (name === "cairn_note_add") return { ...args, addedBy: label };
     if (name === "cairn_observe") return { ...args, agent: label };
     if (name === "cairn_propose_event") return { ...args, proposedBy: label };
     return args;
@@ -57,7 +62,8 @@ export function argsForGrant(grant: Grant) {
 }
 
 export function createRemoteHandler(oauth: OAuthServer, eventService: McpEventService = defaultEventService) {
-  const apiConfig = readApiConfig();
+  // Every API call from this process is on behalf of an external connector.
+  const apiConfig = { ...readApiConfig(), audience: "remote" as const };
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const url = new URL(req.url ?? "/", "http://x");
     if (await oauth.handle(req, res, url)) return;

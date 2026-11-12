@@ -66,6 +66,14 @@
   not LLM calls. They must remain available when the Grok proxy is down. LLM
   use is limited to parsing, generation, and short explanations through the
   server-side gateway.
+- Remote connectors see user-written records only by opt-in (user decision,
+  2026-11-12). Anything the user writes for themselves — notes, checklists, and
+  any personal record added later (calendar steps 2+ included) — is private by
+  default and carries a per-item "AI 공개" switch. The remote MCP server marks
+  its API calls with `X-Cairn-Audience: remote`; routes must then return only
+  shared items, including when records ride along in another response (event
+  detail, Today, calendar counts), and must not leak counts of private ones.
+  Local agents and the web UI are unaffected. See `server/src/utils/audience.ts`.
 - Suggestions never mutate decisions automatically. Every recommendation
   includes a reason and requires user confirmation.
 - Use purpose-based routes from the product spec: `/today`, `/threads/[id]`,
@@ -236,6 +244,8 @@ bash .claude/hooks/check-marker-sync.sh
   durable lesson as one line in this Hansei section; use
   `docs/codebase-map.md` only for navigation or boundary changes, not incident
   narrative.
+
+- 서비스워커가 페이지 이동을 캐시로 답하면 Cloudflare Access 재로그인이 막힌다. `/cdn-cgi/`·`/api/` 는 navigation fallback 에서 빼고, 세션 복구는 `openAccessLogin()`(네트워크 경로)으로만 한다. → `docs/postmortems/2026-11-12-access-login-blocked-by-service-worker.md`
 
 <!-- 예: -->
 <!-- - mock verify 단위 테스트로는 FK constraint violation을 검증할 수 없다. 실제 DB 통합 테스트 필수. -->

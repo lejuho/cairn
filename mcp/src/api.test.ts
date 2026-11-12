@@ -48,4 +48,15 @@ describe("requestCairnApi", () => {
       data: { ok: true, data: { id: 1 } }
     });
   });
+
+  it("marks requests made for a remote connector so the API can withhold private notes", async () => {
+    const seen: Array<string | null> = [];
+    const fetchImpl: FetchLike = async (_url, init) => {
+      seen.push(new Headers(init.headers).get("X-Cairn-Audience"));
+      return new Response(JSON.stringify({ ok: true, data: {} }), { status: 200, headers: { "content-type": "application/json" } });
+    };
+    await requestCairnApi({ baseUrl: "http://127.0.0.1:3100", fetchImpl }, { method: "GET", path: "/api/notes" });
+    await requestCairnApi({ baseUrl: "http://127.0.0.1:3100", audience: "remote", fetchImpl }, { method: "GET", path: "/api/notes" });
+    expect(seen).toEqual([null, "remote"]);
+  });
 });

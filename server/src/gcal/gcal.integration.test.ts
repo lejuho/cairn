@@ -227,6 +227,24 @@ describe("GCal sync: cancelled events", () => {
     conn.sqlite.close();
   });
 
+  it("does not import events whose title ends with 생일", async () => {
+    const conn = makeTestDb();
+    const client = singlePageClient([
+      makeEvent({ id: "bday1", summary: "박시형 생일" }),
+      makeEvent({ id: "bday2", summary: "엄마 생일  " }),
+      makeEvent({ id: "party", summary: "생일 파티 준비" }),
+      makeEvent({ id: "meet", summary: "팀 회의" })
+    ]);
+
+    const result = await syncGcalPrimary({ connection: conn, client });
+
+    expect(result.upserted).toBe(2);
+    expect(result.skipped).toBe(2);
+    const titles = (conn.sqlite.prepare("SELECT title FROM events ORDER BY title").all() as { title: string }[]).map((r) => r.title);
+    expect(titles).toEqual(["생일 파티 준비", "팀 회의"]);
+    conn.sqlite.close();
+  });
+
   it("skips cancelled GCal event with no matching local row", async () => {
     const conn = makeTestDb();
     const client = singlePageClient([makeEvent({ status: "cancelled" })]);

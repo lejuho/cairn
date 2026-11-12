@@ -1,77 +1,122 @@
+/* ── Tokens ─────────────────────────────────────────────────────────────────
+   Light is the default; dark follows the OS unless the user pins a theme with
+   data-theme on <html> (see theme.ts). Colors are referenced by name only. */
 :root {
-  color-scheme: dark;
-  --bg: #0e1418;
-  --surface: #161f24;
-  --raised: #1c272d;
-  --border: #26343b;
-  --text: #e8e4d8;
-  --muted: #7c8a8f;
-  --faint: #566268;
-  --accent: #e0b250;
-  --on-accent: #0e1418;
-  --done: #5ba88e;
-  --moved: #d6a24e;
-  --cancelled: #c05e52;
-  --late: #9b7fb5;
-  --error: #c05e52;
-  --firm-hard: #5ba88e;
-  --firm-soft: #d6a24e;
-  --firm-tent: #3a474d;
-  --skel: #26343b;
-  --shadow: 0 18px 60px rgb(0 0 0 / 28%);
-  font-family:
-    "Space Grotesk",
-    ui-sans-serif,
-    system-ui,
+  color-scheme: light;
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --raised: #f0f2f5;
+  --border: #dde1e7;
+  --border-strong: #c5ccd6;
+  --text: #101623;
+  --muted: #4a5568;
+  --faint: #8791a1;
+  --accent: #2457e6;
+  --on-accent: #ffffff;
+  --done: #12805c;
+  --moved: #b25e09;
+  --cancelled: #d03b3b;
+  --late: #6d4bd1;
+  --error: #d03b3b;
+  --firm-hard: #12805c;
+  --firm-soft: #b25e09;
+  --firm-tent: #c5ccd6;
+  --skel: #e4e7ec;
+  --shadow: 0 1px 2px rgb(16 22 35 / 6%), 0 6px 20px rgb(16 22 35 / 7%);
+  --scrim: rgb(16 22 35 / 40%);
+
+  /* Aliases: older rules used these names; they resolve to the same palette. */
+  --accent-soft: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  --text-1: var(--text);
+  --text-2: var(--muted);
+  --surface-1: var(--surface);
+  --surface-b: var(--raised);
+  --surface-elevated: var(--surface);
+  --border-subtle: var(--border);
+  --color-border: var(--border);
+  --color-text-secondary: var(--muted);
+  --color-error: var(--error);
+  --chip-bg: var(--raised);
+  --conflict: var(--cancelled);
+  --confirmed: var(--done);
+
+  --radius: 10px;
+  --content-w: 600px;
+  --nav-w: 232px;
+  --tabbar-h: 60px;
+  --font-sans:
+    "Pretendard Variable",
+    Pretendard,
     -apple-system,
     BlinkMacSystemFont,
+    "Apple SD Gothic Neo",
+    "Noto Sans KR",
     "Segoe UI",
+    Roboto,
+    system-ui,
     sans-serif;
+  --font-data: var(--font-sans);
+  --font-serif: var(--font-sans);
+
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
   background: var(--bg);
   color: var(--text);
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color-scheme: light;
-    --bg: #f5f2ea;
-    --surface: #ffffff;
-    --raised: #fbf8f0;
-    --border: #ded8c9;
-    --text: #1e2a2e;
-    --muted: #5c6a6f;
-    --faint: #9aa2a3;
-    --accent: #b07a1e;
-    --on-accent: #ffffff;
-    --done: #2e8b6e;
-    --moved: #b0791f;
-    --cancelled: #ad453b;
-    --late: #735b8f;
-    --error: #ad453b;
-    --firm-hard: #2e8b6e;
-    --firm-soft: #b0791f;
-    --firm-tent: #c7c0ae;
-    --skel: #ded8c9;
-    --shadow: 0 18px 50px rgb(30 42 46 / 14%);
-  }
-}
-
-[data-theme="dark"] .warm {
-  --surface: #1a211f;
-  --raised: #212824;
-}
-
-[data-theme="light"] .warm,
-.warm {
-  --surface: #fcfaf2;
-  --raised: #f6f1e4;
-}
-
 @media (prefers-color-scheme: dark) {
-  .warm {
-    --surface: #1a211f;
-    --raised: #212824;
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0d1016;
+    --surface: #161a22;
+    --raised: #1e232d;
+    --border: #2a313d;
+    --border-strong: #3a4352;
+    --text: #f1f3f7;
+    --muted: #a6afbd;
+    --faint: #6c7686;
+    --accent: #6b9bff;
+    --on-accent: #0a1020;
+    --done: #3ecf96;
+    --moved: #f2aa4c;
+    --cancelled: #f47272;
+    --late: #b39dff;
+    --error: #f47272;
+    --firm-hard: #3ecf96;
+    --firm-soft: #f2aa4c;
+    --firm-tent: #3a4352;
+    --skel: #232936;
+    --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 8px 24px rgb(0 0 0 / 30%);
+    --scrim: rgb(0 0 0 / 56%);
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d1016;
+  --surface: #161a22;
+  --raised: #1e232d;
+  --border: #2a313d;
+  --border-strong: #3a4352;
+  --text: #f1f3f7;
+  --muted: #a6afbd;
+  --faint: #6c7686;
+  --accent: #6b9bff;
+  --on-accent: #0a1020;
+  --done: #3ecf96;
+  --moved: #f2aa4c;
+  --cancelled: #f47272;
+  --late: #b39dff;
+  --error: #f47272;
+  --firm-hard: #3ecf96;
+  --firm-soft: #f2aa4c;
+  --firm-tent: #3a4352;
+  --skel: #232936;
+  --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 8px 24px rgb(0 0 0 / 30%);
+  --scrim: rgb(0 0 0 / 56%);
 }
 
 * {
@@ -82,9 +127,14 @@ body {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
-  background:
-    radial-gradient(circle at 50% 0, color-mix(in srgb, var(--accent), transparent 86%), transparent 36rem),
-    var(--bg);
+  background: var(--bg);
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
 }
 
 button,
@@ -92,52 +142,62 @@ a {
   min-height: 44px;
 }
 
+a {
+  color: var(--accent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .app-shell {
   display: grid;
-  min-height: 100vh;
-  padding: 24px;
+  min-height: calc(100dvh - var(--tabbar-h));
+  padding: 20px 16px 32px;
   place-items: center;
 }
 
 .quiet-card {
   width: min(100%, 420px);
-  padding: 36px 28px;
+  padding: 32px 24px;
   border: 1px solid var(--border);
-  border-radius: 24px;
+  border-radius: 14px;
   background: var(--surface);
-  box-shadow: var(--shadow);
   text-align: center;
   animation: rise 300ms ease both;
 }
 
 .quiet-dot {
   display: inline-block;
-  width: 14px;
-  height: 14px;
+  width: 10px;
+  height: 10px;
   border-radius: 999px;
   background: var(--done);
-  box-shadow: 0 0 0 8px color-mix(in srgb, var(--done), transparent 82%);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--done), transparent 84%);
 }
 
 .eyebrow {
-  margin: 22px 0 4px;
+  margin: 18px 0 4px;
   color: var(--muted);
-  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.78rem;
-  letter-spacing: 0.14em;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 h1 {
   margin: 8px 0 10px;
   color: var(--text);
-  font-size: clamp(2rem, 9vw, 3.4rem);
-  line-height: 0.95;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
 }
 
-.warm h1 {
-  font-family: Newsreader, Georgia, "Times New Roman", serif;
-  font-weight: 600;
+h2,
+h3 {
+  letter-spacing: -0.005em;
 }
 
 p {
@@ -169,7 +229,7 @@ p {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  width: min(100%, 480px);
+  width: min(100%, var(--content-w));
   list-style: none;
   margin: 0;
   padding: 0;
@@ -540,7 +600,7 @@ p {
   border-radius: 20px;
   background: var(--raised);
   color: var(--muted);
-  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-data);
   font-size: 0.7rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -557,7 +617,7 @@ p {
 .card-meta {
   margin: 0;
   color: var(--muted);
-  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-data);
   font-size: 0.8rem;
 }
 
@@ -860,7 +920,7 @@ p {
 
 .thread-divider-label {
   color: var(--faint);
-  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-data);
   font-size: 0.7rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1118,19 +1178,19 @@ p {
   font-size: 0.85rem;
   color: var(--muted);
   margin: 0;
-  width: min(100%, 480px);
+  width: min(100%, var(--content-w));
 }
 
 /* Daily timeline */
 .today-timeline {
-  width: min(100%, 480px);
+  width: min(100%, var(--content-w));
   margin-top: 24px;
 }
 
 .today-timeline-heading {
   margin: 0 0 10px;
   color: var(--muted);
-  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-data);
   font-size: 0.75rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1166,7 +1226,7 @@ p {
   grid-row: 1 / 3;
   align-self: center;
   color: var(--muted);
-  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-data);
   font-size: 0.75rem;
   white-space: nowrap;
 }
@@ -1204,7 +1264,7 @@ p {
 .sheet-backdrop {
   position: fixed;
   inset: 0;
-  background: rgb(0 0 0 / 48%);
+  background: var(--scrim);
   z-index: 100;
 }
 
@@ -1275,7 +1335,7 @@ p {
 
 .sheet-label {
   color: var(--muted);
-  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-data);
   font-size: 0.75rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1345,13 +1405,6 @@ p {
   }
 }
 
-/* ── App navigation ─────────────────────────────────────────────────────── */
-.app-nav {
-  width: 100%;
-  background: var(--surface-1, #fff);
-  border-bottom: 1px solid var(--border-subtle, #e5e5e5);
-}
-
 /* Provider status badges (cycle-82). Passive, quiet chips — diagnostic only, no
    tap target/action. Semantic tokens; the dot color carries the state. */
 .provider-status {
@@ -1390,41 +1443,6 @@ p {
   opacity: 0.6;
 }
 
-.app-nav-list {
-  display: flex;
-  gap: 0;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  justify-content: center;
-}
-
-.app-nav-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 44px;
-  min-width: 44px;
-  padding: 0 20px;
-  text-decoration: none;
-  font-size: 0.9rem;
-  color: var(--text-2, #555);
-  border-bottom: 2px solid transparent;
-  transition: color 0.15s ease, border-color 0.15s ease;
-}
-
-.app-nav-link[aria-current="page"] {
-  color: var(--text-1, #111);
-  border-bottom-color: var(--accent, #4f6ef7);
-  font-weight: 600;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .app-nav-link {
-    transition: none;
-  }
-}
-
 /* ── Today /input link ──────────────────────────────────────────────────── */
 .today-input-link {
   display: inline-block;
@@ -1441,7 +1459,7 @@ p {
 /* ── Input Hub ──────────────────────────────────────────────────────────── */
 .input-hub {
   padding: 16px;
-  max-width: 480px;
+  max-width: var(--content-w);
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -1645,7 +1663,7 @@ p {
 .event-detail-time {
   font-size: 0.8rem;
   color: var(--muted);
-  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-data);
   margin: 0 0 4px;
 }
 
@@ -1804,7 +1822,7 @@ p {
 
 /* Feasibility panel */
 .feas-panel {
-  width: min(100%, 480px);
+  width: min(100%, var(--content-w));
   margin: 12px 0;
   display: flex;
   flex-direction: column;
@@ -1821,7 +1839,7 @@ p {
 .feas-energy-label {
   color: var(--muted);
   white-space: nowrap;
-  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-data);
   font-size: 0.72rem;
   letter-spacing: 0.05em;
 }
@@ -1847,7 +1865,7 @@ p {
 
 .feas-energy-val {
   color: var(--muted);
-  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-data);
   font-size: 0.72rem;
   white-space: nowrap;
 }
@@ -2216,7 +2234,7 @@ p {
 .feas-param-val {
   min-width: 3.5ch;
   text-align: right;
-  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-data);
   font-size: 0.85rem;
   color: var(--text);
 }
@@ -2231,7 +2249,7 @@ p {
 }
 .feas-preview-label { color: var(--muted); }
 .feas-preview-val {
-  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-data);
   color: var(--text);
 }
 .feas-settings-actions {
@@ -2292,7 +2310,7 @@ p {
 }
 .params-date {
   color: var(--muted);
-  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-data);
   font-size: 0.82rem;
 }
 .params-card,
@@ -2366,7 +2384,7 @@ p {
 .params-preview-value,
 .params-preview-error {
   text-align: right;
-  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-data);
   color: var(--text);
 }
 .params-preview-error,
@@ -2564,7 +2582,7 @@ p {
 }
 .items-section-head span {
   color: var(--muted);
-  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-data);
   font-size: 0.8rem;
 }
 .items-list {
@@ -2623,12 +2641,12 @@ p {
   padding: 2px 8px;
   border-left: 2px solid var(--accent);
   color: var(--accent);
-  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-data);
   font-size: 0.78rem;
 }
 .items-kind {
   color: var(--faint);
-  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-data);
   font-size: 0.72rem;
 }
 .items-card-actions {
@@ -2833,7 +2851,7 @@ p {
 .conflict-option-time {
   font-size: 0.78rem;
   color: var(--muted);
-  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-data);
   white-space: nowrap;
 }
 
@@ -3834,7 +3852,7 @@ p {
 /* Creation result card (cycle-68). Semantic-token success feedback for created
    objects across /input, /threads/new, /watch. 44px primary action. */
 .result-card {
-  width: min(100%, 480px);
+  width: min(100%, var(--content-w));
   margin: 12px 0;
   padding: 12px 14px;
   border-radius: 12px;
@@ -3933,7 +3951,7 @@ p {
 /* Compact variant (cycle-70): Today inline Composer — tighter spacing, centered
    to the Today column width. Same semantic tokens + 44px controls. */
 .composer--compact {
-  width: min(100%, 480px);
+  width: min(100%, var(--content-w));
   margin: 0 auto 12px;
 }
 .composer--compact .composer-modes {
@@ -4167,4 +4185,1823 @@ p {
   border-radius: 6px;
   font-size: 0.8rem;
   padding: 0 6px;
+}
+
+/* ═══ App frame & navigation ════════════════════════════════════════════════
+   Mobile: bottom tab bar (primary links + "더보기") with a floating quick-note
+   button. Wide screens: fixed left sidebar listing everything. */
+.app-frame {
+  min-height: 100dvh;
+}
+
+.app-main {
+  padding-bottom: calc(var(--tabbar-h) + 76px + env(safe-area-inset-bottom));
+}
+
+.app-nav {
+  position: fixed;
+  z-index: 50;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  padding-bottom: env(safe-area-inset-bottom);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.app-nav-brand {
+  display: none;
+}
+
+.app-nav-list {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-nav > .app-nav-list > li {
+  flex: 1;
+  min-width: 0;
+}
+
+.app-nav-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 100%;
+  height: var(--tabbar-h);
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.app-nav-icon {
+  flex: 0 0 auto;
+}
+
+.app-nav-link[aria-current="page"],
+.app-nav-more-btn[data-active="true"],
+.app-nav-more-btn[aria-expanded="true"] {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.app-nav-more {
+  display: none;
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  left: 0;
+  padding: 8px 8px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 -10px 24px rgb(16 22 35 / 10%);
+}
+
+.app-nav[data-more="open"] .app-nav-more {
+  display: block;
+}
+
+.app-nav-list--secondary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.app-nav-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.theme-toggle {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.quick-note-btn {
+  position: absolute;
+  right: 16px;
+  bottom: calc(100% + 16px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 54px;
+  height: 54px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: var(--shadow);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.quick-note-btn:active {
+  transform: scale(0.97);
+}
+
+.quick-note-plus {
+  font-size: 1.7rem;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.quick-note-label {
+  display: none;
+}
+
+.app-nav[data-more="open"] .quick-note-btn {
+  display: none;
+}
+
+@media (min-width: 900px) {
+  .app-main {
+    margin-left: var(--nav-w);
+    padding-bottom: 0;
+  }
+
+  .app-shell {
+    min-height: 100dvh;
+    padding: 32px 32px 48px;
+  }
+
+  .app-nav {
+    top: 0;
+    right: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: var(--nav-w);
+    padding: 18px 12px 12px;
+    overflow-y: auto;
+    border-top: 0;
+    border-right: 1px solid var(--border);
+  }
+
+  .app-nav-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 36px;
+    padding: 0 8px;
+    color: var(--text);
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    text-decoration: none;
+  }
+
+  .app-nav-brand-mark {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: var(--accent);
+  }
+
+  .quick-note-btn {
+    position: static;
+    width: 100%;
+    height: 44px;
+    border-radius: 10px;
+    box-shadow: none;
+  }
+
+  .quick-note-plus {
+    font-size: 1.2rem;
+  }
+
+  .quick-note-label {
+    display: inline;
+  }
+
+  .app-nav-list,
+  .app-nav-list--secondary {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .app-nav > .app-nav-list > li {
+    flex: none;
+  }
+
+  .app-nav-link {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 10px;
+    height: auto;
+    min-height: 44px;
+    padding: 0 10px;
+    border-radius: 8px;
+    font-size: 0.92rem;
+  }
+
+  .app-nav-link:hover {
+    background: var(--raised);
+    color: var(--text);
+  }
+
+  .app-nav-link[aria-current="page"] {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .app-nav-more-item {
+    display: none;
+  }
+
+  .app-nav-more,
+  .app-nav[data-more="open"] .app-nav-more {
+    position: static;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 12px;
+    padding: 0;
+    border-top: 0;
+    box-shadow: none;
+  }
+
+  .app-nav-list--secondary {
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+
+  .app-nav-foot {
+    flex-direction: column;
+    align-items: stretch;
+    margin-top: auto;
+    padding: 12px 0 0;
+  }
+
+  .app-nav-foot .provider-status {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 0 8px;
+  }
+
+  .app-nav[data-more="open"] .quick-note-btn {
+    display: inline-flex;
+  }
+}
+
+/* ═══ Refresh layer ═════════════════════════════════════════════════════════
+   Flatter, sharper surfaces shared by the older screens: one card radius, hairline
+   borders instead of heavy shadows, sheets that center on wide screens. */
+.today-live {
+  padding-top: 24px;
+}
+
+.today-card {
+  border-radius: var(--radius);
+  border-left-width: 3px;
+}
+
+.today-skel,
+.items-section,
+.items-error,
+.items-skeleton {
+  border-radius: var(--radius);
+  box-shadow: none;
+}
+
+.section-heading {
+  font-size: 1.5rem;
+}
+
+.sheet {
+  border-radius: 16px 16px 0 0;
+  box-shadow: var(--shadow);
+}
+
+@media (min-width: 700px) {
+  .sheet {
+    width: min(560px, 100%);
+    margin-inline: auto;
+    border: 1px solid var(--border);
+    border-bottom: 0;
+  }
+}
+
+.today-day-notes,
+.thread-notes {
+  width: min(100%, var(--content-w));
+  margin-top: 20px;
+}
+
+/* ═══ Notes ═════════════════════════════════════════════════════════════════ */
+.notes-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(100%, 760px);
+  margin: 0 auto;
+  padding: 24px 16px 32px;
+}
+
+.notes-header h1 {
+  margin: 0 0 4px;
+}
+
+.notes-header p {
+  font-size: 0.92rem;
+}
+
+.notes-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.note-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.note-composer--compact {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--raised);
+}
+
+.note-kind-toggle,
+.notes-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.note-kind-toggle button,
+.notes-filter-chip {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.note-kind-toggle button[aria-pressed="true"],
+.notes-filter-chip[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.note-input,
+.note-textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.note-textarea {
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.note-input:focus,
+.note-textarea:focus {
+  border-color: var(--accent);
+  outline: 2px solid color-mix(in srgb, var(--accent), transparent 70%);
+  outline-offset: 0;
+}
+
+.note-attach,
+.notes-range {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.note-date-field,
+.notes-range label {
+  display: flex;
+  flex: 1 1 150px;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.note-field-label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.note-targets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.note-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.note-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 32px;
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--text);
+  font-size: 0.84rem;
+  text-decoration: none;
+}
+
+.note-chip--link:hover {
+  border-color: var(--accent);
+}
+
+.note-chip--gone {
+  color: var(--faint);
+}
+
+.note-chip-kind {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.note-chip-label,
+.note-picker-label,
+.notes-related-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-chip-remove {
+  min-width: 32px;
+  min-height: 32px;
+  margin-right: -8px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.note-text-btn {
+  min-height: 44px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--accent);
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.note-text-btn:hover {
+  background: var(--accent-soft);
+}
+
+.note-text-btn--danger {
+  color: var(--error);
+}
+
+.note-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--raised);
+}
+
+.note-picker-list,
+.notes-related-list,
+.note-list,
+.note-items {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.note-picker-option,
+.notes-related-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font-size: 0.92rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.note-picker-option:hover,
+.notes-related-btn:hover {
+  background: var(--surface);
+}
+
+.note-picker-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.note-picker-when {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.note-hint {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.note-composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.note-btn {
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.note-btn--primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.note-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.note-saved {
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--done) 12%, var(--surface));
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.quick-note-sheet .sheet-title {
+  margin: 0 0 12px;
+  font-size: 1.1rem;
+}
+
+.quick-note-sheet .note-saved {
+  margin-bottom: 10px;
+}
+
+.note-list {
+  gap: 8px;
+}
+
+.note-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.note-card[data-pinned="true"] {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.note-card[data-archived="true"] {
+  background: var(--raised);
+}
+
+.note-card--editing {
+  padding-bottom: 14px;
+}
+
+.note-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.note-card-title {
+  margin: 0;
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.note-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.note-badge--muted {
+  background: var(--raised);
+  color: var(--muted);
+}
+
+.note-card-body {
+  color: var(--text);
+  font-size: 0.96rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.note-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 44px;
+  padding: 10px 0;
+  color: var(--text);
+  font-size: 0.96rem;
+  line-height: 1.5;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.note-item input {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+
+.note-item[data-done="true"] span {
+  color: var(--faint);
+  text-decoration: line-through;
+}
+
+.note-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.note-progress {
+  font-weight: 700;
+}
+
+.note-meta-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.note-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 0 -8px;
+  border-top: 1px solid var(--border);
+}
+
+.note-card-actions .note-text-btn {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.note-card-actions .note-text-btn--danger {
+  color: var(--error);
+  font-weight: 700;
+}
+
+.attached-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.attached-notes-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.attached-notes-head .event-detail-section-label {
+  margin: 0;
+}
+
+.notes-search-input {
+  font-size: 1rem;
+}
+
+.notes-scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.notes-related {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.notes-related-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.notes-related-btn {
+  flex: 1;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.notes-related-btn:hover {
+  background: var(--raised);
+}
+
+.notes-related-label {
+  flex: 1 1 140px;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.notes-related-meta {
+  flex: 1 1 100%;
+  padding-left: 2px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.notes-results,
+.notes-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.notes-group {
+  margin-top: 8px;
+}
+
+.notes-group-title {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.notes-empty {
+  align-items: center;
+  padding: 32px 16px;
+  text-align: center;
+}
+
+.notes-empty-title {
+  margin: 0;
+  color: var(--text);
+  font-size: 1.05rem;
+}
+
+.note-kind-toggle .note-text-btn {
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Chips inside grid cards size to their text instead of stretching the row. */
+.today-card > .card-chip {
+  justify-self: start;
+}
+
+.note-chip-label {
+  min-width: 0;
+}
+
+/* ═══ Note flow (full-screen, two steps) & line editor ══════════════════════ */
+.notes-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.notes-header .note-btn {
+  flex: 0 0 auto;
+}
+
+.note-flow-backdrop {
+  z-index: 109;
+}
+
+.note-flow {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+}
+
+.note-flow-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: max(6px, env(safe-area-inset-top)) 12px 6px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.note-flow-close {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.note-flow-title {
+  flex: 1;
+  margin: 0;
+  color: var(--text);
+  font-size: 1.05rem;
+}
+
+.note-flow-step {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.note-flow-body {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+}
+
+.note-flow[data-step="place"] .note-flow-body {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+}
+
+.note-flow-write {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 16px 0;
+  overflow-y: auto;
+}
+
+.note-flow[data-step="place"] .note-flow-write {
+  padding: 12px 10px;
+  border-right: 1px solid var(--border);
+  background: var(--raised);
+  animation: note-push-left 220ms ease both;
+}
+
+.note-flow-place {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+  padding: 12px;
+  overflow-y: auto;
+  animation: note-slide-in 220ms ease both;
+}
+
+@keyframes note-push-left {
+  from { transform: translateX(40%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes note-slide-in {
+  from { opacity: 0; transform: translateX(32px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.note-flow-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.note-flow-title-input {
+  min-height: 44px;
+  padding: 6px 0;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.note-flow-title-input:focus-visible {
+  border-bottom-color: var(--accent);
+  outline: none;
+}
+
+.note-flow-preview {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.note-flow-preview-title {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.note-flow-preview .note-line {
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.note-flow-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.note-flow-error {
+  margin: 0;
+  padding: 8px 16px;
+}
+
+.note-flow-actions {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.note-flow-actions .note-btn {
+  flex: 1;
+  min-height: 48px;
+  padding: 0 10px;
+}
+
+.note-flow-actions .note-btn--primary {
+  flex: 1.5;
+}
+
+@media (min-width: 900px) {
+  .note-flow {
+    inset: 6vh 0;
+    width: min(960px, 92vw);
+    margin-inline: auto;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+  }
+
+  .note-flow-write {
+    padding: 16px 24px 0;
+  }
+
+  .note-flow-place {
+    padding: 16px 20px;
+  }
+}
+
+.line-editor {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 96px;
+  margin: 0;
+  padding: 4px 0 48px;
+  list-style: none;
+  cursor: text;
+}
+
+.line-editor-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.line-editor-bullet {
+  flex: 0 0 22px;
+  padding-top: 7px;
+  color: var(--faint);
+  font-size: 1.05rem;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.line-editor-check {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  margin: 9px 0 0;
+  accent-color: var(--accent);
+}
+
+.line-editor-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 0;
+  overflow: hidden;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: 1.05rem;
+  line-height: 1.5;
+  resize: none;
+  field-sizing: content;
+}
+
+.line-editor-input:focus,
+.line-editor-input:focus-visible {
+  outline: none;
+}
+
+.line-editor-row[data-done="true"] .line-editor-input {
+  color: var(--faint);
+  text-decoration: line-through;
+}
+
+.note-composer--compact .line-editor {
+  min-height: 0;
+  padding: 2px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.note-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.note-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--text);
+  font-size: 0.96rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.note-line-mark {
+  flex: 0 0 auto;
+  color: var(--faint);
+}
+
+.note-line[data-done="true"] span:last-child {
+  color: var(--faint);
+  text-decoration: line-through;
+}
+
+/* In the narrow attach pane, names wrap to two lines instead of being cut short. */
+.note-flow-place .note-picker-option {
+  align-items: flex-start;
+  padding: 10px 6px;
+}
+
+.note-flow-place .note-picker-label {
+  display: -webkit-box;
+  overflow: hidden;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.note-flow-place .note-picker {
+  padding: 8px 6px;
+}
+
+/* ═══ Calendar ══════════════════════════════════════════════════════════════
+   Month grid with today highlighted, plus a day panel that toggles in and out.
+   Touch screens stack them (calendar above, panel below) and the calendar fills the
+   screen while the panel is away. A wide screen with a mouse puts the panel beside it. */
+.app-nav-list--secondary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.app-main:has(.calendar-page) {
+  padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+}
+
+/* The panel carries its own "+ 메모"; the floating button would sit on top of it. */
+.app-frame:has(.calendar-page[data-panel="open"]) .quick-note-btn {
+  display: none;
+}
+
+.calendar-page {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: calc(100dvh - var(--tabbar-h) - env(safe-area-inset-bottom));
+  padding: 12px 12px 0;
+}
+
+.calendar-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding-bottom: 12px;
+}
+
+.calendar-page[data-panel="open"] .calendar-main {
+  flex: 0 0 auto;
+  padding-bottom: 0;
+}
+
+.calendar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.calendar-head h1 {
+  margin: 0;
+}
+
+.calendar-nav {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.calendar-nav-btn {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 1.15rem;
+  cursor: pointer;
+}
+
+.calendar-nav-today {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.calendar-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--error) 40%, var(--border));
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.calendar-error p {
+  flex: 1 1 200px;
+  color: var(--text);
+  font-size: 0.92rem;
+}
+
+.calendar-grid {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.calendar-weekdays,
+.calendar-week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.calendar-week {
+  flex: 1;
+  min-height: 0;
+}
+
+.calendar-weekday {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.calendar-weekday[data-weekend="true"] {
+  color: var(--faint);
+}
+
+.calendar-week + .calendar-week {
+  border-top: 1px solid var(--border);
+}
+
+.calendar-cell-wrap {
+  min-width: 0;
+}
+
+.calendar-cell-wrap + .calendar-cell-wrap {
+  border-left: 1px solid var(--border);
+}
+
+.calendar-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 100%;
+  height: 100%;
+  min-height: 44px;
+  padding: 5px 2px;
+  overflow: hidden;
+  border: 0;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.calendar-cell:hover {
+  background: var(--raised);
+}
+
+.calendar-cell[aria-pressed="true"] {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.calendar-cell[data-outside="true"] .calendar-cell-day {
+  color: var(--faint);
+}
+
+.calendar-cell-day {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.calendar-cell[aria-current="date"] .calendar-cell-day {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+}
+
+.calendar-cell-dots {
+  display: inline-flex;
+  gap: 3px;
+  min-height: 6px;
+}
+
+.calendar-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.calendar-dot--note {
+  background: var(--moved);
+}
+
+/* With the calendar filling the screen there is room for titles; with the panel out, dots. */
+.calendar-cell-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-self: stretch;
+  min-width: 0;
+}
+
+.calendar-cell-title {
+  overflow: hidden;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 0.62rem;
+  line-height: 1.5;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.calendar-cell-more,
+.calendar-cell-note {
+  display: block;
+  align-self: stretch;
+  color: var(--muted);
+  font-size: 0.62rem;
+  text-align: left;
+}
+
+.calendar-cell-note {
+  color: var(--moved);
+  font-weight: 600;
+}
+
+.calendar-page[data-panel="closed"] .calendar-cell-dots,
+.calendar-page[data-panel="open"] .calendar-cell-titles,
+.calendar-page[data-panel="open"] .calendar-cell-note,
+.calendar-page[data-panel="closed"] .calendar-legend {
+  display: none;
+}
+
+.calendar-cell-skel {
+  width: 60%;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--skel);
+  animation: pulse 1.3s ease-in-out infinite;
+}
+
+.calendar-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.calendar-legend .calendar-dot--note {
+  margin-left: 10px;
+}
+
+/* Day panel */
+.day-panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 12px 14px 0;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: 16px 16px 0 0;
+  background: var(--surface);
+  box-shadow: 0 -6px 20px rgb(16 22 35 / 8%);
+  animation: rise 220ms ease both;
+}
+
+.day-panel[data-open="false"] {
+  display: none;
+}
+
+.day-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.day-panel-head > div {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.day-panel-title {
+  margin: 0;
+  color: var(--text);
+  font-size: 1.05rem;
+}
+
+.day-panel-add {
+  flex: 0 0 auto;
+  padding: 0 14px;
+}
+
+.day-panel-tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.day-panel-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  margin-bottom: -1px;
+  padding: 0 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.day-panel-tab[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+}
+
+.day-panel-tab-count {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-align: center;
+}
+
+.day-panel-tab[aria-selected="true"] .day-panel-tab-count {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.day-panel-body {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 0 16px;
+  overflow-y: auto;
+}
+
+.day-panel-body .attached-notes {
+  margin-top: 0;
+}
+
+.day-panel-quiet {
+  padding: 20px 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+  text-align: center;
+}
+
+.day-schedule {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.day-event-list,
+.day-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.day-event {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.day-event[data-status="done"] {
+  border-left-color: var(--done);
+}
+
+.day-event[data-status="moved"],
+.day-event[data-status="late"] {
+  border-left-color: var(--moved);
+}
+
+.day-event-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 12px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.day-event-time {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.day-event-title {
+  font-size: 0.98rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.day-event-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 12px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.day-event-meta {
+  padding-top: 8px;
+  font-size: 0.86rem;
+}
+
+.day-task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.day-task-title {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+}
+
+/* Side by side only where there is width AND a mouse; a phone that reports a wide
+   viewport (landscape, "desktop site") still stacks. */
+@media (min-width: 900px) and (pointer: fine) {
+  .app-main:has(.calendar-page) {
+    padding-bottom: 0;
+  }
+
+  .app-frame:has(.calendar-page[data-panel="open"]) .quick-note-btn {
+    display: inline-flex;
+  }
+
+  .calendar-page {
+    flex-direction: row;
+    gap: 20px;
+    height: 100dvh;
+    padding: 24px;
+  }
+
+  .calendar-main,
+  .calendar-page[data-panel="open"] .calendar-main {
+    flex: 1;
+    min-width: 0;
+    padding-bottom: 0;
+  }
+
+  .calendar-cell {
+    align-items: stretch;
+    padding: 6px;
+  }
+
+  .calendar-cell-title {
+    padding: 1px 6px;
+    font-size: 0.74rem;
+    text-overflow: ellipsis;
+  }
+
+  .calendar-cell-more,
+  .calendar-cell-note {
+    font-size: 0.7rem;
+  }
+
+  .calendar-cell-note {
+    margin-top: auto;
+  }
+
+  .calendar-page[data-panel="open"] .calendar-cell-titles {
+    display: flex;
+  }
+
+  .calendar-page[data-panel="open"] .calendar-cell-note {
+    display: block;
+  }
+
+  .calendar-page .calendar-cell-dots,
+  .calendar-page .calendar-legend {
+    display: none;
+  }
+
+  .day-panel {
+    flex: 0 0 400px;
+    padding: 16px 16px 0;
+    border-bottom: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: none;
+    animation: none;
+  }
+}
+
+/* Shared-with-remote-AI marker and switch */
+.note-badge--shared {
+  background: color-mix(in srgb, var(--moved) 16%, var(--surface));
+  color: var(--moved);
+}
+
+.note-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  color: var(--text);
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.note-switch input {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+/* Calendar step 2: outcomes, embedded Today sections */
+.calendar-dot--pending {
+  background: var(--cancelled);
+}
+
+.calendar-legend .calendar-dot--pending {
+  margin-left: 10px;
+}
+
+.calendar-cell-pending {
+  color: var(--cancelled);
+}
+
+.day-panel-tabs {
+  overflow-x: auto;
+}
+
+.day-panel-tab {
+  flex: 0 0 auto;
+  padding: 0 12px;
+}
+
+.day-panel-action {
+  align-self: flex-start;
+  margin: 12px 0;
+}
+
+.day-panel-body > .day-panel-action:first-child {
+  margin-top: 0;
+}
+
+.day-outcomes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.day-outcome {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--cancelled);
+  border-radius: 8px;
+}
+
+.day-outcome .day-event-title {
+  color: var(--text);
+}
+
+.day-outcome-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.day-outcome-btn {
+  min-height: 44px;
+  padding: 0 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.day-outcome-btn:first-child {
+  border-color: var(--done);
+  color: var(--done);
+}
+
+.day-outcome-btn:disabled {
+  opacity: 0.45;
+}
+
+.today-embed .today-stack,
+.today-embed .feas-panel {
+  width: 100%;
+}
+
+.today-embed[data-embed="none"] {
+  display: contents;
 }

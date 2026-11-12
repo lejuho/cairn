@@ -33,6 +33,8 @@ const RESOURCE_TARGET_TYPES = ["event", "task", "thread"] as const;
 const RESOURCE_FIRMNESSES = ["hard", "soft", "tentative"] as const;
 const MATERIAL_KINDS = ["slides", "video", "recording", "notes", "photo", "link", "file"] as const;
 const MATERIAL_STATUSES = ["expected", "available", "missing"] as const;
+const NOTE_KINDS = ["note", "checklist"] as const;
+const NOTE_TARGET_TYPES = ["event", "task", "thread"] as const;
 
 const enumSqlList = (values: readonly string[]) =>
   sql.raw(values.map((value) => `'${value}'`).join(", "));
@@ -490,5 +492,64 @@ export const eventMaterials = sqliteTable(
     check("event_materials_kind_check", sql`${table.kind} in (${enumSqlList(MATERIAL_KINDS)})`),
     check("event_materials_status_check", sql`${table.status} in (${enumSqlList(MATERIAL_STATUSES)})`),
     index("event_materials_event_idx").on(table.eventId)
+  ]
+);
+
+// 빠른 메모·체크리스트 (migration 0017). 날짜(note_date)와 일정/할 일/스레드(note_links)에 붙는다.
+// note_links.target_id 는 resource_links 처럼 FK 없는 정수 — 대상이 지워져도 메모는 남는다.
+export const notes = sqliteTable(
+  "notes",
+  {
+    id: integer("id").primaryKey(),
+    kind: text("kind").notNull().default("note"),
+    title: text("title"),
+    body: text("body"),
+    noteDate: text("note_date"),
+    pinned: integer("pinned").notNull().default(0),
+    addedBy: text("added_by"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+    archivedAt: text("archived_at"),
+    // 원격 MCP 커넥터(ChatGPT 등)에 보여도 되는가 (migration 0018). 기본 0 = 비공개.
+    // 로컬 에이전트와 웹에는 영향 없다.
+    remoteVisible: integer("remote_visible").notNull().default(0)
+  },
+  (table) => [
+    check("notes_kind_check", sql`${table.kind} in (${enumSqlList(NOTE_KINDS)})`),
+    check("notes_pinned_check", sql`${table.pinned} in (0, 1)`),
+    check("notes_remote_visible_check", sql`${table.remoteVisible} in (0, 1)`),
+    index("notes_note_date_idx").on(table.noteDate)
+  ]
+);
+
+export const noteItems = sqliteTable(
+  "note_items",
+  {
+    id: integer("id").primaryKey(),
+    noteId: integer("note_id").notNull().references(() => notes.id),
+    text: text("text").notNull(),
+    done: integer("done").notNull().default(0),
+    position: integer("position").notNull().default(0),
+    doneAt: text("done_at")
+  },
+  (table) => [
+    check("note_items_done_check", sql`${table.done} in (0, 1)`),
+    index("note_items_note_idx").on(table.noteId)
+  ]
+);
+
+export const noteLinks = sqliteTable(
+  "note_links",
+  {
+    id: integer("id").primaryKey(),
+    noteId: integer("note_id").notNull().references(() => notes.id),
+    targetType: text("target_type").notNull(),
+    targetId: integer("target_id").notNull(),
+    createdAt: text("created_at").notNull()
+  },
+  (table) => [
+    check("note_links_target_type_check", sql`${table.targetType} in (${enumSqlList(NOTE_TARGET_TYPES)})`),
+    uniqueIndex("note_links_unique_idx").on(table.noteId, table.targetType, table.targetId),
+    index("note_links_target_idx").on(table.targetType, table.targetId)
   ]
 );

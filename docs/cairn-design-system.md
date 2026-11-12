@@ -14,6 +14,7 @@
 4. **firmness가 시각적으로 즉시 읽힌다.** 실선/점선/흐림은 *얼마나 믿어도 되는가*. 추론을 확정처럼 보이게 금지.
 5. **거울은 비추되 판단하지 않는다.** 기술(description)만, 질책 톤·경고색 금지.
 6. **입력 부담은 탭 한 번 이하.** 폼을 만나는 순간 시스템이 죽음. 고르는/끄덕이는 컴포넌트만.
+   - 예외: **메모**(`/notes`, 빠른 메모). 사용자가 원해서 적는 글이라 자유 입력을 허용한다. 대신 어느 화면에서든 버튼 한 번으로 열리고, 날짜는 오늘로 채워진다.
 
 ---
 
@@ -37,37 +38,46 @@
 
 ### 1.2 모드별 값
 
-**다크 (기준):**
+2026-11 리프레시: 흐릿한 청회색·금색 조합을 버리고, 중립 회색 바탕 + 또렷한 글자 + 파란 강조 하나로 정리했다. 기준은 라이트.
+
+**라이트 (기준):**
 ```
---bg:#0E1418  --surface:#161F24  --raised:#1C272D  --border:#26343B
---text:#E8E4D8  --muted:#7C8A8F  --faint:#566268
---accent:#E0B250  --on-accent:#0E1418
---done:#5BA88E  --moved:#D6A24E  --cancelled:#C05E52  --late:#9B7FB5
---firm-hard:#5BA88E  --firm-soft:#D6A24E  --firm-tent:#3A474D
+--bg:#F5F6F8  --surface:#FFFFFF  --raised:#F0F2F5  --border:#DDE1E7  --border-strong:#C5CCD6
+--text:#101623  --muted:#4A5568  --faint:#8791A1
+--accent:#2457E6  --on-accent:#FFFFFF
+--done:#12805C  --moved:#B25E09  --cancelled:#D03B3B  --late:#6D4BD1
+--firm-hard:#12805C  --firm-soft:#B25E09  --firm-tent:#C5CCD6
 ```
 
-**라이트 (재튜닝):**
+**다크 (재튜닝):**
 ```
---bg:#F5F2EA  --surface:#FFFFFF  --raised:#FBF8F0  --border:#DED8C9
---text:#1E2A2E  --muted:#5C6A6F  --faint:#9AA2A3
---accent:#B07A1E  --on-accent:#FFFFFF
---done:#2E8B6E  --moved:#B0791F  --cancelled:#AD453B  --late:#735B8F
---firm-hard:#2E8B6E  --firm-soft:#B0791F  --firm-tent:#C7C0AE
+--bg:#0D1016  --surface:#161A22  --raised:#1E232D  --border:#2A313D  --border-strong:#3A4352
+--text:#F1F3F7  --muted:#A6AFBD  --faint:#6C7686
+--accent:#6B9BFF  --on-accent:#0A1020
+--done:#3ECF96  --moved:#F2AA4C  --cancelled:#F47272  --late:#B39DFF
+--firm-hard:#3ECF96  --firm-soft:#F2AA4C  --firm-tent:#3A4352
 ```
 
-전환: 수동 토글 + OS `prefers-color-scheme` 따라가기(`system`). 그 이상 똑똑한 자동 전환은 안 함(혼란 방지).
+파생 토큰: `--accent-soft`(선택된 칩·현재 메뉴 배경), `--scrim`(시트 백드롭), `--radius`(카드 10px), `--content-w`(본문 열 600px).
 
-⚠ outcome·firmness 색은 모드별 *따로 튜닝*. 단순 invert는 라이트에서 탁해짐 — 실기기 대비 검증 필수(특히 `--muted`, 칩 경계).
+전환: 기본은 OS `prefers-color-scheme`(`system`). 메뉴의 테마 버튼이 시스템 → 라이트 → 다크로 돌고, 고정한 값은 `localStorage["cairn.theme"]` + `<html data-theme>` 로 남는다(`web/src/theme.ts`).
+
+⚠ outcome·firmness 색은 모드별 *따로 튜닝*. 표면은 그림자 대신 1px 경계선으로 구분한다(그림자는 시트·플로팅 버튼에만).
 
 ### 1.3 타이포
 
 | 역할 | 폰트 | 쓰임 |
 | --- | --- | --- |
-| UI/display | Space Grotesk | 기본 — 모든 화면 |
-| 데이터 | IBM Plex Mono | 시각·수치·날짜·ID |
-| 회고(B) | Newsreader (serif) | **거울·조용 상태·완결 정산의 헤딩에만** 엄격 제한 |
+| UI 전체 | 시스템 산세리프 (Pretendard → Apple SD Gothic Neo → Noto Sans KR → system-ui) | 모든 화면 |
+| 데이터 | 같은 산세리프 + `tabular-nums` | 시각·수치·날짜 |
 
-세리프는 A/B 신호용이라 B 컨텍스트 밖으로 새지 않게.
+웹폰트는 내려받지 않는다(오프라인 PWA). 세리프·모노 구분은 없앴다 — 위계는 굵기와 크기로만.
+
+### 1.4 레이아웃 셸
+
+- 모바일: 하단 탭바(Today·메모·입력·스레드·더보기) + 우하단 빠른 메모 버튼. 더보기 안에 항목·사람·거울·여백·파라미터, 테마, 프로바이더 상태.
+- 900px 이상: 왼쪽 고정 사이드바(232px)에 전체 메뉴, 맨 위에 빠른 메모 버튼. 본문은 가운데 한 열.
+- 시트는 700px 이상에서 가운데 560px 폭으로 뜬다.
 
 ---
 
@@ -83,6 +93,8 @@
 | 표면 | 기본 | 따뜻하게 틴트(`--surface` 재정의) |
 | 여백·행간 | 고밀도 | 넉넉 |
 | 체류 | 짧게(처리 후 떠남) | 머물러 돌아봄 |
+
+> 2026-11 리프레시 이후 `.warm` 은 표면색·세리프를 바꾸지 않는다(클래스는 남아 있지만 토큰 재정의 없음). A/B 는 카피와 여백으로만 구분한다.
 
 구현: A를 뼈대로, B는 `.warm` 클래스가 `--surface`/`--raised`만 재정의 + 세리프 + 여백 확대. **레이아웃은 안 바꿈** — 온도(폰트·표면·여백)로만 표현해 한 화면에서 시끄럽게 안 부딪히게. thread 뷰에선 NOW선 위(A) / 아래(B)가 미묘한 온도차를 가질 수 있음.
 

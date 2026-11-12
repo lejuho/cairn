@@ -23,6 +23,9 @@ export interface CairnApiClientConfig {
   baseUrl: string;
   bearerToken?: string;
   cookie?: string;
+  // "remote" marks requests made on behalf of an external connector (ChatGPT etc.).
+  // The API then returns only what the user marked as shared (see server utils/audience.ts).
+  audience?: "remote";
   fetchImpl?: FetchLike;
 }
 
@@ -66,6 +69,7 @@ export async function requestCairnApi(config: CairnApiClientConfig, request: Cai
   headers.set("Accept", "application/json");
   if (config.bearerToken) headers.set("Authorization", `Bearer ${config.bearerToken}`);
   if (config.cookie) headers.set("Cookie", config.cookie);
+  if (config.audience) headers.set("X-Cairn-Audience", config.audience);
 
   let body: string | undefined;
   if (request.body !== undefined) {

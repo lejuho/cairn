@@ -170,7 +170,7 @@ describe("Thread — access-session state", () => {
     }));
     render(<Thread id={1} />);
     await waitFor(() => expect(screen.getByRole("heading", { name: "로그인이 필요해" })).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: "새로 고침" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "다시 로그인" })).toBeInTheDocument();
   });
 });
 
@@ -1732,11 +1732,13 @@ describe("Thread — person focus (cycle-66)", () => {
     mockFetch({ thread: BASE_THREAD, events: [BASE_EVENT, EVENT2], tasks: [BASE_TASK], progress: { done: 0, total: 3 }, personFocus: PERSON_FOCUS });
     render(<Thread id={1} />);
     await waitFor(() => expect(screen.getByTestId("person-focus")).toBeInTheDocument());
-    const before = fetchCalls().length;
+    // The thread's notes section loads on its own schedule right after mount; it is not caused by the clicks.
+    const focusCalls = () => fetchCalls().filter(([url]) => !String(url).startsWith("/api/notes")).length;
+    const before = focusCalls();
     fireEvent.click(document.querySelector('[data-person-id="7"]') as HTMLButtonElement);
     fireEvent.click(document.querySelector('[data-person-id="7"]') as HTMLButtonElement);
     await Promise.resolve();
-    expect(fetchCalls().length).toBe(before); // no new fetch from focus clicks
+    expect(focusCalls()).toBe(before); // no new fetch from focus clicks
     expect(fetchCalls().every(([, opts]) => !opts || !["POST", "PATCH", "DELETE"].includes(opts.method ?? ""))).toBe(true);
   });
 });

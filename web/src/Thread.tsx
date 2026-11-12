@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApprovePromotionRequest, EgoGraphData, EventMode, EventRow, PromotionSuggestion, SlotCandidate, TaskRow, ThreadDetail, ThreadLinkKind, ThreadMissingNodeSuggestion, ThreadNodeLink, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadResumeData, ThreadResumeExportData, ThreadResumeExportFormat, ThreadRollup, ThreadRow, ThreadSettlement, ThreadSettlementPaidCost, ThreadStarDraftResponseData, ThreadStatus, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
-import { apiJson, type AccessSessionError } from "./api.js";
+import { apiJson, type AccessSessionError, openAccessLogin } from "./api.js";
 import { localDateString, localNowRfc3339 } from "./dateUtils.js";
 import { EgoSheet, loadEgoGraph } from "./EgoSheet.js";
+import { AttachedNotes } from "./Notes.js";
 import { SlotCandidatePicker } from "./SlotCandidatePicker.js";
 
 // Thread node edit/confirm endpoints (cycle-50 FR-THR-05/06). Return ok+optional
@@ -390,7 +391,7 @@ export function Thread({ id }: { id: number }) {
           <p className="eyebrow">Thread</p>
           <h1 id="thread-title">로그인이 필요해</h1>
           <p>세션이 만료됐어. 페이지를 새로 고침해봐.</p>
-          <button className="today-submit-btn" onClick={() => window.location.reload()}>새로 고침</button>
+          <button className="today-submit-btn" onClick={() => openAccessLogin()}>다시 로그인</button>
         </section>
       </main>
     );
@@ -455,7 +456,7 @@ export function Thread({ id }: { id: number }) {
         <div
           className={nodeClass("thread-header", highlightThread, false)}
           data-testid="thread-header"
-          style={{ width: "min(100%, 480px)", marginBottom: "16px" }}
+          style={{ width: "min(100%, var(--content-w))", marginBottom: "16px" }}
         >
           <p className="eyebrow">Thread</p>
           <h1 id="thread-title" className="thread-name">{detail.thread.name}</h1>
@@ -498,7 +499,7 @@ export function Thread({ id }: { id: number }) {
           )}
         </div>
 
-        <ul className="today-stack" role="list" style={{ width: "min(100%, 480px)" }}>
+        <ul className="today-stack" role="list" style={{ width: "min(100%, var(--content-w))" }}>
           {activeTasks.map((task) => (
             <TaskNodeCard
               key={`task-${task.id}`}
@@ -551,7 +552,7 @@ export function Thread({ id }: { id: number }) {
           <p
             className="card-meta"
             data-testid="thread-empty"
-            style={{ width: "min(100%, 480px)", padding: "8px 0", opacity: 0.8 }}
+            style={{ width: "min(100%, var(--content-w))", padding: "8px 0", opacity: 0.8 }}
           >
             아직 연결된 항목이 없어. 이벤트나 작업을 연결하면 여기 나타나.
           </p>
@@ -580,10 +581,24 @@ export function Thread({ id }: { id: number }) {
           <MissingNodeSuggestionsSection suggestions={detail.missingNodeSuggestions} />
         )}
 
+        <div className="thread-notes">
+          <AttachedNotes
+            title="메모·체크리스트"
+            target={{
+              targetType: "thread",
+              targetId: detail.thread.id,
+              label: detail.thread.name,
+              when: detail.thread.deadline,
+              status: detail.thread.status,
+              exists: true
+            }}
+          />
+        </div>
+
         {/* Relations section */}
         <section
           aria-labelledby="thread-relations-title"
-          style={{ width: "min(100%, 480px)", marginTop: "24px" }}
+          style={{ width: "min(100%, var(--content-w))", marginTop: "24px" }}
           data-testid="thread-relations"
         >
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
@@ -1100,7 +1115,7 @@ function NodeLinksSection({ threadId, nodeLinks, onConfirmed }: { threadId: numb
   }
 
   return (
-    <section aria-labelledby="thread-node-links-title" data-testid="thread-node-links" style={{ width: "min(100%, 480px)", marginTop: "24px" }}>
+    <section aria-labelledby="thread-node-links-title" data-testid="thread-node-links" style={{ width: "min(100%, var(--content-w))", marginTop: "24px" }}>
       <h2 id="thread-node-links-title" className="eyebrow" style={{ margin: "0 0 8px" }}>노드 연결</h2>
       {error && <p className="card-meta" role="alert" style={{ color: "var(--moved)" }}>{error}</p>}
       <ul className="today-stack" role="list">
@@ -1145,7 +1160,7 @@ const BLOCKER_MISSING_LABEL: Record<string, string> = {
 
 function UnknownBlockersSection({ blockers }: { blockers: ThreadUnknownBlocker[] }) {
   return (
-    <section aria-labelledby="thread-unknown-blockers-title" data-testid="thread-unknown-blockers" style={{ width: "min(100%, 480px)", marginTop: "24px" }}>
+    <section aria-labelledby="thread-unknown-blockers-title" data-testid="thread-unknown-blockers" style={{ width: "min(100%, var(--content-w))", marginTop: "24px" }}>
       <h2 id="thread-unknown-blockers-title" className="eyebrow" style={{ margin: "0 0 8px" }}>입력 필요</h2>
       <ul className="today-stack" role="list">
         {blockers.map((b) => (
@@ -1176,7 +1191,7 @@ function SettlementSection({ settlement }: { settlement: ThreadSettlement }) {
     .filter((k) => paidCost.effort[k] > 0)
     .map((k) => `${EFFORT_LABEL_KO[k]} ${paidCost.effort[k]}`);
   return (
-    <section className="quiet-card warm thread-settlement" aria-labelledby="thread-settlement-title" data-testid="thread-settlement" style={{ width: "min(100%, 480px)", marginTop: "24px" }}>
+    <section className="quiet-card warm thread-settlement" aria-labelledby="thread-settlement-title" data-testid="thread-settlement" style={{ width: "min(100%, var(--content-w))", marginTop: "24px" }}>
       <p className="eyebrow" style={{ margin: "0 0 8px" }}>정산</p>
       <h2 id="thread-settlement-title" className="card-title" style={{ margin: "0 0 8px" }}>완료된 스레드의 비용 정리</h2>
 
@@ -1256,7 +1271,7 @@ function StarDraftSection({ threadId, onSaved }: { threadId: number; onSaved: ()
   }
 
   return (
-    <section className="quiet-card warm thread-star" aria-labelledby="thread-star-title" data-testid="thread-star" style={{ width: "min(100%, 480px)", marginTop: "24px" }}>
+    <section className="quiet-card warm thread-star" aria-labelledby="thread-star-title" data-testid="thread-star" style={{ width: "min(100%, var(--content-w))", marginTop: "24px" }}>
       <p className="eyebrow" style={{ margin: "0 0 8px" }}>STAR 회고</p>
       <h2 id="thread-star-title" className="card-title" style={{ margin: "0 0 8px" }}>완료한 일을 STAR로 정리</h2>
       <p className="card-meta" style={{ margin: "0 0 12px", opacity: 0.7 }}>완료된 스레드의 증거로 초안을 만들어 — 저장은 안 하고, 직접 다듬어 쓰면 돼.</p>
@@ -1424,7 +1439,7 @@ function ResumeSection({ threadId, resume, onSaved }: { threadId: number; resume
   }
 
   return (
-    <section className="quiet-card warm thread-resume" aria-labelledby="thread-resume-title" data-testid="thread-resume" style={{ width: "min(100%, 480px)", marginTop: "24px" }}>
+    <section className="quiet-card warm thread-resume" aria-labelledby="thread-resume-title" data-testid="thread-resume" style={{ width: "min(100%, var(--content-w))", marginTop: "24px" }}>
       <p className="eyebrow" style={{ margin: "0 0 8px" }}>이력서 칸</p>
       <h2 id="thread-resume-title" className="card-title" style={{ margin: "0 0 4px" }}>저장된 STAR 정리</h2>
       <p className="card-meta" style={{ margin: "0 0 12px", opacity: 0.7 }}>직접 다듬어 저장해 — 내 자료야. (Task는 저장 안 해.)</p>
@@ -1491,7 +1506,7 @@ const MISSING_KIND_LABEL: Record<string, string> = { event: "이벤트", task: "
 
 function MissingNodeSuggestionsSection({ suggestions }: { suggestions: ThreadMissingNodeSuggestion[] }) {
   return (
-    <section aria-labelledby="thread-missing-nodes-title" data-testid="thread-missing-nodes" style={{ width: "min(100%, 480px)", marginTop: "24px" }}>
+    <section aria-labelledby="thread-missing-nodes-title" data-testid="thread-missing-nodes" style={{ width: "min(100%, var(--content-w))", marginTop: "24px" }}>
       <h2 id="thread-missing-nodes-title" className="eyebrow" style={{ margin: "0 0 8px" }}>빠진 것 후보</h2>
       <ul className="today-stack" role="list">
         {suggestions.map((s) => (
@@ -1528,7 +1543,7 @@ function ThreadRollupSection({ rollup }: { rollup: ThreadRollup }) {
   return (
     <section
       aria-labelledby="thread-rollup-title"
-      style={{ width: "min(100%, 480px)", marginTop: "32px" }}
+      style={{ width: "min(100%, var(--content-w))", marginTop: "32px" }}
       data-testid="thread-rollup"
     >
       <h2 id="thread-rollup-title" className="eyebrow" style={{ marginBottom: "12px" }}>포함 롤업</h2>
@@ -1632,7 +1647,7 @@ function PersonFocusSection({
   return (
     <section
       aria-labelledby="person-focus-title"
-      style={{ width: "min(100%, 480px)", marginTop: "24px" }}
+      style={{ width: "min(100%, var(--content-w))", marginTop: "24px" }}
       data-testid="person-focus"
     >
       <h2 id="person-focus-title" className="eyebrow" style={{ marginBottom: "8px" }}>관련 사람</h2>
@@ -1667,7 +1682,7 @@ function ResourceFocusSection({
   return (
     <section
       aria-labelledby="resource-focus-title"
-      style={{ width: "min(100%, 480px)", marginTop: "24px" }}
+      style={{ width: "min(100%, var(--content-w))", marginTop: "24px" }}
       data-testid="resource-focus"
     >
       <h2 id="resource-focus-title" className="eyebrow" style={{ marginBottom: "8px" }}>관련 리소스</h2>
@@ -1708,7 +1723,7 @@ function PromotionSuggestionsPanel({
   return (
     <section
       aria-labelledby="promotion-suggestions-title"
-      style={{ width: "min(100%, 480px)", marginTop: "24px" }}
+      style={{ width: "min(100%, var(--content-w))", marginTop: "24px" }}
       data-testid="promotion-suggestions"
     >
       <h2 id="promotion-suggestions-title" className="eyebrow" style={{ marginBottom: "8px" }}>리소스 제안</h2>

@@ -68,6 +68,51 @@ Use this file to narrow read scope. Do not treat it as full spec. Product rules 
     `missing` with `missing_reason=auto_expired` (manual → `confirmed`); swept in
     `materializeDerivedItems`, which also expires its pending `material_due`.
     `findCatchUp(…, now)` ignores past-grace expected rows even before the sweep.
+- Notes (migration 0017): quick notes/checklists attached to a date and to events/tasks/threads.
+  - Tables `notes` (kind note|checklist, title, body, `note_date` local YYYY-MM-DD, pinned, archived_at),
+    `note_items` (text, done, position, done_at), `note_links` (target_type event|task|thread +
+    bare integer target_id, like `resource_links`; a deleted target leaves the note with `exists:false`).
+  - `shared/src/notes.ts`, `server/src/services/notes.ts`, `routes/notes.ts`:
+    `GET|POST /api/notes`, `GET|PATCH|DELETE /api/notes/:id`, `POST /api/notes/:id/items`,
+    `PATCH /api/notes/:id/items/:itemId`, `GET /api/notes/targets`.
+  - Search (`listNotes`) filters in JS: every word of `q` must appear in title/body/item text/attached
+    target name; `date`/`from`/`to` match the note date OR the attached event start / task due / thread
+    deadline (falls back to the creation day). `related` returns events/tasks/threads whose name matches
+    `q`, with `noteCount`, so a past event is findable even without notes.
+  - `GET /api/events/:id` and `GET /api/today` carry `notes` (optional) so those screens need no extra request.
+  - Web: `web/src/Notes.tsx` — `NotesPage` (`/notes`), `QuickNoteSheet` (opened from `AppNav` on every
+    screen), `AttachedNotes` (Today day notes, event sheets in Today/ItemIndex, task sheet, Thread page),
+    `NoteComposer`, `NoteCard`. A saved note fires `cairn:notes-changed` so open lists reload.
+  - MCP: `cairn_note_add`, `cairn_notes_search` (local and remote).
+  - Remote visibility (migration 0018, hand-written additive ALTER): `notes.remote_visible` 0|1, default 0.
+    `mcp/src/remote.ts` sets `audience: "remote"` on its API client → header `X-Cairn-Audience: remote`
+    (`mcp/src/api.ts`); `server/src/utils/audience.ts isRemoteAudience(req)`. For remote requests
+    `listNotes(..., { remoteOnly })` returns shared notes only with `related: []`, `GET /api/notes/:id` 404s
+    on private notes, event detail / Today / calendar `noteCounts` are filtered the same way, a remote
+    `POST /api/notes` is stored shared, and every other notes route answers 403 (preHandler in `routes/notes.ts`).
+    Web: switch in `NoteFlow` step 2, "AI 공개" badge + toggle on `NoteCard`. Rule for new record kinds: AGENTS.md Conventions.
+- Calendar (step 1 of moving Today onto a calendar; Today itself is unchanged for now):
+  - `GET /api/calendar?from&to` (`server/src/routes/calendar.ts`, contract `shared/src/calendar.ts`, max 62 days):
+    non-cancelled events overlapping the local-time range, open tasks due in it, and `noteCounts` per local day
+    (`countNotesByDay` in `services/notes.ts`).
+  - Web `web/src/Calendar.tsx` (`/calendar`, `?date=YYYY-MM-DD` opens that day): six-week month grid with today
+    highlighted; `DayPanel` is a right column from 900px and a bottom sheet on phones, with tabs 일정 → 메모.
+    The panel toggles (tap the date again or ✕); touch screens stack calendar above panel, a wide screen
+    with a mouse puts them side by side.
+  - Step 2: tabs are 일정 → 처리 → 메모 → 여유. `Today` (`web/src/Today.tsx`) takes `{ date, embed, onCount,
+    onChanged, addRequest }`; the panel mounts one embedded instance per open day and `embed` picks the
+    section (`cards` | `feasibility` | `none`). `embedCards()` decides which cards a day shows: conflicts
+    for today/future, the "now" prompts for today only. `renderCards`/`overlaysEl` inside `Today` are shared
+    by the page and the embed. "+ 일정·할 일" bumps `addRequest` to open Today's add sheet prefilled for the day.
+  - Outcomes: `POST /api/events/:id/outcome` {outcome, reasonText?} sets the status and inserts an annotation
+    in one transaction (no LLM; the mirror ledger reads it). `CalendarData.outcomeRecordedEventIds` keeps a
+    recorded event from being asked about again even if GCal sync resets its status. The panel asks only for
+    timed events that ended within 14 days (`OUTCOME_WINDOW_MS`).
+    Next step (not done): make the calendar the home screen and retire `/today`.
+- App shell / theme (web): `AppNav.tsx` renders a bottom tab bar on mobile (primary links + 더보기) and a
+  left sidebar from 900px; `App.tsx` wraps pages in `.app-frame > .app-main`. Tokens live at the top of
+  `web/src/styles.css` (light default, dark via OS or `data-theme`); `web/src/theme.ts` stores the pinned
+  theme in `localStorage["cairn.theme"]` and `index.html` applies it before first paint.
 - `docs/`
   - Product spec and design docs.
 - `.review/`

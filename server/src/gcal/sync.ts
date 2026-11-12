@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import type { CairnDatabase, SqliteConnection } from "../db/index.js";
 import { params } from "../db/schema.js";
 import type { GcalClient } from "./client.js";
-import { mapGcalEvent } from "./mapping.js";
+import { mapGcalEvent, isExcludedGcalTitle } from "./mapping.js";
 
 export const GCAL_SYNC_TOKEN_KEY = "gcal.primary.syncToken";
 export const GCAL_LAST_SYNC_AT_KEY = "gcal.primary.lastSyncAt";
@@ -119,6 +119,12 @@ async function runSync(
         } else {
           skipped++;
         }
+        continue;
+      }
+
+      // 취소 처리는 위에서 끝났다. 이미 들어와 있던 생일 일정이 취소되면 그건 반영된다.
+      if (isExcludedGcalTitle(mapped.title)) {
+        skipped++;
         continue;
       }
 

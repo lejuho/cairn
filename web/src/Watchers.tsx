@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ManualExogenousView, ReversePlanView, SourceStability, WatcherDeepRow } from "@cairn/shared";
-import { apiJson, type AccessSessionError } from "./api.js";
+import { apiJson, type AccessSessionError, openAccessLogin } from "./api.js";
 import { localDateString } from "./dateUtils.js";
 import { ResultCard } from "./ResultCard.js";
 
@@ -598,7 +598,7 @@ export function Watchers() {
       <main className="app-shell watchers-shell">
         <section className="quiet-card warm">
           <p>로그인 세션이 만료됐거나 네트워크가 끊겼어.</p>
-          <button className="btn-primary" onClick={() => window.location.assign(window.location.href)}>
+          <button className="btn-primary" onClick={() => openAccessLogin()}>
             Access 로그인 다시 열기
           </button>
         </section>

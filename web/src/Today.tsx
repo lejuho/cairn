@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ConflictDecision, CreateThreadDraftResponseData, DayFeasibility, DomainFilter, EventDetailData, EventGeocodeData, EventMode, EventRow, FeasibilityParamLimits, FeasibilityParamSettingsData, FeasibilityParams, NeedsReviewPlacement, NotificationDraft, PlaceCandidate, PreferredPeriod, ScheduleBrief, SlotCandidate, SlotSuggestionContribution, ThreadSummary, TodayEventLocationContext, TodaySurface, UpdateFeasibilityParamsRequest, Weekday } from "@cairn/shared";
 import { EventGeocodeResponseSchema, PlaceSearchResponseSchema, ResolveConflictResponseDataSchema } from "@cairn/shared";
 import { datetimeLocalToRfc3339, localDateString } from "./dateUtils.js";
-import { apiJson, type AccessSessionError } from "./api.js";
+import { apiJson, type AccessSessionError, openAccessLogin } from "./api.js";
 import { naverSearchUrl, naverTransitDirectionsUrl } from "./naver-map-links.js";
 import { EventMaterials } from "./EventMaterials.js";
+import { AttachedNotes } from "./Notes.js";
 import { DomainFilterControl } from "./DomainFilter.js";
 import { ResultCard } from "./ResultCard.js";
 import { CreationComposer, type ComposerMode, type ComposerModeConfig } from "./CreationComposer.js";
@@ -153,8 +154,33 @@ const EMPTY_TASK_FORM: TaskForm = { title: "", estMinutes: "2", threadId: "" };
 const EMPTY_EVENT_FORM: EventForm = { title: "", start: "", end: "", threadId: "" };
 
 
-async function loadSurface(domain: DomainFilter): Promise<TodaySurface> {
-  const date = localDateString();
+// Cards worth showing in the calendar day panel. Today and later: conflicts between that day's
+// events (a past day's overlap can no longer be resolved). Today only: the prompts that are about
+// "now" (watchers, quick tasks, scheduling prompts). Outcome recording (needs_review) and the next
+// event are handled by the panel's own lists.
+export function embedCards(surface: TodaySurface, isToday: boolean, isPast = false): TodaySurface["cards"] {
+  return surface.cards.filter((card) =>
+    (card.kind === "conflict" && !isPast) ||
+    (isToday && (card.kind === "watcher" || card.kind === "two_minute_task" || card.kind === "schedule_prompt" || card.kind === "task_schedule_prompt"))
+  );
+}
+
+export type TodayProps = {
+  // Day to show (YYYY-MM-DD). Defaults to today.
+  date?: string;
+  // Render one section inside another screen instead of the full page. "none" keeps the
+  // component alive (data, add sheet) without showing a section.
+  embed?: "cards" | "feasibility" | "none";
+  // Embedded: number of cards the "cards" section would show.
+  onCount?: (count: number) => void;
+  // Embedded: called after this component changed data and reloaded.
+  onChanged?: () => void;
+  // Embedded: bump to open the add sheet prefilled for `date`.
+  addRequest?: number;
+};
+
+async function loadSurface(domain: DomainFilter, day?: string): Promise<TodaySurface> {
+  const date = day ?? localDateString();
   const now = new Date().toISOString();
   const body = await apiJson<{ ok: boolean; data?: TodaySurface; error?: { message: string } }>(
     `/api/today?date=${date}&now=${encodeURIComponent(now)}&domain=${domain}`
@@ -232,6 +258,7 @@ const TODAY_COMPOSER_MODES: ComposerModeConfig[] = [
 ];
 
 const EMPTY_MATERIALS: NonNullable<EventDetailData["materials"]> = [];
+const EMPTY_NOTES: NonNullable<EventDetailData["notes"]> = [];
 
 async function fetchEventDetail(id: number): Promise<EventDetailData> {
   const body = await apiJson<{ ok: boolean; data?: EventDetailData; error?: { message: string } }>(`/api/events/${id}`);
@@ -1012,7 +1039,9 @@ function SlotReasonList({
   );
 }
 
-export function Today() {
+export function Today({ date, embed, onCount, onChanged, addRequest }: TodayProps = {}) {
+  const isToday = date === undefined || date === localDateString();
+  const isPast = date !== undefined && date < localDateString();
   const [view, setView] = useState<ViewState>({ tag: "loading" });
   const [domain, setDomain] = useState<DomainFilter>("all");
   const [replyState, setReplyState] = useState<Record<number, ReplyState>>({});
@@ -1059,15 +1088,22 @@ export function Today() {
   const conflictOpenerPairRef = useRef<string | null>(null);
   const liveMainRef = useRef<HTMLElement | null>(null);
 
+  const loadedOnce = useRef(false);
+  const onChangedRef = useRef(onChanged);
+  onChangedRef.current = onChanged;
+
   const refresh = useCallback(async () => {
     setView({ tag: "loading" });
     try {
-      const surface = await loadSurface(domain);
+      const surface = await loadSurface(domain, date);
       setView(
         surface.state === "quiet"
           ? { tag: "quiet", surface }
           : { tag: "live", surface }
       );
+      // Every reload after the first follows a change made here; let the host screen catch up.
+      if (loadedOnce.current) onChangedRef.current?.();
+      loadedOnce.current = true;
     } catch (e) {
       if ((e as AccessSessionError).kind === "access_session_required") {
         setView({ tag: "access_error" });
@@ -1075,16 +1111,27 @@ export function Today() {
         setView({ tag: "error", message: e instanceof Error ? e.message : "오류" });
       }
     }
-  }, [domain]);
+  }, [domain, date]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  const openSheet = useCallback((mode: SheetMode) => {
-    setSheet({ open: true, mode, taskForm: EMPTY_TASK_FORM, eventForm: EMPTY_EVENT_FORM, submitting: false, error: null });
+  useEffect(() => {
+    if (!onCount) return;
+    onCount(view.tag === "quiet" || view.tag === "live" ? embedCards(view.surface, isToday, isPast).length : 0);
+  }, [view, onCount, isToday, isPast]);
+
+  const openSheet = useCallback((mode: SheetMode, day?: string) => {
+    // Opened for a specific day (calendar): start the event form on that day's morning.
+    const eventForm = day ? { ...EMPTY_EVENT_FORM, start: `${day}T09:00`, end: `${day}T10:00` } : EMPTY_EVENT_FORM;
+    setSheet({ open: true, mode, taskForm: EMPTY_TASK_FORM, eventForm, submitting: false, error: null });
     void loadThreadOptions().then(setThreadOptions);
   }, []);
+
+  useEffect(() => {
+    if (addRequest) openSheet("event", date);
+  }, [addRequest, date, openSheet]);
 
   const closeSheet = useCallback(() => {
     setSheet({ open: false });
@@ -2105,6 +2152,19 @@ export function Today() {
               </div>
             )}
             <EventMaterials eventId={eventDetail.data.event.id} initial={eventDetail.data.materials ?? EMPTY_MATERIALS} />
+            <AttachedNotes
+              key={eventDetail.data.event.id}
+              title="메모·체크리스트"
+              target={{
+                targetType: "event",
+                targetId: eventDetail.data.event.id,
+                label: eventDetail.data.event.title,
+                when: eventDetail.data.event.start,
+                status: eventDetail.data.event.status,
+                exists: true
+              }}
+              initial={eventDetail.data.notes ?? EMPTY_NOTES}
+            />
             <form
               className="event-detail-note-form"
               onSubmit={(e) => { e.preventDefault(); void handleDetailNote(); }}
@@ -2292,120 +2352,10 @@ export function Today() {
     </>
   ) : null;
 
-  if (view.tag === "loading") {
-    return (
-      <main className="app-shell" aria-label="오늘 화면 불러오는 중">
-        <div className="today-stack" aria-hidden="true">
-          <div className="today-skel" />
-          <div className="today-skel today-skel--delay" />
-        </div>
-      </main>
-    );
-  }
-
-  if (view.tag === "access_error") {
-    return (
-      <main className="app-shell" aria-labelledby="today-title">
-        <section className="quiet-card" role="alert">
-          <p className="eyebrow">Today</p>
-          <h1 id="today-title">로그인 세션이 필요해</h1>
-          <p>Cloudflare Access 세션이 만료됐거나 아직 인증되지 않았어. 다시 로그인한 뒤 이 화면으로 돌아오면 돼.</p>
-          <button
-            className="today-access-login"
-            onClick={() => { window.location.assign(window.location.href); }}
-          >
-            Access 로그인 다시 열기
-          </button>
-          <button className="today-retry" onClick={() => void refresh()}>
-            다시 시도
-          </button>
-        </section>
-      </main>
-    );
-  }
-
-  if (view.tag === "error") {
-    return (
-      <main className="app-shell" aria-labelledby="today-title">
-        <section className="quiet-card" role="alert">
-          <p className="eyebrow">Today</p>
-          <h1 id="today-title">데이터를 불러오지 못했어</h1>
-          <p>서버에 연결되지 않았어. 잠시 후 다시 시도해봐.</p>
-          <button className="today-retry" onClick={() => void refresh()}>
-            다시 시도
-          </button>
-        </section>
-      </main>
-    );
-  }
-
-  if (view.tag === "quiet") {
-    return (
-      <>
-        <main className="app-shell" aria-labelledby="today-title">
-          <div style={{ width: "min(100%, 480px)", margin: "0 auto 12px" }}>
-            <DomainFilterControl value={domain} onChange={setDomain} label="오늘 도메인 필터" />
-          </div>
-          <section className="quiet-card warm" data-testid="today-quiet">
-            <span className="quiet-dot" aria-hidden="true" />
-            <p className="eyebrow">Today</p>
-            <h1 id="today-title">오늘은 조용해</h1>
-            <p>새로 생기면 올려둘게. 닫고 네 일 해도 돼.</p>
-            <button
-              className="today-add-btn today-add-btn--cta"
-              onClick={() => openSheet("task")}
-              aria-label="추가"
-            >
-              + 추가
-            </button>
-            <a href="/input" className="today-input-link">직접 입력하러 가기 →</a>
-          </section>
-          {composerEl(true)}
-          {composerResultCard}
-          {composerError}
-          <FeasibilityPanel f={view.surface.feasibility} events={view.surface.dayEvents} locationContexts={view.surface.locationContexts} />
-        </main>
-        {sheetEl}
-        {eventDetailSheetEl}
-      </>
-    );
-  }
-
-  const { surface } = view;
-  return (
-    <>
-      <main
-        ref={liveMainRef}
-        className="app-shell today-live"
-        aria-labelledby="today-sr-title"
-        tabIndex={-1}
-        inert={conflictSheet.open && conflictSheet.resolved ? true : undefined}
-      >
-        <h2 id="today-sr-title" className="sr-only">
-          오늘 ({surface.cards.length}건)
-        </h2>
-        <div style={{ width: "min(100%, 480px)", marginBottom: "8px" }}>
-          <DomainFilterControl value={domain} onChange={setDomain} label="오늘 도메인 필터" />
-        </div>
-        <div style={{ display: "flex", justifyContent: "flex-end", width: "min(100%, 480px)", marginBottom: "8px" }}>
-          <button className="today-add-btn" onClick={() => openSheet("task")} aria-label="추가">
-            + 추가
-          </button>
-        </div>
-        {composerEl(true)}
-        {composerResultCard}
-        {composerError}
-        <FeasibilityPanel
-          f={surface.feasibility}
-          events={surface.dayEvents}
-          locationContexts={surface.locationContexts}
-          onAdjust={() => void handleOpenFeasSettings(surface.feasibility.params)}
-          pin={pinController}
-        />
-        <ul className="today-stack" role="list">
-        {(() => {
-          const locContextById = new Map(surface.locationContexts.map((c) => [c.eventId, c]));
-          return surface.cards.map((card, i) => {
+  // Card list and overlays are shared by the full Today page and the calendar day panel (embed).
+  const renderCards = (surface: TodaySurface, cards: TodaySurface["cards"]) => {
+    const locContextById = new Map(surface.locationContexts.map((c) => [c.eventId, c]));
+    return cards.map((card, i) => {
           const delay = { animationDelay: `${i * 55}ms` } as React.CSSProperties;
 
           if (card.kind === "conflict") {
@@ -2748,60 +2698,11 @@ export function Today() {
           }
 
           return null;
-          });
-        })()}
-      </ul>
+    });
+  };
 
-        {surface.dayEvents.length > 0 && (
-          <section className="today-timeline" aria-label="오늘 일정">
-            <p className="today-timeline-heading">오늘 일정</p>
-            <ul className="today-timeline-list" role="list">
-              {surface.dayEvents.map((event) => {
-                const nowMs = new Date(surface.now).getTime();
-                const startMs = event.start ? new Date(event.start).getTime() : null;
-                const endMs = event.end ? new Date(event.end).getTime() : null;
-                const isActive = startMs != null && endMs != null && startMs <= nowMs && nowMs < endMs;
-                return (
-                  <li
-                    key={event.id}
-                    className={`today-tl-row${isActive ? " today-tl-row--active" : ""}`}
-                    aria-current={isActive ? "true" : undefined}
-                  >
-                    <span className="today-tl-time">
-                      {event.start?.slice(11, 16)}
-                      {event.end ? ` — ${event.end.slice(11, 16)}` : ""}
-                    </span>
-                    <button
-                      className="today-tl-title today-tl-btn"
-                      onClick={() => void handleOpenEventDetail(event.id)}
-                      aria-label={`${event.title} 상세 보기`}
-                    >
-                      {event.title}
-                    </button>
-                    {event.mode && (
-                      <span className="event-mode-chip event-mode-chip--sm" data-testid="tl-mode-chip" data-mode={event.mode}>
-                        {EVENT_MODE_LABEL[event.mode]}
-                      </span>
-                    )}
-                    {event.threadId != null && (
-                      <a
-                        className="today-tl-link"
-                        href={`/threads/${event.threadId}`}
-                        aria-label={`${event.title} 스레드`}
-                      >
-                        ↗
-                      </a>
-                    )}
-                    {event.location && (
-                      <span className="today-tl-loc">{event.location}</span>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        )}
-      </main>
+  const overlaysEl = (surface: TodaySurface) => (
+    <>
       {sheetEl}
       {eventDetailSheetEl}
       {conflictSheet.open && !conflictSheet.resolved && (
@@ -2926,6 +2827,224 @@ export function Today() {
           </div>
         </>
       )}
+    </>
+  );
+
+  if (embed) {
+    // With no section showing, a failed or pending load has nothing to say here; the tabs
+    // that do show a section report it.
+    if (embed === "none" && view.tag !== "quiet" && view.tag !== "live") return null;
+    if (view.tag === "loading") {
+      return <div className="today-embed" aria-busy="true" aria-label="불러오는 중"><div className="today-skel" /></div>;
+    }
+    if (view.tag === "access_error") {
+      return (
+        <div className="today-embed" role="alert">
+          <p className="note-hint">로그인 세션이 만료됐어.</p>
+          <button type="button" className="note-btn note-btn--primary" onClick={openAccessLogin}>다시 로그인</button>
+        </div>
+      );
+    }
+    if (view.tag === "error") {
+      return (
+        <div className="today-embed" role="alert">
+          <p className="note-hint">불러오지 못했어. {view.message}</p>
+          <button type="button" className="note-btn" onClick={() => void refresh()}>다시 시도</button>
+        </div>
+      );
+    }
+    const surface = view.surface;
+    const cards = embedCards(surface, isToday, isPast);
+    return (
+      <div className="today-embed" data-embed={embed}>
+        {embed === "cards" && cards.length > 0 && (
+          <ul className="today-stack" role="list" aria-label="처리할 것">{renderCards(surface, cards)}</ul>
+        )}
+        {embed === "feasibility" && (
+          <FeasibilityPanel
+            f={surface.feasibility}
+            events={surface.dayEvents}
+            locationContexts={surface.locationContexts}
+            onAdjust={() => void handleOpenFeasSettings(surface.feasibility.params)}
+            pin={pinController}
+          />
+        )}
+        {overlaysEl(surface)}
+      </div>
+    );
+  }
+
+  if (view.tag === "loading") {
+    return (
+      <main className="app-shell" aria-label="오늘 화면 불러오는 중">
+        <div className="today-stack" aria-hidden="true">
+          <div className="today-skel" />
+          <div className="today-skel today-skel--delay" />
+        </div>
+      </main>
+    );
+  }
+
+  if (view.tag === "access_error") {
+    return (
+      <main className="app-shell" aria-labelledby="today-title">
+        <section className="quiet-card" role="alert">
+          <p className="eyebrow">Today</p>
+          <h1 id="today-title">로그인 세션이 필요해</h1>
+          <p>Cloudflare Access 세션이 만료됐거나 아직 인증되지 않았어. 다시 로그인한 뒤 이 화면으로 돌아오면 돼.</p>
+          <button
+            className="today-access-login"
+            onClick={() => { openAccessLogin(); }}
+          >
+            Access 로그인 다시 열기
+          </button>
+          <button className="today-retry" onClick={() => void refresh()}>
+            다시 시도
+          </button>
+        </section>
+      </main>
+    );
+  }
+
+  if (view.tag === "error") {
+    return (
+      <main className="app-shell" aria-labelledby="today-title">
+        <section className="quiet-card" role="alert">
+          <p className="eyebrow">Today</p>
+          <h1 id="today-title">데이터를 불러오지 못했어</h1>
+          <p>서버에 연결되지 않았어. 잠시 후 다시 시도해봐.</p>
+          <button className="today-retry" onClick={() => void refresh()}>
+            다시 시도
+          </button>
+        </section>
+      </main>
+    );
+  }
+
+  if (view.tag === "quiet") {
+    return (
+      <>
+        <main className="app-shell" aria-labelledby="today-title">
+          <div style={{ width: "min(100%, var(--content-w))", margin: "0 auto 12px" }}>
+            <DomainFilterControl value={domain} onChange={setDomain} label="오늘 도메인 필터" />
+          </div>
+          <section className="quiet-card warm" data-testid="today-quiet">
+            <span className="quiet-dot" aria-hidden="true" />
+            <p className="eyebrow">Today</p>
+            <h1 id="today-title">오늘은 조용해</h1>
+            <p>새로 생기면 올려둘게. 닫고 네 일 해도 돼.</p>
+            <button
+              className="today-add-btn today-add-btn--cta"
+              onClick={() => openSheet("task")}
+              aria-label="추가"
+            >
+              + 추가
+            </button>
+            <a href="/input" className="today-input-link">직접 입력하러 가기 →</a>
+          </section>
+          {composerEl(true)}
+          {composerResultCard}
+          {composerError}
+          <FeasibilityPanel f={view.surface.feasibility} events={view.surface.dayEvents} locationContexts={view.surface.locationContexts} />
+          <div className="today-day-notes">
+            <AttachedNotes title="오늘 메모" date={view.surface.date} initial={view.surface.notes ?? EMPTY_NOTES} />
+          </div>
+        </main>
+        {sheetEl}
+        {eventDetailSheetEl}
+      </>
+    );
+  }
+
+  const { surface } = view;
+  return (
+    <>
+      <main
+        ref={liveMainRef}
+        className="app-shell today-live"
+        aria-labelledby="today-sr-title"
+        tabIndex={-1}
+        inert={conflictSheet.open && conflictSheet.resolved ? true : undefined}
+      >
+        <h2 id="today-sr-title" className="sr-only">
+          오늘 ({surface.cards.length}건)
+        </h2>
+        <div style={{ width: "min(100%, var(--content-w))", marginBottom: "8px" }}>
+          <DomainFilterControl value={domain} onChange={setDomain} label="오늘 도메인 필터" />
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", width: "min(100%, var(--content-w))", marginBottom: "8px" }}>
+          <button className="today-add-btn" onClick={() => openSheet("task")} aria-label="추가">
+            + 추가
+          </button>
+        </div>
+        {composerEl(true)}
+        {composerResultCard}
+        {composerError}
+        <FeasibilityPanel
+          f={surface.feasibility}
+          events={surface.dayEvents}
+          locationContexts={surface.locationContexts}
+          onAdjust={() => void handleOpenFeasSettings(surface.feasibility.params)}
+          pin={pinController}
+        />
+        <ul className="today-stack" role="list">
+        {renderCards(surface, surface.cards)}
+      </ul>
+
+        {surface.dayEvents.length > 0 && (
+          <section className="today-timeline" aria-label="오늘 일정">
+            <p className="today-timeline-heading">오늘 일정</p>
+            <ul className="today-timeline-list" role="list">
+              {surface.dayEvents.map((event) => {
+                const nowMs = new Date(surface.now).getTime();
+                const startMs = event.start ? new Date(event.start).getTime() : null;
+                const endMs = event.end ? new Date(event.end).getTime() : null;
+                const isActive = startMs != null && endMs != null && startMs <= nowMs && nowMs < endMs;
+                return (
+                  <li
+                    key={event.id}
+                    className={`today-tl-row${isActive ? " today-tl-row--active" : ""}`}
+                    aria-current={isActive ? "true" : undefined}
+                  >
+                    <span className="today-tl-time">
+                      {event.start?.slice(11, 16)}
+                      {event.end ? ` — ${event.end.slice(11, 16)}` : ""}
+                    </span>
+                    <button
+                      className="today-tl-title today-tl-btn"
+                      onClick={() => void handleOpenEventDetail(event.id)}
+                      aria-label={`${event.title} 상세 보기`}
+                    >
+                      {event.title}
+                    </button>
+                    {event.mode && (
+                      <span className="event-mode-chip event-mode-chip--sm" data-testid="tl-mode-chip" data-mode={event.mode}>
+                        {EVENT_MODE_LABEL[event.mode]}
+                      </span>
+                    )}
+                    {event.threadId != null && (
+                      <a
+                        className="today-tl-link"
+                        href={`/threads/${event.threadId}`}
+                        aria-label={`${event.title} 스레드`}
+                      >
+                        ↗
+                      </a>
+                    )}
+                    {event.location && (
+                      <span className="today-tl-loc">{event.location}</span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
+        <div className="today-day-notes">
+          <AttachedNotes title="오늘 메모" date={surface.date} initial={surface.notes ?? EMPTY_NOTES} />
+        </div>
+      </main>
+      {overlaysEl(surface)}
     </>
   );
 }

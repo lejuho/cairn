@@ -51,6 +51,13 @@ export const API_ROUTE_CATALOG: JsonValue[] = [
   { method: "POST", path: "/api/events/:id/materials", purpose: "Attach or expect an event material" },
   { method: "GET", path: "/api/events/:id/capture-check", purpose: "Material capture checklist by event profile" },
   { method: "PATCH", path: "/api/materials/:id", purpose: "Update material status/url/expectedAt" },
+  { method: "GET", path: "/api/notes", purpose: "Search notes/checklists by text, date range or attached event/task/thread" },
+  { method: "POST", path: "/api/notes", purpose: "Create a note or checklist attached to a date and/or targets" },
+  { method: "PATCH", path: "/api/notes/:id", purpose: "Edit a note: text, date, items, links, pinned, archived" },
+  { method: "DELETE", path: "/api/notes/:id", purpose: "Delete a note with its items and links" },
+  { method: "POST", path: "/api/notes/:id/items", purpose: "Append a checklist item" },
+  { method: "PATCH", path: "/api/notes/:id/items/:itemId", purpose: "Check/uncheck or reword a checklist item" },
+  { method: "GET", path: "/api/notes/targets", purpose: "Find events/tasks/threads to attach a note to" },
   { method: "GET", path: "/api/events/:id/people", purpose: "List event people" },
   { method: "PUT", path: "/api/events/:id/people", purpose: "Replace event people" },
   { method: "POST", path: "/api/tasks", purpose: "Create task" },
@@ -305,6 +312,61 @@ export const TOOLS: McpTool[] = [
         expectedAt: { type: ["string", "null"] },
         sourceUrl: { type: ["string", "null"] },
         note: { type: ["string", "null"] }
+      }
+    }
+  },
+  {
+    name: "cairn_note_add",
+    description: "빠른 메모·체크리스트를 남기고 날짜·일정·할 일·스레드에 붙인다. 사용자가 적어 두라고 한 것만 기록할 것. kind=checklist 면 items(한 항목씩). noteDate 는 로컬 날짜 YYYY-MM-DD(그날 Today 에 보인다). links 로 대상에 붙인다. 반환: {note:{id, kind, title, body, noteDate, pinned, items:[{id, text, done, doneAt, position}], links:[{targetType, targetId, label, when, status, exists}], remoteVisible, addedBy, createdAt, updatedAt, archivedAt}}.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        kind: { type: "string", enum: ["note", "checklist"], description: "기본 note" },
+        title: { type: "string" },
+        body: { type: "string" },
+        noteDate: { type: "string", description: "YYYY-MM-DD" },
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["text"],
+            properties: { text: { type: "string" }, done: { type: "boolean" } }
+          }
+        },
+        links: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["targetType", "targetId"],
+            properties: { targetType: { type: "string", enum: ["event", "task", "thread"] }, targetId: { type: "number" } }
+          }
+        },
+        pinned: { type: "boolean" },
+        remoteVisible: { type: "boolean", description: "원격 커넥터(ChatGPT 등)에도 보이게 할지. 기본 false(비공개). 원격 커넥터가 남긴 메모는 항상 공개로 저장된다." },
+        addedBy: { type: "string" }
+      }
+    }
+  },
+  {
+    name: "cairn_notes_search",
+    description: "메모·체크리스트를 다시 찾는다. 원격 커넥터에서는 사용자가 공개로 표시한 메모만 보이고 related 는 비어 있다. q 는 공백으로 나눈 모든 단어가 제목·본문·체크 항목·붙은 대상 이름에 있어야 한다. date(하루) 또는 from/to(범위)는 메모 날짜와 붙은 일정·할 일의 날짜를 함께 본다. targetType+targetId 로 한 대상에 붙은 것만. 반환: {notes:[메모(cairn_note_add 와 같은 형태)], total, related:[이름이 q 에 걸린 일정·할 일·스레드 {targetType, targetId, label, when, status, exists, noteCount, location}]}.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        q: { type: "string" },
+        date: { type: "string", description: "YYYY-MM-DD" },
+        from: { type: "string", description: "YYYY-MM-DD" },
+        to: { type: "string", description: "YYYY-MM-DD" },
+        targetType: { type: "string", enum: ["event", "task", "thread"] },
+        targetId: { type: "number" },
+        kind: { type: "string", enum: ["note", "checklist"] },
+        open: { type: "boolean", description: "안 끝난 항목이 남은 체크리스트만" },
+        includeArchived: { type: "boolean" },
+        limit: { type: "number", description: "기본 100, 최대 500" }
       }
     }
   },
@@ -706,6 +768,10 @@ async function dispatchTool(config: CairnApiClientConfig, name: string, args: Js
       return request(config, { method: "POST", path: `/api/events/${idArg(args)}/materials`, body: pickBody(args, ["kind", "status", "label", "url", "expectedAt", "sourceUrl", "note", "addedBy"]) });
     case "cairn_material_update":
       return request(config, { method: "PATCH", path: `/api/materials/${idArg(args)}`, body: pickBody(args, ["status", "label", "url", "expectedAt", "sourceUrl", "note"]) });
+    case "cairn_note_add":
+      return request(config, { method: "POST", path: "/api/notes", body: pickBody(args, ["kind", "title", "body", "noteDate", "items", "links", "pinned", "remoteVisible", "addedBy"]) });
+    case "cairn_notes_search":
+      return request(config, { method: "GET", path: "/api/notes", query: pickQuery(args, ["q", "date", "from", "to", "targetType", "targetId", "kind", "open", "includeArchived", "limit"]) });
     case "cairn_pin_route":
       return request(config, { method: "POST", path: "/api/routes/pin", body: pickBody(args, ["from", "to", "minutes", "note"]) });
     case "cairn_thread_workspace":

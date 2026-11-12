@@ -69,7 +69,7 @@ export function ThreadNew() {
 
   return (
     <main className="app-shell" aria-labelledby="thread-new-title">
-      <section className="quiet-card warm" style={{ width: "min(100%, 480px)" }}>
+      <section className="quiet-card warm" style={{ width: "min(100%, var(--content-w))" }}>
         <p className="eyebrow">새 스레드</p>
         <h1 id="thread-new-title" className="thread-name" style={{ fontSize: "1.4rem" }}>스레드 만들기</h1>
         <p style={{ marginBottom: "20px" }}>이름을 붙이고 일정·작업을 연결해봐.</p>
@@ -148,7 +148,7 @@ export function ThreadNew() {
         </form>
       </section>
 
-      <section className="quiet-card warm thread-draft-panel" style={{ width: "min(100%, 480px)", marginTop: "16px" }} aria-labelledby="thread-draft-title">
+      <section className="quiet-card warm thread-draft-panel" style={{ width: "min(100%, var(--content-w))", marginTop: "16px" }} aria-labelledby="thread-draft-title">
         <p className="eyebrow">자연어 초안</p>
         <h2 id="thread-draft-title" className="thread-name" style={{ fontSize: "1.1rem" }}>설명만 적으면 초안을 만들어줄게</h2>
         <p className="card-meta" style={{ marginBottom: "12px" }}>일정·작업·의존을 추론해 초안으로 저장해. 모르는 값은 비워두고 확인이 필요하다고 표시해.</p>

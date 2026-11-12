@@ -14,6 +14,12 @@ export default defineConfig({
     VitePWA({
       registerType: "autoUpdate",
       includeAssets: ["pwa-icon.svg"],
+      workbox: {
+        // Page loads are answered from the cached shell, except these: the Cloudflare
+        // Access login/callback (/cdn-cgi/) and the API must reach the network, or an
+        // expired session can never be renewed from inside the installed app.
+        navigateFallbackDenylist: [/^\/cdn-cgi\//, /^\/api\//, /^\/health$/]
+      },
       manifest: {
         name: "Cairn",
         short_name: "Cairn",
@@ -21,8 +27,8 @@ export default defineConfig({
         start_url: "/today",
         scope: "/",
         display: "standalone",
-        background_color: "#0E1418",
-        theme_color: "#E0B250",
+        background_color: "#f5f6f8",
+        theme_color: "#2457e6",
         icons: [
           {
             src: "/pwa-icon.svg",

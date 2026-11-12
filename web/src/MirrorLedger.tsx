@@ -15,7 +15,7 @@ import type {
   MirrorTransitionFrictionData,
   MirrorTransitionFrictionDay
 } from "@cairn/shared";
-import { apiJson, type AccessSessionError } from "./api.js";
+import { apiJson, type AccessSessionError, openAccessLogin } from "./api.js";
 
 type MirrorData = {
   ledger: MirrorLedgerData;
@@ -127,7 +127,7 @@ export function MirrorLedger() {
           <p className="eyebrow">Mirror</p>
           <h1 id="mirror-title">로그인이 필요해</h1>
           <p>세션이 만료됐어. 페이지를 새로 고침해봐.</p>
-          <button className="thread-index-new-btn" onClick={() => window.location.reload()}>새로 고침</button>
+          <button className="thread-index-new-btn" onClick={() => openAccessLogin()}>다시 로그인</button>
         </section>
       </main>
     );
@@ -170,7 +170,7 @@ export function MirrorLedger() {
   const { ledger, patterns, energy, automationNeeds, diary, transitionFriction } = data;
   return (
     <main className="app-shell today-live" aria-labelledby="mirror-title">
-      <header style={{ width: "min(100%, 480px)", marginBottom: "12px" }}>
+      <header style={{ width: "min(100%, var(--content-w))", marginBottom: "12px" }}>
         <p className="eyebrow" style={{ margin: 0 }}>Mirror</p>
         <h1 id="mirror-title" style={{ margin: "4px 0 0" }}>이동·취소 원장</h1>
         <p className="card-meta" style={{ margin: "4px 0 0", opacity: 0.7 }}>
@@ -197,13 +197,13 @@ export function MirrorLedger() {
           className="card-meta warm"
           role="note"
           data-testid="mirror-low-sample"
-          style={{ width: "min(100%, 480px)", color: "var(--moved)", margin: "0 0 12px" }}
+          style={{ width: "min(100%, var(--content-w))", color: "var(--moved)", margin: "0 0 12px" }}
         >
           표본이 적어 패턴으로 보긴 이르다
         </p>
       )}
 
-      <ul className="today-stack" role="list" data-testid="mirror-entries" style={{ width: "min(100%, 480px)" }}>
+      <ul className="today-stack" role="list" data-testid="mirror-entries" style={{ width: "min(100%, var(--content-w))" }}>
         {ledger.entries.map((entry) => (
           <MirrorEntryCard key={entry.annotationId} entry={entry} />
         ))}
@@ -223,7 +223,7 @@ function MirrorEnergyTrend({ energy }: { energy: MirrorEnergyTrendData }) {
       className="quiet-card warm"
       aria-label="에너지 추세"
       data-testid="mirror-energy-trend"
-      style={{ width: "min(100%, 480px)", marginBottom: "12px" }}
+      style={{ width: "min(100%, var(--content-w))", marginBottom: "12px" }}
     >
       <p className="eyebrow" style={{ margin: "0 0 8px" }}>에너지 추세</p>
 
@@ -274,7 +274,7 @@ function MirrorTransitionFriction({ data }: { data: MirrorTransitionFrictionData
       className="quiet-card warm"
       aria-label="전환 마찰"
       data-testid="mirror-transition-friction"
-      style={{ width: "min(100%, 480px)", marginBottom: "12px" }}
+      style={{ width: "min(100%, var(--content-w))", marginBottom: "12px" }}
     >
       <p className="eyebrow" style={{ margin: "0 0 8px" }}>전환 마찰</p>
 
@@ -326,7 +326,7 @@ function MirrorPatterns({ patterns }: { patterns: MirrorPatternsData }) {
       className="quiet-card warm"
       aria-label="기록 패턴"
       data-testid="mirror-patterns"
-      style={{ width: "min(100%, 480px)", marginBottom: "12px" }}
+      style={{ width: "min(100%, var(--content-w))", marginBottom: "12px" }}
     >
       <p className="eyebrow" style={{ margin: "0 0 8px" }}>기록 패턴</p>
 
@@ -378,7 +378,7 @@ function MirrorSummary({ data }: { data: MirrorLedgerData }) {
       className="quiet-card warm"
       aria-label="원장 요약"
       data-testid="mirror-summary"
-      style={{ width: "min(100%, 480px)", marginBottom: "12px" }}
+      style={{ width: "min(100%, var(--content-w))", marginBottom: "12px" }}
     >
       <p className="card-meta" style={{ display: "flex", flexWrap: "wrap", gap: "6px", margin: 0 }}>
         <span className="card-chip">변경 {s.totalChanges}</span>
@@ -405,7 +405,7 @@ function MirrorAutomationNeeds({ data }: { data: MirrorAutomationNeedsData }) {
   return (
     <section
       data-testid="mirror-automation-needs"
-      style={{ width: "min(100%, 480px)", marginBottom: "16px" }}
+      style={{ width: "min(100%, var(--content-w))", marginBottom: "16px" }}
       aria-labelledby="automation-needs-heading"
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "8px" }}>
@@ -460,7 +460,7 @@ function MirrorDiary({ data }: { data: MirrorDiaryData }) {
   return (
     <section
       data-testid="mirror-diary"
-      style={{ width: "min(100%, 480px)", marginBottom: "16px" }}
+      style={{ width: "min(100%, var(--content-w))", marginBottom: "16px" }}
       aria-labelledby="diary-heading"
     >
       <h2 id="diary-heading" className="watcher-section-heading" style={{ margin: "0 0 8px", fontFamily: "var(--font-serif, serif)" }}>

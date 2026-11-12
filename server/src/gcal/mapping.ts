@@ -41,6 +41,12 @@ export function mapGcalEvent(
   };
 }
 
+// 가져오지 않는 외부 일정: 제목이 "생일"로 끝나는 것 (연락처 생일 캘린더 등).
+// 뒤쪽 공백은 무시한다. "생일 파티"처럼 중간에 들어간 건 그대로 가져온다.
+export function isExcludedGcalTitle(title: string): boolean {
+  return title.trimEnd().endsWith("생일");
+}
+
 function mapStatus(
   gcalStatus: string | null | undefined
 ): "planned" | "confirmed" | "cancelled" {

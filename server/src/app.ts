@@ -30,6 +30,8 @@ import { registerResourceRoutes } from "./routes/resources.js";
 import { registerItemRoutes } from "./routes/items.js";
 import { registerInboxRoutes } from "./routes/inbox.js";
 import { registerMaterialRoutes } from "./routes/materials.js";
+import { registerNoteRoutes } from "./routes/notes.js";
+import { registerCalendarRoutes } from "./routes/calendar.js";
 import type { GcalSyncControlOptions } from "./services/gcal-sync-control.js";
 
 export type BuildServerOptions = {
@@ -47,6 +49,15 @@ export function buildServer(
 ): FastifyInstance {
   const app = Fastify({
     logger: false
+  });
+
+  // Landing point after a Cloudflare Access login (see web accessLoginUrl). The app asks
+  // for this path so the request reaches Access; once through, send the browser back.
+  // Only same-site paths are accepted so this cannot be used as an open redirect.
+  app.get("/api/session/return", async (req, reply) => {
+    const to = (req.query as Record<string, unknown> | undefined)?.to;
+    const safe = typeof to === "string" && /^\/(?![/\\])[^\s]*$/.test(to) ? to : "/today";
+    return reply.header("cache-control", "no-store").redirect(safe, 302);
   });
 
   app.get("/health", async () =>
@@ -96,6 +107,8 @@ export function buildServer(
     registerTransitFactsRoutes(app, db);
     registerInboxRoutes(app, db, { ingestToken: opts.ingestToken, mapGateway });
     registerMaterialRoutes(app, db);
+    registerNoteRoutes(app, db);
+    registerCalendarRoutes(app, db);
     if (opts.gcalSync) {
       registerGcalSyncRoutes(app, opts.gcalSync);
     }

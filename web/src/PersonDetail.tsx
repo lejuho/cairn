@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { AuthoredPreferredWindows, EgoGraphData, EventRow, PersonDirectoryRow, PersonRow, PreferredPeriod, Weekday } from "@cairn/shared";
-import { apiJson } from "./api.js";
+import { apiJson, openAccessLogin } from "./api.js";
 import type { AccessSessionError } from "./api.js";
 import { EgoSheet, loadEgoGraph } from "./EgoSheet.js";
 import { formatLastMet } from "./lastMet.js";
@@ -254,7 +254,7 @@ export function PersonDetail({ id }: { id: number }) {
         <section className="quiet-card warm">
           <h1>로그인 세션이 필요해</h1>
           <p>Cloudflare Access 세션이 만료됐거나 네트워크가 끊겼어.</p>
-          <button className="action-btn" onClick={() => window.location.assign(window.location.href)}>
+          <button className="action-btn" onClick={() => openAccessLogin()}>
             Access 로그인 다시 열기
           </button>
           <button className="action-btn" onClick={() => void load()}>다시 시도</button>

@@ -120,6 +120,20 @@
       "when": 1791941603373,
       "tag": "0016_supreme_risque",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1794462727040,
+      "tag": "0017_orange_pyro",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1794493001389,
+      "tag": "0018_sturdy_shinobi_shaw",
+      "breakpoints": true
     }
   ]
 }

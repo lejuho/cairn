@@ -83,3 +83,11 @@ describe("apiJson — generic errors", () => {
     await expect(apiJson("/api/test")).rejects.toMatchObject({ kind: "api_error", status: 500 });
   });
 });
+
+describe("accessLoginUrl", () => {
+  it("points at a network path that returns to the current screen", async () => {
+    const { accessLoginUrl } = await import("./api.js");
+    expect(accessLoginUrl("https://cairn.example/notes?date=2026-11-12")).toBe("/api/session/return?to=%2Fnotes%3Fdate%3D2026-11-12");
+    expect(accessLoginUrl("/threads/3")).toBe("/api/session/return?to=%2Fthreads%2F3");
+  });
+});

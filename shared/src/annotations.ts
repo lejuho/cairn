@@ -41,3 +41,10 @@ export type AnnotationIntakeRequest = z.infer<typeof AnnotationIntakeRequestSche
 export type AnnotationRow = z.infer<typeof AnnotationRowSchema>;
 export type ParsedAnnotation = z.infer<typeof ParsedAnnotationSchema>;
 export type AnnotationIntakeSuccessData = z.infer<typeof AnnotationIntakeSuccessDataSchema>;
+
+// 일정 결과를 탭 한 번으로 남긴다 (LLM 없이). 상태를 바꾸고 같은 결과의 주석을 함께 남겨
+// 거울(이동·취소 원장)이 읽을 수 있게 한다.
+export const RecordEventOutcomeRequestSchema = z
+  .object({ outcome: AnnotationOutcomeSchema, reasonText: z.string().trim().max(500).optional() })
+  .strict();
+export type RecordEventOutcomeRequest = z.infer<typeof RecordEventOutcomeRequestSchema>;

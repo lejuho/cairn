@@ -63,3 +63,23 @@ export async function apiJson<T>(input: RequestInfo, init?: RequestInit): Promis
   const data = await res.json() as T;
   return data;
 }
+
+// Where to send the browser to get a fresh Cloudflare Access session.
+// Reloading the page is not enough: the service worker answers page loads from its
+// cache, so the request never reaches Cloudflare and no login appears. This path is a
+// real network request (the worker leaves /api/ alone); once Access lets it through,
+// the server redirects back to `to`.
+export function accessLoginUrl(href: string): string {
+  let back = "/today";
+  try {
+    const url = new URL(href, "http://localhost");
+    back = `${url.pathname}${url.search}`;
+  } catch {
+    // Unparseable location: fall back to Today.
+  }
+  return `/api/session/return?to=${encodeURIComponent(back)}`;
+}
+
+export function openAccessLogin(): void {
+  window.location.assign(accessLoginUrl(window.location.href));
+}

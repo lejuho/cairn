@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { DomainFilter, ThreadSummary } from "@cairn/shared";
-import { apiJson, type AccessSessionError } from "./api.js";
+import { apiJson, type AccessSessionError, openAccessLogin } from "./api.js";
 import { DomainFilterControl, domainLabel } from "./DomainFilter.js";
 
 type ViewState =
@@ -61,7 +61,7 @@ export function ThreadIndex() {
           <p className="eyebrow">Threads</p>
           <h1 id="threads-title">로그인이 필요해</h1>
           <p>세션이 만료됐어. 페이지를 새로 고침해봐.</p>
-          <button className="thread-index-new-btn" onClick={() => window.location.reload()}>새로 고침</button>
+          <button className="thread-index-new-btn" onClick={() => openAccessLogin()}>다시 로그인</button>
         </section>
       </main>
     );
@@ -97,11 +97,11 @@ export function ThreadIndex() {
   const { summaries } = view;
   return (
     <main className="app-shell today-live" aria-labelledby="threads-title">
-      <div style={{ width: "min(100%, 480px)", marginBottom: "12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div style={{ width: "min(100%, var(--content-w))", marginBottom: "12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h2 id="threads-title" className="eyebrow" style={{ margin: 0 }}>Threads</h2>
         <a className="thread-index-new-btn" href="/threads/new">+ 새 스레드</a>
       </div>
-      <div style={{ width: "min(100%, 480px)", marginBottom: "12px" }}>
+      <div style={{ width: "min(100%, var(--content-w))", marginBottom: "12px" }}>
         <DomainFilterControl value={domain} onChange={setDomain} label="스레드 도메인 필터" />
       </div>
       {summaries.length === 0 ? (

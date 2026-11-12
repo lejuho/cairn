@@ -1,0 +1,1 @@
+ALTER TABLE `notes` ADD COLUMN `remote_visible` integer DEFAULT 0 NOT NULL CONSTRAINT "notes_remote_visible_check" CHECK("remote_visible" in (0, 1));

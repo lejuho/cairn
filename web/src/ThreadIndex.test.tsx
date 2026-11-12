@@ -85,7 +85,7 @@ describe("ThreadIndex — access-session", () => {
     }));
     render(<ThreadIndex />);
     await waitFor(() => expect(screen.getByRole("heading", { name: "로그인이 필요해" })).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: "새로 고침" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "다시 로그인" })).toBeInTheDocument();
   });
 });
 
