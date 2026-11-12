@@ -252,9 +252,26 @@ describe("Reason Network compatibility commands", () => {
     expect(execFileMock).not.toHaveBeenCalled();
   });
 
-  it("routes the MCP check_inbox bridge through the persistent queue", async () => {
-    const result = resultBody(await callTool(unusedApiConfig, "cairn_context_now", { cwd: 'rn:mcp:check_inbox:{"as":"claude-app"}' }));
-    expect(result).toEqual({ ok: true, data: { session: "claude-app" }, cachedMessages: [] });
+  it("routes the MCP check_inbox bridge for the queued session through the persistent queue", async () => {
+    const result = resultBody(await callTool(unusedApiConfig, "cairn_context_now", { cwd: 'rn:mcp:check_inbox:{"as":"dots"}' }));
+    expect(result).toEqual({ ok: true, data: { session: "dots" }, cachedMessages: [] });
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  it("never answers a session Cairn does not queue with a silent empty inbox", async () => {
+    const inbox = resultBody(await callTool(unusedApiConfig, "cairn_context_now", { cwd: "rn:inbox:cursor" }));
+    expect(inbox).toMatchObject({ ok: true, data: { session: "cursor", queued: false }, cachedMessages: [] });
+    expect((inbox.data as { warning: string }).warning).toContain("Cairn does not receive mail for cursor");
+
+    const previousToken = process.env.REASON_MCP_TOKEN;
+    delete process.env.REASON_MCP_TOKEN;
+    try {
+      const bridged = await callTool(unusedApiConfig, "cairn_context_now", { cwd: 'rn:mcp:check_inbox:{"as":"claude-app"}' });
+      expect(JSON.stringify(bridged)).toContain("Cairn does not receive mail for claude-app");
+    } finally {
+      if (previousToken !== undefined) process.env.REASON_MCP_TOKEN = previousToken;
+    }
     expect(spawnMock).not.toHaveBeenCalled();
     expect(execFileMock).not.toHaveBeenCalled();
   });

@@ -1,15 +1,33 @@
 # Reason Network inbox via Cairn MCP
 
-The remote Cairn watcher polls `zedd1324/cursor`, `zedd1324/muse`,
-`zedd1324/dots`, and `zedd1324/claude-app` every three seconds plus poll time,
-independently of Slack. Only dots messages trigger the existing Slack relay.
-Start the remote MCP service to run the persistent watcher; stdio-only reads
-return persisted data and do not start a watcher.
+The remote Cairn watcher polls `zedd1324/dots` every three seconds plus poll
+time, independently of Slack, and relays new dots messages to Slack. Start the
+remote MCP service to run the persistent watcher; stdio-only reads return
+persisted data and do not start a watcher.
 
-Read with `cairn_context_now({"cwd":"rn:inbox:cursor"})` (also supported by
-`cairn_inbox`). Owner-qualified `rn:inbox:zedd1324/cursor` works too.
-Omitting the session reads dots. Reads never delete or mark messages read.
-`rn:mcp:check_inbox:{"as":"cursor"}` also reads the same queue without upstream consumption.
+**Only dots is queued (since 2026-11-12).** `cursor`, `claude-app` and `muse`
+connect to Reason themselves and own those names in the daemon. A Cairn
+`listen --as cursor` is then silently registered as `cursor-2` and receives
+nothing, while the real mail goes to the agent's own Reason inbox. From the
+2026-11-01 daemon restart until this change Cairn reported those inboxes as
+empty for that reason. Those agents must read with Reason Network's own
+`check_inbox`.
+
+Read with `cairn_context_now({"cwd":"rn:inbox"})` or `rn:inbox:dots` (also
+supported by `cairn_inbox`; owner-qualified `rn:inbox:zedd1324/dots` works too).
+Reads never delete or mark messages read. `rn:mcp:check_inbox:{"as":"dots"}`
+reads the same queue without upstream consumption.
+
+For a session Cairn does not queue, `rn:inbox:<session>` returns whatever is
+still persisted plus `data.queued:false` and a `data.warning`; it is not proof
+of an empty inbox. `rn:mcp:check_inbox:{"as":"<session>"}` is forwarded to the
+Reason MCP endpoint with Cairn's stored token and fails with an explicit error
+when no token is stored. Whether that token's connection can see another
+agent's mailbox is decided upstream and is unverified here.
+
+`rn:events` reports `nameConflicts`: polled names that a non-listener Reason
+agent owns (checked once a minute through `reason-network who --all --json`).
+A conflict is also copied to `lastError` when no delivery error is present.
 
 The JSON text result is:
 
@@ -44,10 +62,6 @@ Old caches without acknowledgement records remain readable; acknowledgements
 made before this change cannot be reconstructed. There is no automatic expiry or
 50-message cap. Existing persisted messages marked read by the old implementation
 are restored as pending because those reads were not explicit acknowledgements.
-
-`claude-app` is ONE shared mailbox for all Claude app conversations. Any of those
-conversations can read the same pending messages. An ack removes a message for
-all of them; this is not a per-conversation claim/lease system.
 
 ## Persistence and transport boundary
 
@@ -118,5 +132,5 @@ this test command does not require a production service restart.
 No service restart was attempted in this follow-up, per user instruction.
 Service restart and live serve/queue verification remain user-operated host work. Source/build changes alone do not update an already
 running MCP process. After restarting `cairn-mcp-remote`, inspect `rn:events`
-for the four sessions and `lastError`, then send a dedicated test message to
-each address, read twice, ack, and verify disappearance plus no serve replay.
+for `sessions`, `nameConflicts` and `lastError`, then send a dedicated test message to
+dots, read twice, ack, and verify disappearance plus no serve replay.

@@ -17,6 +17,9 @@ const MAX_TTL_MS = DEFAULT_TTL_MS;
 const VERIFY_CACHE_MS = 10 * 60 * 1_000;
 const POLL_INTERVAL_MS = 3_000;
 const CALLBACK_TIMEOUT_MS = 10_000;
+const NAME_CHECK_INTERVAL_MS = 60_000;
+/** Agent label the daemon gives sessions created by `reason-network listen --as`. */
+const LISTENER_AGENT = "cli";
 
 export const REASON_MESSAGE_EVENT: JsonObject = {
   name: EVENT_NAME,
@@ -85,6 +88,8 @@ export interface EventWatcherStatus {
   sessions: string[];
   lastPollAt: string | null;
   lastError: string | null;
+  /** Polled names that another Reason agent owns, so Cairn's listener receives nothing for them. */
+  nameConflicts: string[];
   subscriptions: Array<{
     id: string;
     name: string;
@@ -94,11 +99,18 @@ export interface EventWatcherStatus {
   }>;
 }
 
+export interface ReasonSessionInfo {
+  name: string;
+  agent: string;
+}
+
 export interface McpEventServiceOptions {
   storePath?: string;
   fetchImpl?: typeof fetch;
   resolveHost?: (hostname: string) => Promise<string[]>;
   listen?: (session: string) => Promise<string>;
+  /** Lists Reason sessions for the name-ownership check. Defaults to the CLI only with the default listener. */
+  listSessions?: () => Promise<ReasonSessionInfo[]>;
   relay?: ReasonRelay;
   now?: () => Date;
   pollIntervalMs?: number;
@@ -121,6 +133,7 @@ export class McpEventService {
   private readonly fetchImpl: typeof fetch;
   private readonly resolveHost: (hostname: string) => Promise<string[]>;
   private readonly listen: (session: string) => Promise<string>;
+  private readonly listSessions: (() => Promise<ReasonSessionInfo[]>) | undefined;
   private readonly relay: ReasonRelay;
   private readonly now: () => Date;
   private readonly pollIntervalMs: number;
@@ -134,12 +147,16 @@ export class McpEventService {
   private polling = false;
   private lastPollAt: string | null = null;
   private lastError: string | null = null;
+  private nameConflicts: string[] = [];
+  private nameCheckedAt = 0;
 
   constructor(options: McpEventServiceOptions = {}) {
     this.storePath = options.storePath ?? process.env.MCP_EVENT_STORE_PATH ?? DEFAULT_STORE_PATH;
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.resolveHost = options.resolveHost ?? resolvePublicAddresses;
     this.listen = options.listen ?? listenToReasonSession;
+    // An injected listener (tests) must not shell out to the real CLI for the ownership check.
+    this.listSessions = options.listSessions ?? (options.listen ? undefined : listReasonSessions);
     this.relay = options.relay ?? defaultReasonRelay;
     this.now = options.now ?? (() => new Date());
     this.pollIntervalMs = options.pollIntervalMs ?? POLL_INTERVAL_MS;
@@ -217,6 +234,7 @@ export class McpEventService {
       sessions: pollSessions(active),
       lastPollAt: this.lastPollAt,
       lastError: this.lastError,
+      nameConflicts: this.nameConflicts,
       subscriptions: active.map((subscription) => ({
         id: subscription.id,
         name: subscription.name,
@@ -234,7 +252,9 @@ export class McpEventService {
       let deliveryError: string | null = null;
       const active = await this.activeSubscriptions();
       const slackRelayActive = await this.relay.isActive();
-      for (const session of pollSessions(active)) {
+      const sessions = pollSessions(active);
+      await this.checkNameOwnership(sessions);
+      for (const session of sessions) {
         let messages = this.pendingWrites.get(session);
         try {
           if (!messages) {
@@ -270,12 +290,34 @@ export class McpEventService {
           this.rememberEvent(eventId);
         }
       }
-      this.lastError = deliveryError;
+      this.lastError = deliveryError ?? (this.nameConflicts.length > 0 ? this.nameConflicts.join("; ") : null);
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : "Unknown event watcher error";
     } finally {
       this.lastPollAt = this.now().toISOString();
       this.polling = false;
+    }
+  }
+
+  /**
+   * `listen --as NAME` silently registers as NAME-2 when another agent already owns NAME, and then
+   * returns nothing forever. Surface that instead of reporting a healthy empty inbox.
+   */
+  private async checkNameOwnership(sessions: string[]): Promise<void> {
+    if (!this.listSessions) return;
+    const now = this.now().getTime();
+    if (this.nameCheckedAt !== 0 && now - this.nameCheckedAt < NAME_CHECK_INTERVAL_MS) return;
+    this.nameCheckedAt = now;
+    try {
+      const owners = new Map((await this.listSessions()).map((session) => [session.name, session.agent]));
+      this.nameConflicts = sessions.flatMap((session) => {
+        const agent = owners.get(session);
+        return agent !== undefined && agent !== LISTENER_AGENT
+          ? [`Inbox ${session} is owned by Reason agent "${agent}", not Cairn's listener; its messages do not reach Cairn`]
+          : [];
+      });
+    } catch {
+      // Keep the previous verdict: a failed listing says nothing about ownership.
     }
   }
 
@@ -595,6 +637,21 @@ async function listenToReasonSession(session: string): Promise<string> {
     { encoding: "utf8", timeout: 15_000 }
   );
   return stdout;
+}
+
+async function listReasonSessions(): Promise<ReasonSessionInfo[]> {
+  const { stdout } = await execFileAsync(
+    "/home/pi/.reason/bin/reason-network",
+    ["who", "--all", "--json"],
+    { encoding: "utf8", timeout: 15_000 }
+  );
+  const parsed: unknown = JSON.parse(stdout);
+  if (!isJsonObject(parsed) || !Array.isArray(parsed.sessions)) return [];
+  return parsed.sessions.flatMap((session) =>
+    isJsonObject(session) && typeof session.name === "string" && typeof session.agent === "string"
+      ? [{ name: session.name, agent: session.agent }]
+      : []
+  );
 }
 
 function isStoredSubscription(value: unknown): value is EventSubscription {

@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { requestCairnApi, type ApiMethod, type CairnApiClientConfig, type CairnApiRequest } from "./api.js";
 import { parseReasonMessages, defaultEventService } from "./events.js";
 import { isJsonObject, toJsonValue, ToolInputError, type JsonObject, type JsonValue } from "./json.js";
-import { defaultReasonRelay, RESERVED_REASON_SESSIONS } from "./reason-relay.js";
+import { defaultReasonRelay, QUEUED_REASON_SESSIONS, RESERVED_REASON_SESSIONS } from "./reason-relay.js";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_REASON_SESSION = "dots";
@@ -123,7 +123,7 @@ const EMPTY_SCHEMA: JsonObject = {
 export const TOOLS: McpTool[] = [
   {
     name: "cairn_context_now",
-    description: "지금의 맥락: 진행 중/24시간 내 일정, 활성 thread(현재 작업 디렉터리에 묶인 것 우선), 확인 대기 질문 상위 5개. Reason 브릿지: cwd='rn:mcp:<tool>:<jsonArgs>', 'rn:auth', 'rn:events', 'rn:who', 'rn:inbox[:session]', 'rn:ack:<session>:<id>', 'rn:send:[session@]target:message', 'rn:ask:[session@]target:message' (기본 session=dots, pi-codex·pi-claude-6 는 예약). rn:events는 MCP event 구독(비밀 제외)과 watcher 상태를 반환. 'rn:slack' 은 Slack relay 상태 {configured, mode, channelId, enabled, lastSentAt, lastError, cachedUnreadCount}, 'rn:slack:test' 는 #for_dots 로 테스트 알림 전송. rn:inbox 와 기본 호출의 reasonNetworkInbox 는 watcher 가 먼저 받아 캐시한 메시지를 cachedMessages 로 반환하며 읽기로 삭제하지 않는다. rn:ack:<session>:<id> 만 삭제한다. cursor/muse/dots/claude-app 큐 지원; claude-app은 여러 대화가 공유한다. 사용자가 '뭐부터 하지', '오늘 어때' 같은 걸 물으면 먼저 호출. 반환: {now, cwd, upcoming:[{id, title, start, end, location, threadId, status, ongoing}], activeThreads:[{id, name, goal, deadline, matchesWorkspace}], inbox:{items:[cairn_inbox 항목], pendingTotal}}.",
+    description: "지금의 맥락: 진행 중/24시간 내 일정, 활성 thread(현재 작업 디렉터리에 묶인 것 우선), 확인 대기 질문 상위 5개. Reason 브릿지: cwd='rn:mcp:<tool>:<jsonArgs>', 'rn:auth', 'rn:events', 'rn:who', 'rn:inbox[:session]', 'rn:ack:<session>:<id>', 'rn:send:[session@]target:message', 'rn:ask:[session@]target:message' (기본 session=dots, pi-codex·pi-claude-6 는 예약). rn:events는 MCP event 구독(비밀 제외)과 watcher 상태를 반환. 'rn:slack' 은 Slack relay 상태 {configured, mode, channelId, enabled, lastSentAt, lastError, cachedUnreadCount}, 'rn:slack:test' 는 #for_dots 로 테스트 알림 전송. rn:inbox 와 기본 호출의 reasonNetworkInbox 는 watcher 가 먼저 받아 캐시한 메시지를 cachedMessages 로 반환하며 읽기로 삭제하지 않는다. rn:ack:<session>:<id> 만 삭제한다. Cairn 큐는 dots 만 받는다. cursor/muse/claude-app 은 각 에이전트가 Reason 에 직접 연결해 그 이름을 소유하므로 Cairn 으로 오지 않는다: rn:inbox:<그 세션> 은 data.queued=false 와 warning 을 돌려주고, rn:mcp:check_inbox {as} 는 Reason MCP 로 그대로 넘긴다(토큰 없으면 오류). rn:events 의 nameConflicts 는 Cairn 이 듣는 이름을 다른 Reason 에이전트가 차지한 경우를 알린다. 사용자가 '뭐부터 하지', '오늘 어때' 같은 걸 물으면 먼저 호출. 반환: {now, cwd, upcoming:[{id, title, start, end, location, threadId, status, ongoing}], activeThreads:[{id, name, goal, deadline, matchesWorkspace}], inbox:{items:[cairn_inbox 항목], pendingTotal}}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -838,7 +838,12 @@ async function runReasonCommand(command: ReasonCommand): Promise<JsonObject> {
   if (command.action === "inbox") {
     // Inbox reads use only the durable queue; they never drain the transport.
     const cachedMessages = await defaultReasonRelay.readPending(command.session);
-    return { ok: true, data: { session: command.session }, cachedMessages: toJsonValue(cachedMessages) };
+    const queued = QUEUED_REASON_SESSIONS.includes(command.session);
+    return {
+      ok: true,
+      data: { session: command.session, ...(queued ? {} : { queued: false, warning: notQueuedWarning(command.session) }) },
+      cachedMessages: toJsonValue(cachedMessages)
+    };
   }
 
   const engine = join(homedir(), ".reason", "bin", "reason-network");
@@ -865,6 +870,12 @@ async function runReasonCommand(command: ReasonCommand): Promise<JsonObject> {
   });
   await defaultReasonRelay.cacheMessages(parseReasonMessages(answer.stdout, command.session));
   return { ok: true, data: parseReasonOutput(answer.stdout), cachedMessages: toJsonValue(await defaultReasonRelay.readPending(command.session)) };
+}
+
+/** Empty here does not mean "no mail": Cairn never receives these sessions. */
+function notQueuedWarning(session: string): string {
+  return `Cairn does not receive mail for ${session}; only ${QUEUED_REASON_SESSIONS.join(", ")} is queued here. ` +
+    `Read ${session} with Reason Network's own check_inbox.`;
 }
 
 function isUnregisteredReasonSession(error: unknown): boolean {
@@ -938,9 +949,12 @@ function parseReasonMcpCall(name: string, rawArguments: string): ReasonMcpCall {
 }
 
 async function callReasonMcp(name: string, args: JsonObject): Promise<JsonValue> {
-  if (LOCAL_REASON_MCP_TOOLS.has(name)) return callLocalReasonMcp(name, args);
+  // A session Cairn does not queue has no local mailbox; answering from the cache would report a false empty inbox.
+  const foreignInbox = name === "check_inbox" && typeof args.as === "string" && !QUEUED_REASON_SESSIONS.includes(sessionName(args.as));
+  if (LOCAL_REASON_MCP_TOOLS.has(name) && !foreignInbox) return callLocalReasonMcp(name, args);
 
   const token = await loadReasonMcpToken();
+  if (!token && foreignInbox) throw new ToolInputError(`${notQueuedWarning(sessionName(args.as as string))} (No Reason MCP token is stored, so Cairn cannot forward this call.)`);
   if (!token) throw new ToolInputError("Reason MCP token not found; use rn:auth or cairn_observe(title=\"rn:token\", body=\"<token>\")");
   const response = await fetch(REASON_MCP_URL, {
     method: "POST",

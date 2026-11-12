@@ -29,22 +29,52 @@ it("persists over 50 pending messages across instances, concurrent writers, read
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
-it("watches all shared queues without Slack and isolates one recipient failure", async () => {
+it("watches only the dots queue without Slack and reports a listener failure", async () => {
   const dir = await mkdtemp(join(tmpdir(), "cairn-queue-"));
   try {
     const relay = new ReasonRelay({ cachePath: join(dir, "cache.json"), configPath: join(dir, "slack.json") });
     const visited: string[] = [];
+    let offline = false;
     const service = new McpEventService({ storePath: join(dir, "subscriptions.json"), relay,
       listen: async (session) => {
         visited.push(session);
-        if (session === "cursor") throw new Error("offline");
+        if (offline) throw new Error("offline");
         return '<reason-message from="sender" id="same">body</reason-message>';
       }
     });
     await service.pollOnce();
-    expect(visited).toEqual(["claude-app", "cursor", "dots", "muse"]);
-    for (const session of ["claude-app", "dots", "muse"]) expect(await relay.readPending(session)).toHaveLength(1);
-    expect(await service.status()).toMatchObject({ lastError: "Inbox cursor failed: offline" });
+    expect(visited).toEqual(["dots"]);
+    expect(await relay.readPending("dots")).toHaveLength(1);
+    for (const session of ["claude-app", "cursor", "muse"]) expect(await relay.readPending(session)).toHaveLength(0);
+    offline = true;
+    await service.pollOnce();
+    expect(await service.status()).toMatchObject({ lastError: "Inbox dots failed: offline" });
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+it("reports a polled name that another Reason agent owns, and clears it once the listener owns it", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "cairn-queue-"));
+  try {
+    const relay = new ReasonRelay({ cachePath: join(dir, "cache.json"), configPath: join(dir, "slack.json") });
+    let clock = Date.parse("2026-11-12T00:00:00Z");
+    let owner = "cursor";
+    let listings = 0;
+    const service = new McpEventService({ storePath: join(dir, "subscriptions.json"), relay, now: () => new Date(clock),
+      listen: async () => "",
+      listSessions: async () => { listings += 1; return [{ name: "dots", agent: owner }, { name: "dots-2", agent: "cli" }]; }
+    });
+    await service.pollOnce();
+    const conflict = 'Inbox dots is owned by Reason agent "cursor", not Cairn\'s listener; its messages do not reach Cairn';
+    expect(await service.status()).toMatchObject({ lastError: conflict, nameConflicts: [conflict] });
+    owner = "cli";
+    clock += 3_000;
+    await service.pollOnce();
+    expect(listings).toBe(1);
+    expect(await service.status()).toMatchObject({ lastError: conflict });
+    clock += 60_000;
+    await service.pollOnce();
+    expect(listings).toBe(2);
+    expect(await service.status()).toMatchObject({ lastError: null, nameConflicts: [] });
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
@@ -54,24 +84,24 @@ it("retries a consumed batch after a write failure before listening to that sess
     class FailingRelay extends ReasonRelay {
       failures = 1;
       override async cacheMessages(messages: Parameters<ReasonRelay["cacheMessages"]>[0]): ReturnType<ReasonRelay["cacheMessages"]> {
-        if (messages[0]?.session === "cursor" && this.failures-- > 0) throw new Error("disk unavailable");
+        if (messages[0]?.session === "dots" && this.failures-- > 0) throw new Error("disk unavailable");
         return super.cacheMessages(messages);
       }
     }
     const relay = new FailingRelay({ cachePath: join(dir, "cache.json"), configPath: join(dir, "slack.json") });
-    let cursorListens = 0;
+    let dotsListens = 0;
     const service = new McpEventService({ storePath: join(dir, "subscriptions.json"), relay,
       listen: async (session) => {
-        if (session !== "cursor") return "";
-        cursorListens += 1;
+        if (session !== "dots") return "";
+        dotsListens += 1;
         return '<reason-message from="sender" id="retry">body</reason-message>';
       }
     });
     await service.pollOnce();
-    expect(await relay.readPending("cursor")).toHaveLength(0);
+    expect(await relay.readPending("dots")).toHaveLength(0);
     await service.pollOnce();
-    expect(cursorListens).toBe(1);
-    expect(await relay.readPending("cursor")).toHaveLength(1);
+    expect(dotsListens).toBe(1);
+    expect(await relay.readPending("dots")).toHaveLength(1);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 

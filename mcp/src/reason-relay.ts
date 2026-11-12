@@ -9,7 +9,12 @@ const DEFAULT_CONFIG_PATH = "/home/pi/cairn-data/reason-slack.json";
 const DEFAULT_CACHE_PATH = "/home/pi/cairn-data/reason-inbox-cache.json";
 const DEFAULT_CHANNEL_ID = "C0CCT18TZEU";
 const DEFAULT_OWNER = "zedd1324";
-export const QUEUED_REASON_SESSIONS = ["claude-app", "cursor", "dots", "muse"] as const;
+/**
+ * Sessions whose mailbox Cairn owns. cursor/claude-app/muse are NOT here: those agents connect to
+ * Reason themselves and own the base name, so a Cairn listener gets a suffixed name (cursor-2) and
+ * an always-empty queue while the real mail goes to the agent's own Reason inbox.
+ */
+export const QUEUED_REASON_SESSIONS: readonly string[] = ["dots"];
 const MAX_SLACK_BODY_CHARS = 35_000;
 const SLACK_TIMEOUT_MS = 10_000;
 const WEBHOOK_PREFIX = "https://hooks.slack.com/services/";

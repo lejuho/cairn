@@ -31,9 +31,10 @@ Use this file to narrow read scope. Do not treat it as full spec. Product rules 
   - `src/reason-relay.ts` owns the Reason→Slack relay (`/home/pi/cairn-data/reason-slack.json`,
     env fallbacks `REASON_SLACK_*`, default channel `C0CCT18TZEU`) and the inbox cache
     (`/home/pi/cairn-data/reason-inbox-cache.json`, pending until explicit ack, both 0600). The watcher polls
-    `cursor`, `muse`, `dots`, and `claude-app` regardless of Slack configuration.
+    only `dots` regardless of Slack configuration; `cursor`, `muse` and `claude-app` own their names
+    on Reason and read their own Reason inbox (Cairn answers them with `queued:false`, never a silent empty).
     `rn:inbox[:session]` repeatedly returns `cachedMessages`; `rn:ack:<session>:<id>`
-    deletes only that message. `claude-app` is shared across Claude app conversations.
+    deletes only that message. `rn:events` lists `nameConflicts` when another agent owns a polled name.
     The kernel flock serializes cache writers across processes; durable ack IDs suppress replay,
     and only newly inserted messages trigger watcher notifications. External serve exclusion is not implemented.
     Slack notifications remain dots-only.

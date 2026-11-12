@@ -151,7 +151,7 @@ describe("McpEventService", () => {
     expect(delivery.headers.get("webhook-signature")).toBe(validSignature(delivery));
     const status = await service.status();
     expect(status.subscriptions[0]).not.toHaveProperty("secret");
-    expect(status).toMatchObject({ activeSubscriptions: 1, sessions: ["claude-app", "cursor", "dots", "muse"], lastError: null });
+    expect(status).toMatchObject({ activeSubscriptions: 1, sessions: ["dots"], lastError: null });
   });
 
   it("polls dots without subscriptions when the Slack relay is enabled, caching and relaying each message", async () => {
@@ -183,7 +183,7 @@ describe("McpEventService", () => {
 
     await service.pollOnce();
 
-    expect(listened).toEqual(["claude-app", "cursor", "dots", "muse"]);
+    expect(listened).toEqual(["dots"]);
     expect(slackCalls).toHaveLength(1);
     expect(slackCalls[0]!.url).toBe("https://slack.com/api/chat.postMessage");
     expect(slackCalls[0]!.headers.get("authorization")).toBe("Bearer xoxb-test-token");
@@ -199,7 +199,7 @@ describe("McpEventService", () => {
     });
     expect((await stat(configPath)).mode & 0o777).toBe(0o600);
     expect((await stat(cachePath)).mode & 0o777).toBe(0o600);
-    await expect(service.status()).resolves.toMatchObject({ activeSubscriptions: 0, slackRelayActive: true, sessions: ["claude-app", "cursor", "dots", "muse"], lastError: null });
+    await expect(service.status()).resolves.toMatchObject({ activeSubscriptions: 0, slackRelayActive: true, sessions: ["dots"], lastError: null });
     await expect(relay.status()).resolves.toMatchObject({ mode: "token", cachedUnreadCount: 1, lastSentAt: "2026-10-25T01:02:03.000Z" });
     await expect(relay.readPending("dots")).resolves.toMatchObject([{ message_id: "msg_7", text: "wake <up> & go", unread: true }]);
     await expect(relay.readPending("dots")).resolves.toHaveLength(1);
