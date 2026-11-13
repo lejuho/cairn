@@ -94,7 +94,7 @@ export function buildWatcherDeepView(
         id: row.id, category: row.category, label: row.label, kind: row.kind,
         armed: false, threshold: row.threshold, snoozedUntil: row.snoozedUntil,
         status: "disarmed", daysOverdue: null, daysUntil: null,
-        message: "비활성 watcher야", reasonCodes: ["disarmed"]
+        message: "비활성 watcher입니다", reasonCodes: ["disarmed"]
       };
     }
 
@@ -106,7 +106,7 @@ export function buildWatcherDeepView(
           id: row.id, category: row.category, label: row.label, kind: row.kind,
           armed: true, threshold: null, snoozedUntil: row.snoozedUntil,
           status: "unsupported", daysOverdue: null, daysUntil: null,
-          message: "지원되지 않는 watcher 유형이야", reasonCodes: ["unsupported_kind"]
+          message: "지원되지 않는 watcher 유형입니다", reasonCodes: ["unsupported_kind"]
         };
       }
       const summary = summaries.get(row.id) ?? emptyLogSummary();
@@ -115,7 +115,7 @@ export function buildWatcherDeepView(
         id: row.id, category: row.category, label: row.label, kind: row.kind,
         armed: true, threshold: null, snoozedUntil: row.snoozedUntil,
         status: "quiet", daysOverdue: null, daysUntil: null,
-        message: "수동 확인 watcher야", reasonCodes: ["manual_exogenous"],
+        message: "수동 확인 watcher입니다", reasonCodes: ["manual_exogenous"],
         manualExogenous: meView
       };
     }
@@ -125,7 +125,7 @@ export function buildWatcherDeepView(
         id: row.id, category: row.category, label: row.label, kind: row.kind,
         armed: true, threshold: row.threshold, snoozedUntil: row.snoozedUntil,
         status: "unsupported", daysOverdue: null, daysUntil: null,
-        message: "지원되지 않는 watcher 유형이야", reasonCodes: ["unsupported_kind"]
+        message: "지원되지 않는 watcher 유형입니다", reasonCodes: ["unsupported_kind"]
       };
     }
 
@@ -140,7 +140,7 @@ export function buildWatcherDeepView(
           id: row.id, category: row.category, label: row.label, kind: "A",
           armed: true, threshold: row.threshold, snoozedUntil: row.snoozedUntil,
           status: "unsupported", daysOverdue: null, daysUntil: null,
-          message: "역산 계획 데이터를 읽을 수 없어", reasonCodes: ["malformed_rule"],
+          message: "역산 계획 데이터를 읽을 수 없습니다", reasonCodes: ["malformed_rule"],
           reversePlan: undefined
         };
       }
@@ -151,7 +151,7 @@ export function buildWatcherDeepView(
           id: row.id, category: row.category, label: row.label, kind: "A",
           armed: true, threshold: row.threshold, snoozedUntil: row.snoozedUntil,
           status: "quiet", daysOverdue: null, daysUntil: null,
-          message: "모든 단계 완료된 watcher야",
+          message: "모든 단계가 완료된 watcher입니다",
           reasonCodes: ["reverse_plan_completed"],
           reversePlan: reversePlanView
         };
@@ -164,7 +164,7 @@ export function buildWatcherDeepView(
         id: row.id, category: row.category, label: row.label, kind: "A",
         armed: true, threshold: row.threshold, snoozedUntil: row.snoozedUntil,
         status: "unsupported", daysOverdue: null, daysUntil: null,
-        message: "날짜 규칙을 읽을 수 없어", reasonCodes: ["malformed_rule"]
+        message: "날짜 규칙을 읽을 수 없습니다", reasonCodes: ["malformed_rule"]
       };
     }
 
@@ -175,7 +175,7 @@ export function buildWatcherDeepView(
         id: row.id, category: row.category, label: row.label, kind: "A",
         armed: true, threshold: row.threshold, snoozedUntil: row.snoozedUntil,
         status: "unsupported", daysOverdue: null, daysUntil: null,
-        message: "날짜 규칙을 읽을 수 없어", reasonCodes: ["malformed_rule"]
+        message: "날짜 규칙을 읽을 수 없습니다", reasonCodes: ["malformed_rule"]
       };
     }
 
@@ -186,8 +186,8 @@ export function buildWatcherDeepView(
         ? reversePlanView.steps[reversePlanView.nextStepIndex!]?.label ?? ""
         : "";
       const quietMsg = reversePlanView
-        ? `${daysUntil}일 후 시작할 단계야${nextLabel ? `: ${nextLabel}` : ""}`
-        : daysUntil === 1 ? "내일 확인할 watcher야" : `${daysUntil}일 후 확인할 watcher야`;
+        ? `${daysUntil}일 후 시작할 단계입니다${nextLabel ? `: ${nextLabel}` : ""}`
+        : daysUntil === 1 ? "내일 확인할 watcher입니다" : `${daysUntil}일 후 확인할 watcher입니다`;
       return {
         id: row.id, category: row.category, label: row.label, kind: "A",
         armed: true, threshold, snoozedUntil: row.snoozedUntil,
@@ -204,8 +204,8 @@ export function buildWatcherDeepView(
       if (!Number.isNaN(snoozedMs) && snoozedMs > nowMs) {
         const overdue = computeDaysOverdue(date, threshold);
         const snoozeMsg = reversePlanView
-          ? `역산 watcher — 스누즈 중이야`
-          : overdue === 0 ? "오늘 확인할 watcher — 스누즈 중이야" : `${overdue}일 지난 watcher — 스누즈 중이야`;
+          ? `역산 watcher — 스누즈 중`
+          : overdue === 0 ? "오늘 확인할 watcher — 스누즈 중" : `${overdue}일 지난 watcher — 스누즈 중`;
         return {
           id: row.id, category: row.category, label: row.label, kind: "A",
           armed: true, threshold, snoozedUntil: row.snoozedUntil,
@@ -225,9 +225,9 @@ export function buildWatcherDeepView(
       const nextStep = reversePlanView.steps[reversePlanView.nextStepIndex!];
       const dueMsg = nextStep
         ? overdue === 0
-          ? `${nextStep.label}을 시작할 때야`
-          : `${overdue}일 지난 역산 watcher야`
-        : overdue === 0 ? "오늘 확인할 watcher야" : `${overdue}일 지난 watcher야`;
+          ? `${nextStep.label}을 시작할 때입니다`
+          : `${overdue}일 지난 역산 watcher입니다`
+        : overdue === 0 ? "오늘 확인할 watcher입니다" : `${overdue}일 지난 watcher입니다`;
       return {
         id: row.id, category: row.category, label: row.label, kind: "A",
         armed: true, threshold, snoozedUntil: row.snoozedUntil,
@@ -242,7 +242,7 @@ export function buildWatcherDeepView(
       id: row.id, category: row.category, label: row.label, kind: "A",
       armed: true, threshold, snoozedUntil: row.snoozedUntil,
       status: "due", daysOverdue: overdue, daysUntil: null,
-      message: overdue === 0 ? "오늘 확인할 watcher야" : `${overdue}일 지난 watcher야`,
+      message: overdue === 0 ? "오늘 확인할 watcher입니다" : `${overdue}일 지난 watcher입니다`,
       reasonCodes: ["date_threshold_due"]
     };
   });

@@ -53,17 +53,20 @@ describe("NotesPage", () => {
     expect(screen.getByLabelText("메모 불러오는 중")).toBeInTheDocument();
   });
 
-  it("shows the empty state when there are no notes", async () => {
+  it("stays quiet when there are no notes yet: just the way to write one", async () => {
     stubFetch(() => json({ notes: [], total: 0, related: [] }));
     render(<NotesPage />);
-    expect(await screen.findByText("아직 메모가 없어")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByLabelText("메모 불러오는 중")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "+ 새 메모" })).toBeInTheDocument();
+    expect(screen.queryByTestId("notes-empty")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("notes-live")).not.toBeInTheDocument();
   });
 
   it("shows an error with a retry that recovers", async () => {
     let fail = true;
     stubFetch(() => (fail ? json("DB 잠김", false) : json({ notes: [note()], total: 1, related: [] })));
     render(<NotesPage />);
-    expect(await screen.findByText("메모를 불러오지 못했어")).toBeInTheDocument();
+    expect(await screen.findByText("메모를 불러오지 못했습니다")).toBeInTheDocument();
     expect(screen.getByText("DB 잠김")).toBeInTheDocument();
     fail = false;
     fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
@@ -106,7 +109,7 @@ describe("NotesPage", () => {
     window.history.replaceState(null, "", "/notes?date=2026-03-12");
     const fetchMock = stubFetch(() => json({ notes: [], total: 0, related: [] }));
     render(<NotesPage />);
-    await screen.findByText("이 조건에 맞는 메모가 없어");
+    await screen.findByText("검색 결과 없음");
     expect(String(fetchMock.mock.calls[0]![0])).toBe("/api/notes?date=2026-03-12");
     // 그 날짜를 보던 중에 쓰는 메모는 그 날짜로 시작한다.
     fireEvent.click(screen.getByRole("button", { name: "+ 새 메모" }));
@@ -118,7 +121,7 @@ describe("NotesPage", () => {
   it("keeps what was written and says so when saving fails", async () => {
     stubFetch((_url, init) => (init?.method === "POST" ? json("저장 실패", false) : json({ notes: [], total: 0, related: [] })));
     render(<NotesPage />);
-    await screen.findByText("아직 메모가 없어");
+    await waitFor(() => expect(screen.queryByLabelText("메모 불러오는 중")).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "+ 새 메모" }));
     fireEvent.change(screen.getByLabelText("1번째 줄"), { target: { value: "잃으면 안 되는 글" } });
     fireEvent.click(screen.getByRole("button", { name: "오늘로 바로 저장" }));
@@ -251,9 +254,9 @@ describe("note flow", () => {
 
     const toggle = screen.getByRole("switch", { name: "ChatGPT 같은 원격 AI에 공개" });
     expect(toggle).not.toBeChecked();
-    expect(screen.getByText("꺼져 있으면 이 기기와 Pi 안에서만 보여.")).toBeInTheDocument();
+    expect(screen.getByText("꺼져 있으면 이 기기와 Pi 안에서만 보입니다.")).toBeInTheDocument();
     fireEvent.click(toggle);
-    expect(screen.getByText("원격 AI가 이 메모를 읽을 수 있어.")).toBeInTheDocument();
+    expect(screen.getByText("원격 AI가 이 메모를 읽을 수 있습니다.")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "저장 (11/12 · AI 공개)" }));
     await waitFor(() => expect(posts).toHaveLength(1));
@@ -282,7 +285,7 @@ describe("note flow", () => {
 
     // 무엇으로 남길지는 다 쓴 뒤에 고른다.
     fireEvent.click(screen.getByRole("button", { name: "할 일" }));
-    expect(screen.getByText("첫 줄이 할 일 제목, 나머지는 설명이 돼.")).toBeInTheDocument();
+    expect(screen.getByText("첫 줄이 할 일 제목, 나머지는 설명이 됩니다.")).toBeInTheDocument();
     expect(screen.getByLabelText("마감 날짜")).toHaveValue("2026-11-12");
     expect(screen.queryByRole("switch")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "30분" }));
@@ -308,7 +311,7 @@ describe("note flow", () => {
     fireEvent.change(screen.getByLabelText("1번째 줄"), { target: { value: "장보기\n세탁소" } });
     fireEvent.click(screen.getByRole("button", { name: "다음: 붙일 곳 →" }));
     fireEvent.click(screen.getByRole("button", { name: "할 일" }));
-    expect(screen.getByText("항목 2개가 각각 할 일이 돼. 체크리스트도 같이 남아.")).toBeInTheDocument();
+    expect(screen.getByText("항목 2개가 각각 할 일이 됩니다. 체크리스트도 함께 남습니다.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "없음" }));
 
     fireEvent.click(screen.getByRole("button", { name: "할 일 만들기 (2개)" }));
@@ -343,7 +346,7 @@ describe("note flow", () => {
     await act(async () => {
       resolveDraft(json({ title: "은행 방문", start: "2026-11-17T14:00:00+09:00", end: "2026-11-17T15:00:00+09:00", parseStatus: "parsed" }));
     });
-    expect(await screen.findByText("쓴 글에서 읽은 값이야. 맞는지 보고 고쳐줘.")).toBeInTheDocument();
+    expect(await screen.findByText("쓴 글에서 읽은 값입니다. 맞는지 확인하고 고치세요.")).toBeInTheDocument();
     expect(screen.getByLabelText("일정 제목")).toHaveValue("은행 방문");
     expect(screen.getByLabelText("일정 날짜")).toHaveValue("2026-11-17");
     expect(screen.getByLabelText("시작 시간")).toHaveValue("14:00");
@@ -369,7 +372,7 @@ describe("note flow", () => {
     fireEvent.change(screen.getByLabelText("1번째 줄"), { target: { value: "은행 방문\n신분증 챙기기" } });
     fireEvent.click(screen.getByRole("button", { name: "다음: 붙일 곳 →" }));
     fireEvent.click(screen.getByRole("button", { name: "일정" }));
-    expect(screen.getByText("일정을 만들고, 쓴 글은 그 일정의 메모로 붙어.")).toBeInTheDocument();
+    expect(screen.getByText("일정을 만들고, 쓴 글은 그 일정의 메모로 붙습니다.")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("일정 날짜"), { target: { value: "2026-11-13" } });
     fireEvent.change(screen.getByLabelText("시작 시간"), { target: { value: "11:00" } });
@@ -392,7 +395,7 @@ describe("note flow", () => {
     stubFetch(() => json({ targets: [] }));
     render(<NoteFlow note={note()} onClose={() => undefined} />);
     fireEvent.click(screen.getByRole("button", { name: "다음: 붙일 곳 →" }));
-    expect(screen.queryByRole("group", { name: "무엇으로 남길까" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "무엇으로 남길까요?" })).not.toBeInTheDocument();
     expect(screen.getByRole("switch")).toBeInTheDocument();
   });
 
@@ -497,10 +500,14 @@ describe("note cards", () => {
     });
     render(<AttachedNotes date="2026-03-12" initial={[note()]} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "일정으로" }));
+    // 변환은 카드가 아니라 고치기 화면 안에 있다.
+    expect(screen.queryByRole("button", { name: /일정으로/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "고치기" }));
+    fireEvent.click(screen.getByRole("button", { name: "다음: 붙일 곳 →" }));
+    fireEvent.click(screen.getByRole("button", { name: "일정으로 만들기" }));
     const dialog = screen.getByRole("dialog", { name: "메모를 일정으로" });
     expect(within(dialog).getByText("메모에서 날짜와 시간을 읽는 중…")).toBeInTheDocument();
-    expect(await within(dialog).findByText("메모에서 읽은 값이야. 맞는지 보고 고쳐줘.")).toBeInTheDocument();
+    expect(await within(dialog).findByText("메모에서 읽은 값입니다. 맞는지 확인하고 고치세요.")).toBeInTheDocument();
     expect(within(dialog).getByLabelText("일정 제목")).toHaveValue("치과 정기검진");
     expect(within(dialog).getByLabelText("일정 날짜")).toHaveValue("2026-11-20");
     expect(within(dialog).getByLabelText("시작 시간")).toHaveValue("15:00");
@@ -522,9 +529,13 @@ describe("note cards", () => {
       ? json({ title: "평가 기준은 재현성 위주", start: null, end: null, parseStatus: "unparsed", llmError: "unavailable" })
       : json({ notes: [], total: 0, related: [] })));
     render(<AttachedNotes date="2026-03-12" initial={[note()]} />);
-    fireEvent.click(screen.getByRole("button", { name: "일정으로" }));
+    // 변환은 카드가 아니라 고치기 화면 안에 있다.
+    expect(screen.queryByRole("button", { name: /일정으로/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "고치기" }));
+    fireEvent.click(screen.getByRole("button", { name: "다음: 붙일 곳 →" }));
+    fireEvent.click(screen.getByRole("button", { name: "일정으로 만들기" }));
     const dialog = screen.getByRole("dialog", { name: "메모를 일정으로" });
-    expect(await within(dialog).findByText("날짜를 읽지 못했어. 직접 골라줘.")).toBeInTheDocument();
+    expect(await within(dialog).findByText("날짜를 읽지 못했습니다. 직접 선택하세요.")).toBeInTheDocument();
     expect(within(dialog).getByLabelText("일정 날짜")).toHaveValue("2026-03-12"); // 메모 날짜에서 시작
     expect(within(dialog).getByLabelText("시작 시간")).toHaveValue("09:00");
     expect(within(dialog).getByRole("button", { name: "일정 만들기" })).toBeEnabled();
@@ -541,11 +552,16 @@ describe("note cards", () => {
       return json({ notes: [after], total: 1, related: [] });
     });
     render(<AttachedNotes date="2026-03-12" initial={[CHECKLIST]} />);
-    fireEvent.click(screen.getByRole("button", { name: "슬라이드 할 일로 만들기" }));
-    await waitFor(() => expect(screen.queryByRole("button", { name: "슬라이드 할 일로 만들기" })).not.toBeInTheDocument());
+    // 카드에는 변환 버튼이 없다. 고치기 화면의 2단계에서 항목별로 고른다.
+    expect(screen.queryByRole("button", { name: /할 일로 만들기/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "고치기" }));
+    fireEvent.click(screen.getByRole("button", { name: "다음: 붙일 곳 →" }));
+    const group = screen.getByRole("group", { name: "이 메모로 만들기" });
+    fireEvent.click(within(group).getByRole("button", { name: "슬라이드 할 일로 만들기" }));
+    await waitFor(() => expect(within(group).queryByRole("button", { name: "슬라이드 할 일로 만들기" })).not.toBeInTheDocument());
     expect(calls).toEqual(["/api/notes/2/items/11/task"]);
-    expect(screen.getByText("할 일", { selector: ".note-badge" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "질문 목록 할 일로 만들기" })).toBeInTheDocument();
+    expect(within(group).getByText("할 일", { selector: ".note-badge" })).toBeInTheDocument();
+    expect(within(group).getByRole("button", { name: "질문 목록 할 일로 만들기" })).toBeInTheDocument();
   });
 
   it("asks twice before deleting", async () => {
@@ -569,7 +585,7 @@ describe("note cards", () => {
     });
     const target = { targetType: "task" as const, targetId: 4, label: "중간 보고서", when: null, status: "todo", exists: true };
     render(<AttachedNotes target={target} initial={[]} />);
-    expect(screen.getByText("아직 붙여둔 메모가 없어.")).toBeInTheDocument();
+    expect(screen.queryByRole("list")).not.toBeInTheDocument(); // 빈 곳에는 추가 버튼만 있다
 
     fireEvent.click(screen.getByRole("button", { name: "+ 메모" }));
     fireEvent.change(screen.getByLabelText("1번째 줄"), { target: { value: "발표 15분" } });

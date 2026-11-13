@@ -252,11 +252,11 @@ type ComposerResult =
   | { kind: "record"; eventTitle: string; parseStatus: "parsed" | "raw_stored" }; // cycle-71
 type ComposerState = { mode: ComposerMode; text: string; submitting: boolean; error: string | null; result: ComposerResult | null };
 const TODAY_COMPOSER_MODES: ComposerModeConfig[] = [
-  { mode: "event", label: "일정", placeholder: "내일 3시 치과 — 한 줄로 적으면 일정으로 잡아줄게" },
+  { mode: "event", label: "일정", placeholder: "내일 3시 치과 — 한 줄로 적으면 일정으로 등록됩니다" },
   { mode: "thread", label: "스레드", placeholder: "예: 6월 파리 여행 준비. 항공권 예약하고 여권 유효기간 확인." },
   { mode: "task", label: "할 일", placeholder: "할 일 제목 — 예: 코드 리뷰" },
   { mode: "watcher", label: "Watcher", placeholder: "지켜볼 것 이름 — 예: 여권 갱신" },
-  { mode: "record", label: "기록", placeholder: "무슨 일이 있었는지 적어줘 — 이벤트에 기록돼" }
+  { mode: "record", label: "기록", placeholder: "무슨 일이 있었는지 적으세요 — 이벤트에 기록됩니다" }
 ];
 
 const EMPTY_MATERIALS: NonNullable<EventDetailData["materials"]> = [];
@@ -311,7 +311,7 @@ async function createEvent(title: string, start: string, end: string, threadId?:
 
 const PLACEMENT_TEXT: Record<NeedsReviewPlacement["mode"], string> = {
   low_context_slot: "맥락 맞는 틈",
-  stale_due: "미루면 기억이 흐려져",
+  stale_due: "미루면 기억이 흐려짐",
   no_context: "짧게 확인"
 };
 
@@ -338,10 +338,10 @@ const TRANSITION_COST_LABEL: Record<DayFeasibility["transitionCosts"][number]["c
 
 const TRANSITION_RELATION_TEXT: Record<DayFeasibility["transitionCosts"][number]["relation"], string> = {
   same_thread: "같은 스레드",
-  context_link: "맥락이 이어져 있어",
-  non_context_link: "관계는 있지만 맥락은 달라",
-  unrelated: "이어지는 맥락이 없어",
-  missing_thread: "스레드 정보가 없어"
+  context_link: "맥락이 이어져 있음",
+  non_context_link: "관계는 있지만 맥락이 다름",
+  unrelated: "이어지는 맥락 없음",
+  missing_thread: "스레드 정보 없음"
 };
 
 // Compact travel-time copy (cycle-76). Additive evidence — quiet for unknown/
@@ -532,7 +532,7 @@ function SequenceEnergySection({ seq }: { seq: DayFeasibility["sequenceEnergy"] 
       </p>
       {hasUnknown && (
         <p className="feas-sequence-unknown card-meta">
-          전환 {seq.unknownTransitionCount}건은 스레드 정보가 없어 비용을 매기지 않았어
+          전환 {seq.unknownTransitionCount}건은 스레드 정보 없음 비용을 매기지 않았습니다
         </p>
       )}
       <p className="feas-confidence">추정치 (cold start)</p>
@@ -559,14 +559,14 @@ function SequenceOrderSection({ order, events }: { order: DayFeasibility["sequen
       <p className="feas-seqorder-head">순서 힌트</p>
       {order.cycleDetected && (
         <p className="feas-seqorder-cycle card-meta" role="status" data-testid="seqorder-cycle">
-          순환 의존이 있어 순서를 정리하지 못했어
+          순환 의존이 있어 순서를 정리하지 못했습니다
         </p>
       )}
       {!order.cycleDetected && order.violations.length > 0 && (
         <ul className="feas-seqorder-violations" role="list">
           {order.violations.map((v, i) => (
             <li key={i} className="feas-seqorder-violation" data-testid="seqorder-violation">
-              ⚠ {titleOf(v.from)} 이(가) {titleOf(v.to)} 보다 먼저여야 해
+              ⚠ {titleOf(v.from)} 이(가) {titleOf(v.to)} 보다 먼저여야 합니다
             </li>
           ))}
         </ul>
@@ -705,7 +705,7 @@ function FeasibilityPanel({ f, events = [], onAdjust, locationContexts = [], pin
       ))}
       {continuous?.exceedsMax && (
         <div className="feas-continuous" role="status">
-          ⚠ 연속 {Math.round(continuous.spanMinutes)}분 — 쉬는 시간 없어
+          ⚠ 연속 {Math.round(continuous.spanMinutes)}분 — 쉬는 시간 없음
         </div>
       )}
       <TransitionCostsSection transitions={transitionCosts} events={events} locationContexts={locationContexts} pin={pin} />
@@ -814,10 +814,10 @@ function ConflictDecisionSheet({
           );
         })}
         {conflict.actionability === "read_only" && (
-          <p className="conflict-read-only-hint" role="note">아직 계획 구간이라 해소 버튼은 잠가둠</p>
+          <p className="conflict-read-only-hint" role="note">계획 구간이라 해소 버튼이 잠겨 있습니다</p>
         )}
         {optA?.peopleGuard?.blocked && optB?.peopleGuard?.blocked && (
-          <p className="conflict-both-blocked" role="note">두 선택지 모두 사람 제약에 걸려있어. 직접 일정을 조율해줘.</p>
+          <p className="conflict-both-blocked" role="note">두 선택지 모두 사람 제약에 걸려 있습니다. 직접 일정을 조율하세요.</p>
         )}
         {error && <p className="conflict-error" role="alert">{error}</p>}
       </div>
@@ -945,7 +945,7 @@ function ConflictResolvedSheet({
         <div className="sheet-body">
           <section aria-label="통보 초안">
             {notificationDrafts.length === 0 ? (
-              <p className="draft-empty">연결된 사람이 없어 통보 초안이 없어.</p>
+              <p className="draft-empty">연결된 사람이 없어 통보 초안이 없습니다.</p>
             ) : (
               notificationDrafts.map((draft) => (
                 <NotificationDraftCard
@@ -1162,7 +1162,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
         setSheet({ open: false });
         await refresh();
       } catch (e) {
-        const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "오류";
+        const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼습니다" : e instanceof Error ? e.message : "오류";
         setSheet((prev) => prev.open ? { ...prev, submitting: false, error: msg } : prev);
       }
     } else {
@@ -1181,7 +1181,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
         setSheet({ open: false });
         await refresh();
       } catch (e) {
-        const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "오류";
+        const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼습니다" : e instanceof Error ? e.message : "오류";
         setSheet((prev) => prev.open ? { ...prev, submitting: false, error: msg } : prev);
       }
     }
@@ -1247,7 +1247,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
       }
     } catch (e) {
       const msg = (e as AccessSessionError).kind === "access_session_required"
-        ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "저장 실패";
+        ? "로그인 세션이 만료됐거나 네트워크가 끊겼습니다" : e instanceof Error ? e.message : "저장 실패";
       setComposer((c) => ({ ...c, submitting: false, error: msg }));
     }
   }, [composer, refresh, watcherSubtype, watcherFields, recordTargetId, recordTargets]);
@@ -1291,13 +1291,13 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
       return (
         <ResultCard
           kind={r.scheduled ? "일정" : "미정 일정"}
-          status={r.scheduled ? "저장됐어" : "날짜 없이 저장됐어"}
+          status={r.scheduled ? "저장됨" : "날짜 없이 저장됨"}
           primary={r.scheduled
             ? { label: "오늘 새로고침", onClick: () => { setComposer((c) => ({ ...c, result: null })); void refresh(); } }
             : { label: "날짜 잡기", href: "/input" }}
           secondary={r.scheduled
-            ? "방금 만든 일정은 오늘 화면에 반영됐어."
-            : "날짜를 잡으면 일정으로 확정돼 — /input에서 잡을 수 있어."}
+            ? "방금 만든 일정은 오늘 화면에 반영됐습니다."
+            : "날짜를 잡으면 일정으로 확정됩니다 — /input에서 잡을 수 있습니다."}
           testId="capture-result"
         />
       );
@@ -1308,7 +1308,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
           testId="thread-draft-success"
           kind="스레드 초안"
           title={`“${r.draft.thread.name}”`}
-          status="초안이 만들어졌어"
+          status="초안 생성됨"
           primary={{ label: "스레드 열기", href: `/threads/${r.draft.thread.id}`, testId: "draft-open-link" }}
           secondary={
             <>
@@ -1333,9 +1333,9 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
       return (
         <ResultCard
           kind="할 일"
-          status="저장됐어"
+          status="저장됨"
           primary={{ label: "오늘 새로고침", onClick: () => { setComposer((c) => ({ ...c, result: null })); void refresh(); } }}
-          secondary="오늘 화면에서 할 일을 확인할 수 있어."
+          secondary="오늘 화면에서 할 일을 확인할 수 있습니다."
           testId="task-result"
         />
       );
@@ -1345,9 +1345,9 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
         <ResultCard
           kind="Watcher"
           title={r.label}
-          status={`${watcherSubtypeLabel(r.subtype)} Watcher가 만들어졌어`}
+          status={`${watcherSubtypeLabel(r.subtype)} Watcher 생성됨`}
           primary={{ label: "지켜볼 것에서 보기", href: "/watch" }}
-          secondary="여백(/watch)에서 방금 만든 Watcher를 확인할 수 있어."
+          secondary="여백(/watch)에서 방금 만든 Watcher를 확인할 수 있습니다."
           testId="watcher-result"
         />
       );
@@ -1356,9 +1356,9 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
       <ResultCard
         kind="기록"
         title={r.eventTitle}
-        status={r.parseStatus === "parsed" ? "기록됐어" : "원문 저장됨 (분석 대기)"}
+        status={r.parseStatus === "parsed" ? "기록됨" : "원문 저장됨 (분석 대기)"}
         primary={{ label: "오늘 새로고침", onClick: () => { setComposer((c) => ({ ...c, result: null })); void refresh(); } }}
-        secondary="이벤트에 연결된 기록이야 — 이벤트 상세와 거울에서 볼 수 있어."
+        secondary="이벤트에 연결된 기록입니다 — 이벤트 상세와 거울에서 볼 수 있습니다."
         testId="record-result"
       />
     );
@@ -1497,7 +1497,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
         await submitAnnotation(eventId, rs.text);
         await refresh();
       } catch (e) {
-        const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "오류";
+        const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼습니다" : e instanceof Error ? e.message : "오류";
         setReplyState((prev) => ({
           ...prev,
           [eventId]: { text: rs.text, error: msg, submitting: false }
@@ -1570,8 +1570,8 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
     } catch (e) {
       if (selectedEventIdRef.current !== eventId) return;
       const msg = (e as AccessSessionError).kind === "access_session_required"
-        ? "로그인 세션이 만료됐거나 네트워크가 끊겼어"
-        : "위치 정보를 불러오지 못했어";
+        ? "로그인 세션이 만료됐거나 네트워크가 끊겼습니다"
+        : "위치 정보를 불러오지 못했습니다";
       setGeocodePreview({ tag: "error", eventId, message: msg });
     }
   }, []);
@@ -1597,8 +1597,8 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
     } catch (e) {
       if (selectedEventIdRef.current !== eventId) return;
       const msg = (e as AccessSessionError).kind === "access_session_required"
-        ? "로그인 세션이 만료됐거나 네트워크가 끊겼어"
-        : "후보를 불러오지 못했어";
+        ? "로그인 세션이 만료됐거나 네트워크가 끊겼습니다"
+        : "후보를 불러오지 못했습니다";
       setPlaceSearch({ tag: "error", eventId, message: msg });
     }
   }, []);
@@ -1628,7 +1628,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
       void refresh();
     } catch (e) {
       if (selectedEventIdRef.current === eventId) {
-        const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : "저장 실패. 다시 시도해봐.";
+        const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼습니다" : "저장 실패. 다시 시도하세요.";
         setPlaceSearch({ tag: "error", eventId, message: msg });
       }
     } finally {
@@ -1648,7 +1648,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
       setEventDetail({ tag: "loaded", data });
       setSuggestAccept({ pending: null, error: null });
     } catch (e) {
-      const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "추가 실패";
+      const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼습니다" : e instanceof Error ? e.message : "추가 실패";
       setSuggestAccept({ pending: null, error: msg });
     }
   }, [selectedEventId, suggestAccept.pending]);
@@ -1665,7 +1665,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
       setPrepForm({ open: false, text: "", submitting: false, error: null });
     } catch (e) {
       // Keep typed text; scoped error (covers both POST and refetch failure).
-      const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "추가 실패";
+      const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼습니다" : e instanceof Error ? e.message : "추가 실패";
       setPrepForm((p) => ({ ...p, submitting: false, error: msg }));
     }
   }, [selectedEventId, prepForm.text, prepForm.submitting]);
@@ -1708,7 +1708,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
         if (!current) return;
         const durationMinutes = Number.parseInt(current.duration, 10);
         if (!Number.isFinite(durationMinutes) || durationMinutes < 1 || durationMinutes > 600) {
-          setPinForm((p) => (p ? { ...p, submitting: false, error: "이동 시간을 1~600분 사이로 입력해줘" } : p));
+          setPinForm((p) => (p ? { ...p, submitting: false, error: "이동 시간을 1~600분 사이로 입력하세요" } : p));
           return;
         }
         setPinForm((p) => (p ? { ...p, submitting: true, error: null } : p));
@@ -1725,7 +1725,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
           setPinForm(null);
           void refresh();
         } catch (e) {
-          const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : "고정 실패. 다시 시도해봐.";
+          const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼습니다" : "고정 실패. 다시 시도하세요.";
           setPinForm((p) => (p ? { ...p, submitting: false, error: msg } : p));
         }
       })();
@@ -1756,7 +1756,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
       setEventDetail({ tag: "loaded", data });
       await refresh();
     } catch (e) {
-      const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "오류";
+      const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼습니다" : e instanceof Error ? e.message : "오류";
       setDetailNote((n) => ({ ...n, submitting: false, error: msg }));
     }
   }, [selectedEventId, detailNote, refresh]);
@@ -1917,21 +1917,21 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
       });
       if (!body.ok) {
         const msg =
-          body.error?.code === "CONFLICT_STALE" ? "충돌이 이미 해소됐어" :
-          body.error?.code === "CONFLICT_NOT_ACTIONABLE" ? "아직 해소할 수 있는 시간대가 아니야" :
+          body.error?.code === "CONFLICT_STALE" ? "충돌이 이미 해소됐습니다" :
+          body.error?.code === "CONFLICT_NOT_ACTIONABLE" ? "해소할 수 있는 시간대가 아닙니다" :
           "처리 실패";
         setConflictSheet((s) => s.open && !s.resolved ? { ...s, submitting: false, error: msg } : s);
         return;
       }
       const parsed = ResolveConflictResponseDataSchema.safeParse(body.data);
       if (!parsed.success) {
-        setConflictSheet((s) => s.open && !s.resolved ? { ...s, submitting: false, error: "서버 응답이 예상과 달라" } : s);
+        setConflictSheet((s) => s.open && !s.resolved ? { ...s, submitting: false, error: "서버 응답이 예상과 다릅니다" } : s);
         return;
       }
       setConflictSheet({ open: true, resolved: true, outcome, changedEvent: parsed.data.changedEvent, notificationDrafts: parsed.data.notificationDrafts });
     } catch (e) {
       const msg = (e as AccessSessionError).kind === "access_session_required"
-        ? "로그인 세션이 만료됐거나 네트워크가 끊겼어"
+        ? "로그인 세션이 만료됐거나 네트워크가 끊겼습니다"
         : e instanceof Error ? e.message : "오류";
       setConflictSheet((s) => s.open && !s.resolved ? { ...s, submitting: false, error: msg } : s);
     }
@@ -2000,7 +2000,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
                         <p className="event-geo-authored">입력: {eventDetail.data.event.location ?? geocodePreview.data.locationText}</p>
                         {geocodePreview.data.status === "ambiguous" && (
                           <>
-                            <p className="event-geo-uncertain">여러 곳이 검색됐어 — 정확한 위치는 확인이 필요해.</p>
+                            <p className="event-geo-uncertain">여러 곳이 검색됨 — 정확한 위치는 확인이 필요합니다.</p>
                             {geocodePreview.data.uncertainty?.candidateLabels && geocodePreview.data.uncertainty.candidateLabels.length > 0 && (
                               <ul className="event-geo-candidates" role="list">
                                 {geocodePreview.data.uncertainty.candidateLabels.map((c, i) => (
@@ -2011,7 +2011,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
                           </>
                         )}
                         {(geocodePreview.data.status === "zero_results" || geocodePreview.data.status === "failed") && (
-                          <p className="event-geo-uncertain">위치를 찾지 못했어 — 입력한 텍스트로 지도를 열 수 있어.</p>
+                          <p className="event-geo-uncertain">위치를 찾지 못했습니다 — 입력한 텍스트로 지도를 열 수 있습니다.</p>
                         )}
                       </>
                     )}
@@ -2400,7 +2400,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
                 setWatcherSnoozeError((prev) => { const next = { ...prev }; delete next[w.id]; return next; });
                 void refresh();
               } catch {
-                setWatcherSnoozeError((prev) => ({ ...prev, [w.id]: "스누즈 실패. 다시 시도해봐." }));
+                setWatcherSnoozeError((prev) => ({ ...prev, [w.id]: "스누즈 실패. 다시 시도하세요." }));
               }
             };
             return (
@@ -2492,7 +2492,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
                   onClick={() => void handleOpenEventDetail(card.event.id)}
                   aria-label={`${card.event.title} 상세 보기`}
                 >
-                  <span className="card-title">{card.event.title} — 어떻게 됐어?</span>
+                  <span className="card-title">{card.event.title} — 어떻게 됐나요?</span>
                   <span className="card-meta">
                     {card.event.start?.slice(11, 16)} — {card.event.end?.slice(11, 16)}
                   </span>
@@ -2527,7 +2527,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
                       }))
                     }
                     disabled={rs.submitting}
-                    placeholder="한 줄로 남겨줘"
+                    placeholder="한 줄로 남기세요"
                   />
                   <button
                     type="submit"
@@ -2558,7 +2558,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
                   onClick={() => void handleOpenEventDetail(card.event.id)}
                   aria-label={`${card.event.title} 상세 보기`}
                 >
-                  <span className="card-title">날짜 잡을까? — {card.event.title}</span>
+                  <span className="card-title">날짜 잡을까요? — {card.event.title}</span>
                 </button>
                 <TodayLocationChip context={locContextById.get(card.event.id)} />
                 {ss.tag === "idle" && (
@@ -2572,7 +2572,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
                 )}
                 {ss.tag === "loading" && <p className="today-slot-loading">후보 찾는 중…</p>}
                 {ss.tag === "loaded" && ss.candidates.length === 0 && (
-                  <p className="today-slot-empty">빈 시간이 없어. 나중에 다시 해봐.</p>
+                  <p className="today-slot-empty">비어있는 시간이 없습니다</p>
                 )}
                 {ss.tag === "loaded" && ss.candidates.length > 0 && (
                   <ul className="today-slot-list" role="list">
@@ -2621,7 +2621,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
             return (
               <li key={`task-slot-${card.task.id}`} className="today-card today-card--slot" style={delay} data-testid={`task-schedule-prompt-${card.task.id}`}>
                 <span className="card-chip">할 일</span>
-                <span className="card-title">마감 잡을까? — {card.task.title}</span>
+                <span className="card-title">마감 잡을까요? — {card.task.title}</span>
                 <p className="card-meta" style={{ margin: "4px 0", opacity: 0.7 }}>
                   마감 {card.task.due}{card.task.estMinutes != null ? ` · 예상 ${card.task.estMinutes}분` : ""}
                 </p>
@@ -2636,11 +2636,11 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
                 )}
                 {ts.tag === "loading" && <p className="today-slot-loading">후보 찾는 중…</p>}
                 {ts.tag === "loaded" && ts.candidates.length === 0 && (
-                  <p className="today-slot-empty">빈 시간이 없어. 나중에 다시 해봐.</p>
+                  <p className="today-slot-empty">비어있는 시간이 없습니다</p>
                 )}
                 {ts.tag === "loaded" && ts.candidates.length > 0 && (
                   <>
-                    <p className="card-meta" style={{ opacity: 0.6, margin: "8px 0 4px", fontSize: "0.75rem" }}>이 시간에 작업 블록을 만들어 (완료 처리는 아님)</p>
+                    <p className="card-meta" style={{ opacity: 0.6, margin: "8px 0 4px", fontSize: "0.75rem" }}>선택하면 작업 블록이 생성됩니다 (완료 처리는 아님)</p>
                     <ul className="today-slot-list" role="list" data-testid={`task-candidates-${card.task.id}`}>
                       {ts.candidates.map((c) => {
                         const ctx = { date: ts.date, now: ts.now, days: ts.days };
@@ -2757,7 +2757,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
               <p className="feas-settings-loading">불러오는 중…</p>
             )}
             {feasSettings.loadState === "error" && (
-              <p className="feas-settings-err" role="alert">불러오기 실패 — 현재 값으로 조정할게</p>
+              <p className="feas-settings-err" role="alert">불러오지 못했습니다 — 현재 값으로 조정합니다</p>
             )}
             {(feasSettings.loadState === "ready" || feasSettings.loadState === "error") && (() => {
               const { draft, limits, saving, saveError, preview, previewError } = feasSettings;
@@ -2850,7 +2850,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
     if (view.tag === "access_error") {
       return (
         <div className="today-embed" role="alert">
-          <p className="note-hint">로그인 세션이 만료됐어.</p>
+          <p className="note-hint">로그인 세션이 만료됐습니다.</p>
           <button type="button" className="note-btn note-btn--primary" onClick={openAccessLogin}>다시 로그인</button>
         </div>
       );
@@ -2858,7 +2858,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
     if (view.tag === "error") {
       return (
         <div className="today-embed" role="alert">
-          <p className="note-hint">불러오지 못했어. {view.message}</p>
+          <p className="note-hint">불러오지 못했습니다. {view.message}</p>
           <button type="button" className="note-btn" onClick={() => void refresh()}>다시 시도</button>
         </div>
       );
@@ -2900,8 +2900,8 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
       <main className="app-shell" aria-labelledby="today-title">
         <section className="quiet-card" role="alert">
           <p className="eyebrow">Today</p>
-          <h1 id="today-title">로그인 세션이 필요해</h1>
-          <p>Cloudflare Access 세션이 만료됐거나 아직 인증되지 않았어. 다시 로그인한 뒤 이 화면으로 돌아오면 돼.</p>
+          <h1 id="today-title">로그인이 필요합니다</h1>
+          <p>Cloudflare Access 세션이 만료됐거나 인증되지 않았습니다. 다시 로그인한 뒤 이 화면으로 돌아오세요.</p>
           <button
             className="today-access-login"
             onClick={() => { openAccessLogin(); }}
@@ -2921,8 +2921,8 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
       <main className="app-shell" aria-labelledby="today-title">
         <section className="quiet-card" role="alert">
           <p className="eyebrow">Today</p>
-          <h1 id="today-title">데이터를 불러오지 못했어</h1>
-          <p>서버에 연결되지 않았어. 잠시 후 다시 시도해봐.</p>
+          <h1 id="today-title">데이터를 불러오지 못했습니다</h1>
+          <p>서버에 연결되지 않았습니다. 잠시 후 다시 시도하세요.</p>
           <button className="today-retry" onClick={() => void refresh()}>
             다시 시도
           </button>
@@ -2941,8 +2941,8 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
           <section className="quiet-card warm" data-testid="today-quiet">
             <span className="quiet-dot" aria-hidden="true" />
             <p className="eyebrow">Today</p>
-            <h1 id="today-title">오늘은 조용해</h1>
-            <p>새로 생기면 올려둘게. 닫고 네 일 해도 돼.</p>
+            <h1 id="today-title">오늘은 조용합니다</h1>
+            <p>새 항목이 생기면 표시됩니다.</p>
             <button
               className="today-add-btn today-add-btn--cta"
               onClick={() => openSheet("task")}

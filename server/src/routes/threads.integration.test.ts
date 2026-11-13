@@ -284,6 +284,36 @@ describe("POST /api/threads/:id/links", () => {
     return res.json().data.id as number;
   }
 
+  it("moves a thread on the board by changing its real state", async () => {
+    const id = await makeThread("보드 스레드");
+    const get = async () => (await app.inject({ method: "GET", url: "/api/threads" })).json().data.find((s: { thread: { id: number } }) => s.thread.id === id);
+    expect((await get()).thread).toMatchObject({ status: "active", startedAt: null });
+
+    const doing = await app.inject({ method: "PATCH", url: `/api/threads/${id}/board`, payload: { column: "doing" } });
+    expect(doing.statusCode).toBe(200);
+    const startedAt = doing.json().data.thread.startedAt;
+    expect(startedAt).toBeTruthy();
+
+    // 완료로 옮기면 스레드 상태가 done 이 되고, 시작 시각은 남는다.
+    expect((await app.inject({ method: "PATCH", url: `/api/threads/${id}/board`, payload: { column: "done" } })).json().data.thread)
+      .toMatchObject({ status: "done", startedAt });
+    // 다시 진행 중으로: 활성으로 돌아오고 처음 시작한 시각을 유지한다.
+    expect((await app.inject({ method: "PATCH", url: `/api/threads/${id}/board`, payload: { column: "doing" } })).json().data.thread)
+      .toMatchObject({ status: "active", startedAt });
+    // 할 일로: 시작 표시를 지운다.
+    expect((await app.inject({ method: "PATCH", url: `/api/threads/${id}/board`, payload: { column: "todo" } })).json().data.thread)
+      .toMatchObject({ status: "active", startedAt: null });
+
+    // 안의 할 일이 진행 중이면 목록 요약에 드러난다.
+    const task = (await app.inject({ method: "POST", url: "/api/tasks", payload: { title: "초안", threadId: id } })).json().data;
+    await app.inject({ method: "PATCH", url: `/api/tasks/${task.id}/status`, payload: { status: "doing" } });
+    expect(await get()).toMatchObject({ doingCount: 1, doneCount: 0 });
+
+    expect((await app.inject({ method: "PATCH", url: `/api/threads/${id}/board`, payload: { column: "paused" } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "PATCH", url: "/api/threads/9999/board", payload: { column: "done" } })).statusCode).toBe(404);
+  });
+
+
   it("lists directly contained threads with their state and the span of dates their items cover", async () => {
     const [parent, child, quiet, grandchild] = [await makeThread("부모"), await makeThread("실험 설계"), await makeThread("빈 갈래"), await makeThread("손자")];
     for (const [from, to] of [[parent, child], [parent, quiet], [child, grandchild]]) {
@@ -295,8 +325,8 @@ describe("POST /api/threads/:id/links", () => {
 
     const detail = (await app.inject({ method: "GET", url: `/api/threads/${parent}` })).json().data;
     expect(detail.childThreads).toEqual([
-      { id: quiet, name: "빈 갈래", status: "paused", deadline: null, period: null },
-      { id: child, name: "실험 설계", status: "active", deadline: null, period: { from: "2026-11-03", to: "2026-12-15" } }
+      { id: quiet, name: "빈 갈래", status: "paused", deadline: null, period: null, startedAt: null, doingCount: 0 },
+      { id: child, name: "실험 설계", status: "active", deadline: null, period: { from: "2026-11-03", to: "2026-12-15" }, startedAt: null, doingCount: 0 }
     ]);
     // 손자는 바로 아래가 아니라서 부모의 카드에는 없다.
     expect((await app.inject({ method: "GET", url: `/api/threads/${child}` })).json().data.childThreads.map((c: { id: number }) => c.id)).toEqual([grandchild]);

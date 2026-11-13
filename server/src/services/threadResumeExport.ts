@@ -44,7 +44,7 @@ function buildWarnings(thread: ThreadRow): string[] {
   // saved Task. State this so the artifact does not imply a Task was recorded.
   if (thread.goal != null && thread.goal.trim() !== "") {
     warnings.push(
-      "Cairn에는 STAR의 Task 항목이 저장되지 않아 — 아래 목표는 맥락 참고용이고, 저장된 Task가 아니야."
+      "Cairn에는 STAR의 Task 항목이 저장되지 않습니다. 아래 목표는 맥락 참고용이고, 저장된 Task가 아닙니다."
     );
   }
   return warnings;

@@ -77,10 +77,10 @@ export function ParameterSettings() {
     try {
       const body = await apiJson<unknown>("/api/sync/gcal/status");
       const parsed = GcalSyncStatusResponseSchema.safeParse(body);
-      if (!parsed.success) throw new Error("Google Calendar 상태 응답이 맞지 않아");
+      if (!parsed.success) throw new Error("Google Calendar 상태 응답이 맞지 않습니다");
       setGcal({ tag: "live", data: parsed.data.data, running: false, result: null, error: null });
     } catch (err: unknown) {
-      setGcal({ tag: "error", message: errorMessage(err, "Google Calendar 상태를 불러오지 못했어") });
+      setGcal({ tag: "error", message: errorMessage(err, "Google Calendar 상태를 불러오지 못했습니다") });
     }
   }, []);
 
@@ -93,13 +93,13 @@ export function ParameterSettings() {
     setSaved(false);
     try {
       const body = await apiJson<{ ok: boolean; data?: FeasibilityParamSettingsData; error?: { message: string } }>("/api/feasibility/params");
-      if (!body.ok || !body.data) throw new Error(body.error?.message ?? "파라미터를 불러오지 못했어");
+      if (!body.ok || !body.data) throw new Error(body.error?.message ?? "파라미터를 불러오지 못했습니다");
       setSettings(body.data);
       setDraft(body.data.params);
       setLoadState("live");
     } catch (err: unknown) {
       setLoadState("error");
-      setSaveError(errorMessage(err, "파라미터를 불러오지 못했어"));
+      setSaveError(errorMessage(err, "파라미터를 불러오지 못했습니다"));
     }
   }, []);
 
@@ -120,13 +120,13 @@ export function ParameterSettings() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ date, now: localNowRfc3339(), params: next })
       });
-      if (!body.ok || !body.data) throw new Error(body.error?.message ?? "미리보기를 계산하지 못했어");
+      if (!body.ok || !body.data) throw new Error(body.error?.message ?? "미리보기를 계산하지 못했습니다");
       setPreview(body.data);
       setPreviewState("live");
     } catch (err: unknown) {
       setPreview(null);
       setPreviewState("error");
-      setPreviewError(errorMessage(err, "미리보기를 계산하지 못했어"));
+      setPreviewError(errorMessage(err, "미리보기를 계산하지 못했습니다"));
     }
   }, [date]);
 
@@ -157,11 +157,11 @@ export function ParameterSettings() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(draft)
       });
-      if (!body.ok) throw new Error(body.error?.message ?? "저장하지 못했어");
+      if (!body.ok) throw new Error(body.error?.message ?? "저장하지 못했습니다");
       setSettings({ ...settings, params: draft });
       setSaved(true);
     } catch (err: unknown) {
-      setSaveError(errorMessage(err, "저장하지 못했어"));
+      setSaveError(errorMessage(err, "저장하지 못했습니다"));
     } finally {
       setSaving(false);
     }
@@ -173,7 +173,7 @@ export function ParameterSettings() {
     try {
       const body = await apiJson<unknown>("/api/sync/gcal/run", { method: "POST" });
       const parsed = GcalSyncRunResponseSchema.safeParse(body);
-      if (!parsed.success) throw new Error("Google Calendar 동기화 응답이 맞지 않아");
+      if (!parsed.success) throw new Error("Google Calendar 동기화 응답이 맞지 않습니다");
       setGcal({
         tag: "live",
         data: parsed.data.data.status,
@@ -183,7 +183,7 @@ export function ParameterSettings() {
       });
     } catch (err: unknown) {
       setGcal((cur) => cur.tag === "live"
-        ? { ...cur, running: false, error: errorMessage(err, "Google Calendar 동기화에 실패했어") }
+        ? { ...cur, running: false, error: errorMessage(err, "Google Calendar 동기화에 실패했습니다") }
         : cur);
     }
   }, [gcal]);
@@ -215,8 +215,8 @@ export function ParameterSettings() {
           <h1 id="params-title">파라미터</h1>
         </header>
         <section className="params-error" role="alert" data-testid="params-error">
-          <h2>파라미터를 못 불러왔어</h2>
-          <p>{saveError ?? "네트워크나 서버 상태를 확인해줘."}</p>
+          <h2>파라미터를 불러오지 못했습니다</h2>
+          <p>{saveError ?? "네트워크나 서버 상태를 확인하세요."}</p>
           <button type="button" onClick={() => void load()}>다시 시도</button>
         </section>
       </main>
@@ -269,14 +269,14 @@ export function ParameterSettings() {
 
         <div className="params-preview" aria-live="polite">
           <span className="params-preview-label">미리보기</span>
-          {previewState === "quiet" && <span className="params-preview-value">변경하면 계산할게</span>}
+          {previewState === "quiet" && <span className="params-preview-value">변경하면 계산됩니다</span>}
           {previewState === "loading" && <span className="params-preview-value">계산 중...</span>}
           {previewState === "live" && preview && <span className="params-preview-value">{previewLabel(preview)}</span>}
           {previewState === "error" && <span className="params-preview-error">{previewError}</span>}
         </div>
 
         {saveError && <p className="params-inline-error" role="alert">{saveError}</p>}
-        {saved && !dirty && <p className="params-saved" role="status">저장됐어</p>}
+        {saved && !dirty && <p className="params-saved" role="status">저장됨</p>}
 
         <div className="params-actions">
           <button

@@ -125,8 +125,8 @@ export function MirrorLedger() {
       <main className="app-shell" aria-labelledby="mirror-title">
         <section className="quiet-card" role="alert">
           <p className="eyebrow">Mirror</p>
-          <h1 id="mirror-title">로그인이 필요해</h1>
-          <p>세션이 만료됐어. 페이지를 새로 고침해봐.</p>
+          <h1 id="mirror-title">로그인이 필요합니다</h1>
+          <p>세션이 만료됐습니다. 페이지를 새로 고침하세요.</p>
           <button className="thread-index-new-btn" onClick={() => openAccessLogin()}>다시 로그인</button>
         </section>
       </main>
@@ -138,7 +138,7 @@ export function MirrorLedger() {
       <main className="app-shell" aria-labelledby="mirror-title">
         <section className="quiet-card" role="alert">
           <p className="eyebrow">Mirror</p>
-          <h1 id="mirror-title">불러오지 못했어</h1>
+          <h1 id="mirror-title">불러오지 못했습니다</h1>
           <p>{view.message}</p>
           <button className="thread-index-new-btn" onClick={() => window.location.reload()}>다시 시도</button>
         </section>
@@ -150,11 +150,10 @@ export function MirrorLedger() {
     const { automationNeeds, diary } = view.data;
     return (
       <main className="app-shell" aria-labelledby="mirror-title" data-testid="mirror-quiet">
-        <section className="quiet-card warm">
-          <span className="quiet-dot" aria-hidden="true" />
+        <section className="quiet-card empty-state">
           <p className="eyebrow">Mirror</p>
-          <h1 id="mirror-title">아직 기록된 이동/취소 원장이 없어</h1>
-          <p>결정에 기록을 남기면 여기서 지난 이동과 취소를 그대로 비춰줄게.</p>
+          <h1 id="mirror-title">기록된 이동·취소가 없습니다</h1>
+          <a className="empty-add-btn" href="/calendar">달력에서 결과 기록</a>
         </section>
         {automationNeeds && automationNeeds.items.length > 0 && (
           <MirrorAutomationNeeds data={automationNeeds} />
@@ -174,7 +173,7 @@ export function MirrorLedger() {
         <p className="eyebrow" style={{ margin: 0 }}>Mirror</p>
         <h1 id="mirror-title" style={{ margin: "4px 0 0" }}>이동·취소 원장</h1>
         <p className="card-meta" style={{ margin: "4px 0 0", opacity: 0.7 }}>
-          {ledger.range.from} ~ {ledger.range.to} · 기록된 주석만 비춰
+          {ledger.range.from} ~ {ledger.range.to} · 기록된 주석만 표시합니다
         </p>
       </header>
 
@@ -199,7 +198,7 @@ export function MirrorLedger() {
           data-testid="mirror-low-sample"
           style={{ width: "min(100%, var(--content-w))", color: "var(--moved)", margin: "0 0 12px" }}
         >
-          표본이 적어 패턴으로 보긴 이르다
+          표본이 적어 패턴으로 보기 이릅니다
         </p>
       )}
 
@@ -229,7 +228,7 @@ function MirrorEnergyTrend({ energy }: { energy: MirrorEnergyTrendData }) {
 
       {energy.sampleStatus === "low_sample" && (
         <p className="card-meta" role="note" data-testid="energy-low-sample" style={{ margin: "0 0 8px", opacity: 0.7 }}>
-          표본이 적어 패턴으로 보긴 이르다
+          표본이 적어 패턴으로 보기 이릅니다
         </p>
       )}
 
@@ -280,7 +279,7 @@ function MirrorTransitionFriction({ data }: { data: MirrorTransitionFrictionData
 
       {s.sampleStatus === "low_sample" && (
         <p className="card-meta" role="note" data-testid="friction-low-sample" style={{ margin: "0 0 8px", opacity: 0.7 }}>
-          표본이 적어 패턴으로 보긴 이르다
+          표본이 적어 패턴으로 보기 이릅니다
         </p>
       )}
 
@@ -332,7 +331,7 @@ function MirrorPatterns({ patterns }: { patterns: MirrorPatternsData }) {
 
       {patterns.sampleStatus === "low_sample" && (
         <p className="card-meta" role="note" data-testid="patterns-low-sample" style={{ margin: "0 0 8px", opacity: 0.7 }}>
-          표본이 적어 패턴으로 보긴 이르다
+          표본이 적어 패턴으로 보기 이릅니다
         </p>
       )}
 

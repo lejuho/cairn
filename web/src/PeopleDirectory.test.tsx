@@ -36,8 +36,8 @@ describe("PeopleDirectory", () => {
     stubDirectory([]);
     render(<PeopleDirectory />);
     await waitFor(() => expect(screen.getByTestId("people-quiet")).toBeInTheDocument());
-    expect(screen.getByRole("heading", { name: "아직 사람이 없어" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "입력 화면으로" })).toHaveAttribute("href", "/input");
+    expect(screen.getByRole("heading", { name: "사람이 없습니다" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "+ 사람 추가" })).toHaveAttribute("href", "/input");
   });
 
   it("live state renders person cards", async () => {
@@ -71,7 +71,7 @@ describe("PeopleDirectory", () => {
   it("access_error state shows Access login button", async () => {
     stubAccessError();
     render(<PeopleDirectory />);
-    await waitFor(() => expect(screen.getByRole("heading", { name: "로그인 세션이 필요해" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "로그인이 필요합니다" })).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Access 로그인 다시 열기" })).toBeInTheDocument();
   });
 

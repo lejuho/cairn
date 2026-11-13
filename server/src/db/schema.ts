@@ -57,7 +57,9 @@ export const threads = sqliteTable(
     starSituation: text("star_situation"),
     starAction: text("star_action"),
     starResult: text("star_result"),
-    skillsTags: text("skills_tags")
+    skillsTags: text("skills_tags"),
+    // 사용자가 보드에서 "진행 중"으로 옮긴 시각 (migration 0020). null 이면 안의 항목 상태로만 판단한다.
+    startedAt: text("started_at")
   },
   (table) => [
     check("threads_status_check", sql`${table.status} in (${enumSqlList(THREAD_STATUSES)})`),

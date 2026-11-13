@@ -118,7 +118,7 @@ describe("InputHub — Access session error state", () => {
   it("shows 로그인 세션이 필요해 and recovery button on rejected fetch", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
     render(<InputHub />);
-    await waitFor(() => expect(screen.getByText("로그인 세션이 필요해")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("로그인이 필요합니다")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Access 로그인 다시 열기" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "다시 시도" })).toBeInTheDocument();
   });
@@ -143,7 +143,7 @@ describe("InputHub — Access session error state", () => {
     }));
     render(<InputHub />);
     await waitFor(() => expect(screen.getByTestId("input-error")).toBeInTheDocument());
-    expect(screen.queryByText("로그인 세션이 필요해")).not.toBeInTheDocument();
+    expect(screen.queryByText("로그인이 필요합니다")).not.toBeInTheDocument();
     expect(screen.getByText("API 오류")).toBeInTheDocument();
   });
 });
@@ -179,7 +179,7 @@ describe("InputHub — Composer 일정 mode", () => {
     fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "내일 3시 치과" } });
     fireEvent.click(screen.getByLabelText("만들기"));
     await waitFor(() => {
-      expect(screen.getByText("저장됐어")).toBeInTheDocument();
+      expect(screen.getByText("저장됨")).toBeInTheDocument();
     });
   });
 
@@ -194,7 +194,7 @@ describe("InputHub — Composer 일정 mode", () => {
     fireEvent.change(screen.getByLabelText("만들기 입력"), { target: { value: "운동" } });
     fireEvent.click(screen.getByLabelText("만들기"));
     await waitFor(() => {
-      expect(screen.getByText("날짜 없이 저장됐어")).toBeInTheDocument();
+      expect(screen.getByText("날짜 없이 저장됨")).toBeInTheDocument();
     });
   });
 
@@ -823,7 +823,7 @@ describe("InputHub — creation result cards (cycle-68)", () => {
     fireEvent.click(screen.getByLabelText("만들기"));
     const card = await screen.findByTestId("capture-result");
     expect(card).toHaveTextContent("일정");
-    expect(card).toHaveTextContent("저장됐어");
+    expect(card).toHaveTextContent("저장됨");
     const link = within(card).getByText("달력에서 보기");
     expect(link.tagName).toBe("A");
     expect(link).toHaveAttribute("href", "/calendar");
@@ -837,7 +837,7 @@ describe("InputHub — creation result cards (cycle-68)", () => {
     fireEvent.click(screen.getByLabelText("만들기"));
     const card = await screen.findByTestId("capture-result");
     expect(card).toHaveTextContent("미정 일정");
-    expect(card).toHaveTextContent("날짜 없이 저장됐어");
+    expect(card).toHaveTextContent("날짜 없이 저장됨");
     const action = within(card).getByText("날짜 잡기");
     expect(action.tagName).toBe("BUTTON"); // refresh-to-list, not navigation
     fireEvent.click(action);

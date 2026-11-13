@@ -67,19 +67,19 @@ describe("GET /api/today — derived watcher bubbles", () => {
     const bubble = res.json().data.watcherBubbles[0];
     expect(bubble.daysOverdue).toBe(2);
     expect(bubble.reasonCodes).toEqual(["date_threshold_due"]);
-    expect(bubble.message).toBe("2일 지난 watcher야");
+    expect(bubble.message).toBe("2일 지난 watcher입니다");
     expect(bubble).not.toHaveProperty("lastFired");
     expect(bubble).not.toHaveProperty("armed");
     conn.sqlite.close();
   });
 
-  it("returns message '오늘 확인할 watcher야' for same-day threshold", async () => {
+  it("returns message '오늘 확인할 watcher입니다' for same-day threshold", async () => {
     const conn = makeTestDb();
     insertWatcher(conn, { threshold: "2026-06-22" });
     const app = buildServer(conn.db);
     const res = await app.inject({ method: "GET", url: TODAY_URL });
     const bubble = res.json().data.watcherBubbles[0];
-    expect(bubble.message).toBe("오늘 확인할 watcher야");
+    expect(bubble.message).toBe("오늘 확인할 watcher입니다");
     expect(bubble.daysOverdue).toBe(0);
     conn.sqlite.close();
   });

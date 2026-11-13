@@ -173,7 +173,7 @@ describe("App navigation", () => {
     window.history.replaceState(null, "", "/unknown-path");
     render(<App />);
     expect(screen.getByRole("navigation", { name: "주요 메뉴" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "아직 없는 길이야" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "없는 페이지입니다" })).toBeInTheDocument();
   });
 
   it("renders nav on /threads/new", async () => {

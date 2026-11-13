@@ -33,7 +33,7 @@ export function ThreadNew() {
       setDraft({ tag: "success", data: body.data });
     } catch (err) {
       const e2 = err as Partial<AccessSessionError>;
-      setDraft({ tag: "error", message: e2.kind === "access_session_required" ? (e2.message ?? "로그인 세션이 만료됐어") : (err instanceof Error ? err.message : "오류") });
+      setDraft({ tag: "error", message: e2.kind === "access_session_required" ? (e2.message ?? "로그인 세션이 만료됐습니다") : (err instanceof Error ? err.message : "오류") });
     }
   }
 
@@ -60,7 +60,7 @@ export function ThreadNew() {
     } catch (e) {
       const err = e as Partial<AccessSessionError>;
       if (err.kind === "access_session_required") {
-        setSubmitState({ submitting: false, error: err.message ?? "로그인 세션이 만료됐어" });
+        setSubmitState({ submitting: false, error: err.message ?? "로그인 세션이 만료됐습니다" });
       } else {
         setSubmitState({ submitting: false, error: e instanceof Error ? e.message : "오류" });
       }
@@ -72,7 +72,7 @@ export function ThreadNew() {
       <section className="quiet-card warm" style={{ width: "min(100%, var(--content-w))" }}>
         <p className="eyebrow">새 스레드</p>
         <h1 id="thread-new-title" className="thread-name" style={{ fontSize: "1.4rem" }}>스레드 만들기</h1>
-        <p style={{ marginBottom: "20px" }}>이름을 붙이고 일정·작업을 연결해봐.</p>
+        <p style={{ marginBottom: "20px" }}>이름을 붙이고 일정·작업을 연결하세요.</p>
 
         <form onSubmit={(e) => void handleSubmit(e)} className="thread-new-form" noValidate>
           <label className="thread-new-label" htmlFor="tn-name">이름 *</label>
@@ -150,8 +150,8 @@ export function ThreadNew() {
 
       <section className="quiet-card warm thread-draft-panel" style={{ width: "min(100%, var(--content-w))", marginTop: "16px" }} aria-labelledby="thread-draft-title">
         <p className="eyebrow">자연어 초안</p>
-        <h2 id="thread-draft-title" className="thread-name" style={{ fontSize: "1.1rem" }}>설명만 적으면 초안을 만들어줄게</h2>
-        <p className="card-meta" style={{ marginBottom: "12px" }}>일정·작업·의존을 추론해 초안으로 저장해. 모르는 값은 비워두고 확인이 필요하다고 표시해.</p>
+        <h2 id="thread-draft-title" className="thread-name" style={{ fontSize: "1.1rem" }}>설명만 적으면 초안이 생성됩니다</h2>
+        <p className="card-meta" style={{ marginBottom: "12px" }}>일정·작업·의존을 추론해 초안으로 저장합니다. 모르는 값은 비워 두고 확인 필요로 표시합니다.</p>
 
         <form onSubmit={(e) => void handleDraftSubmit(e)} className="thread-new-form" noValidate>
           <label className="thread-new-label" htmlFor="tn-draft">설명</label>
@@ -160,7 +160,7 @@ export function ThreadNew() {
             className="thread-new-input thread-draft-textarea"
             value={draftText}
             onChange={(e) => setDraftText(e.target.value)}
-            placeholder="예: 6월 초 파리 여행 준비. 항공권 예약하고 여권 유효기간 확인해야 해."
+            placeholder="예: 6월 초 파리 여행 준비. 항공권 예약, 여권 유효기간 확인."
             rows={4}
             disabled={draft.tag === "submitting"}
             aria-label="자연어 초안 설명"
@@ -185,7 +185,7 @@ export function ThreadNew() {
             testId="thread-draft-success"
             kind="스레드 초안"
             title={`“${draft.data.thread.name}”`}
-            status="초안이 만들어졌어"
+            status="초안 생성됨"
             primary={{ label: "스레드 열기", href: `/threads/${draft.data.thread.id}`, testId: "draft-open-link" }}
             secondary={
               <>

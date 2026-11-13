@@ -140,14 +140,14 @@ describe("evaluateWatcherA", () => {
       expect(result[0]?.daysOverdue).toBeGreaterThanOrEqual(0);
     });
 
-    it("emits 'N일 지난 watcher야' for overdue", () => {
+    it("emits 'N일 지난 watcher입니다' for overdue", () => {
       const result = evaluateWatcherA([row({ threshold: "2026-06-20", rule: null })], DATE, NOW);
-      expect(result[0]?.message).toBe("2일 지난 watcher야");
+      expect(result[0]?.message).toBe("2일 지난 watcher입니다");
     });
 
-    it("emits '오늘 확인할 watcher야' for same-day", () => {
+    it("emits '오늘 확인할 watcher입니다' for same-day", () => {
       const result = evaluateWatcherA([row({ threshold: "2026-06-22", rule: null })], DATE, NOW);
-      expect(result[0]?.message).toBe("오늘 확인할 watcher야");
+      expect(result[0]?.message).toBe("오늘 확인할 watcher입니다");
     });
   });
 

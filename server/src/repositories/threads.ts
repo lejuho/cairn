@@ -32,7 +32,8 @@ export const THREAD_ROW_COLUMNS = {
   deadline: threads.deadline,
   status: threads.status,
   domain: threads.domain,
-  createdAt: threads.createdAt
+  createdAt: threads.createdAt,
+  startedAt: threads.startedAt
 } as const;
 
 export function createThread(db: CairnDatabase, input: CreateThreadRequest): ThreadRow {
@@ -80,6 +81,24 @@ export function updateThreadStatus(db: CairnDatabase, id: number, status: Thread
     .where(eq(threads.id, id))
     .returning(THREAD_ROW_COLUMNS)
     .all();
+  return row ? (row as ThreadRow) : null;
+}
+
+// Board move (thread list / parent board). The column maps onto real thread state:
+//   done  → status done
+//   doing → status active, started_at set (kept if already set)
+//   todo  → status active, started_at cleared
+// A thread whose own items already show progress still reads as "doing" after a move to todo;
+// that is decided by the reader (placeThread), not stored here.
+export function moveThreadOnBoard(db: CairnDatabase, id: number, column: "todo" | "doing" | "done", nowIso: string): ThreadRow | null {
+  const current = db.select({ startedAt: threads.startedAt }).from(threads).where(eq(threads.id, id)).get();
+  if (!current) return null;
+  const set = column === "done"
+    ? { status: "done", startedAt: current.startedAt ?? nowIso }
+    : column === "doing"
+      ? { status: "active", startedAt: current.startedAt ?? nowIso }
+      : { status: "active", startedAt: null };
+  const [row] = db.update(threads).set(set).where(eq(threads.id, id)).returning(THREAD_ROW_COLUMNS).all();
   return row ? (row as ThreadRow) : null;
 }
 

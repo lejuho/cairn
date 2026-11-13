@@ -120,7 +120,7 @@ describe("ParameterSettings", () => {
       const payload = JSON.parse((putCall![1] as RequestInit).body as string) as { energyBudget: number };
       expect(payload.energyBudget).toBe(10);
     });
-    expect(screen.getByRole("status")).toHaveTextContent("저장됐어");
+    expect(screen.getByRole("status")).toHaveTextContent("저장됨");
   });
 
   it("shows Google Calendar status and runs manual sync", async () => {

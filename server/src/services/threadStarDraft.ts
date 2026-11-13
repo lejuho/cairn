@@ -51,9 +51,9 @@ export async function generateThreadStarDraft(
   const nodeTitles = [...events, ...tasks].map((n) => n.title).filter((t): t is string => t != null && t.trim() !== "");
 
   const warnings: string[] = [];
-  if (thread.goal == null || thread.goal.trim() === "") warnings.push("이 스레드에는 목표가 기록되어 있지 않아.");
-  if (annotationRows.length === 0) warnings.push("직접 이벤트에 남긴 기록(주석)이 없어.");
-  if (settlement.avoidedMissing.moneyStatus === "unavailable") warnings.push("피한 비용의 금액은 알 수 없어 — 결과에 금액을 단정하지 않아.");
+  if (thread.goal == null || thread.goal.trim() === "") warnings.push("이 스레드에는 목표가 기록되어 있지 않습니다.");
+  if (annotationRows.length === 0) warnings.push("직접 이벤트에 남긴 기록(주석)이 없습니다.");
+  if (settlement.avoidedMissing.moneyStatus === "unavailable") warnings.push("피한 비용의 금액은 알 수 없습니다. 결과에 금액을 단정하지 않습니다.");
 
   const evidence: ThreadStarDraftEvidence = {
     thread: { id: thread.id, name: thread.name, kind: thread.kind, goal: thread.goal, deadline: thread.deadline },

@@ -252,8 +252,8 @@ export function PersonDetail({ id }: { id: number }) {
     return (
       <main className="app-shell" aria-label="사람 상세">
         <section className="quiet-card warm">
-          <h1>로그인 세션이 필요해</h1>
-          <p>Cloudflare Access 세션이 만료됐거나 네트워크가 끊겼어.</p>
+          <h1>로그인이 필요합니다</h1>
+          <p>Cloudflare Access 세션이 만료됐거나 네트워크가 끊겼습니다.</p>
           <button className="action-btn" onClick={() => openAccessLogin()}>
             Access 로그인 다시 열기
           </button>
@@ -267,8 +267,8 @@ export function PersonDetail({ id }: { id: number }) {
     return (
       <main className="app-shell" aria-label="사람 상세" data-testid="person-not-found">
         <section className="quiet-card warm">
-          <h1>사람을 찾을 수 없어</h1>
-          <p>이미 삭제됐거나 잘못된 링크일 수 있어.</p>
+          <h1>사람을 찾을 수 없습니다</h1>
+          <p>이미 삭제됐거나 잘못된 링크일 수 있습니다.</p>
           <a className="action-btn" href="/people">사람 목록으로</a>
         </section>
       </main>
@@ -388,7 +388,7 @@ export function PersonDetail({ id }: { id: number }) {
             ))}
           </ul>
         ) : (
-          <p className="person-quiet">아직 기록된 만남이 없어.</p>
+          <p className="person-quiet">기록된 만남 없음</p>
         )}
       </section>
       </div>{/* end inert page-content wrapper */}

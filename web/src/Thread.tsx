@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApprovePromotionRequest, EgoGraphData, EventMode, EventRow, PromotionSuggestion, SlotCandidate, TaskRow, ThreadDetail, ThreadLinkKind, ThreadMissingNodeSuggestion, ThreadNodeLink, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadResumeData, ThreadResumeExportData, ThreadResumeExportFormat, ThreadRollup, ThreadRow, ThreadSettlement, ThreadSettlementPaidCost, ThreadStarDraftResponseData, ThreadStatus, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
 import { apiJson, type AccessSessionError, openAccessLogin } from "./api.js";
 import { localDateString, localNowRfc3339 } from "./dateUtils.js";
+import { Board, BoardGrip, type BoardColumnId } from "./Board.js";
 import { EgoSheet, loadEgoGraph } from "./EgoSheet.js";
 import { AttachedNotes } from "./Notes.js";
 import { SlotCandidatePicker } from "./SlotCandidatePicker.js";
@@ -264,9 +265,9 @@ export function Thread({ id }: { id: number }) {
       if (!body.ok) {
         const code = body.error?.code ?? "";
         const msg =
-          code === "CONTAINS_CYCLE" ? "이 연결은 순환 구조를 만들어. 다른 방향을 선택해봐."
-          : code === "CONTAINS_PARENT_CONFLICT" ? "이 스레드는 이미 다른 상위 스레드가 있어."
-          : body.error?.message ?? "오류가 발생했어";
+          code === "CONTAINS_CYCLE" ? "이 연결은 순환 구조를 만듭니다. 다른 방향을 선택하세요."
+          : code === "CONTAINS_PARENT_CONFLICT" ? "이 스레드는 이미 다른 상위 스레드가 있습니다."
+          : body.error?.message ?? "오류가 발생했습니다";
         setLinkSheet((prev) => prev.tag === "open" ? { ...prev, submitting: false, error: msg } : prev);
         return;
       }
@@ -276,7 +277,7 @@ export function Thread({ id }: { id: number }) {
     } catch (e: unknown) {
       const err = e as Partial<AccessSessionError>;
       const msg = err.kind === "access_session_required"
-        ? (err.message ?? "로그인 세션이 만료됐어")
+        ? (err.message ?? "로그인 세션이 만료됐습니다")
         : e instanceof Error ? e.message : "오류";
       setLinkSheet((prev) => prev.tag === "open" ? { ...prev, submitting: false, error: msg } : prev);
     }
@@ -304,7 +305,7 @@ export function Thread({ id }: { id: number }) {
       refresh();
     } catch (e: unknown) {
       const err = e as Partial<AccessSessionError>;
-      setThreadStatusError(err.kind === "access_session_required" ? (err.message ?? "로그인 세션이 만료됐어") : "상태 변경 실패");
+      setThreadStatusError(err.kind === "access_session_required" ? (err.message ?? "로그인 세션이 만료됐습니다") : "상태 변경 실패");
     } finally {
       setThreadStatusSaving(null);
     }
@@ -333,17 +334,17 @@ export function Thread({ id }: { id: number }) {
       if (!body.ok) {
         const code = body.error?.code ?? "";
         const msg = code === "PROMOTION_STALE"
-          ? "제안이 바뀌었어. 새로고침 후 다시 해봐."
+          ? "제안이 바뀌었습니다. 새로 고침 후 다시 시도하세요."
           : code === "PROMOTION_NOT_ELIGIBLE"
-            ? "이 제안은 더 이상 유효하지 않아."
-            : body.error?.message ?? "승인 중 오류가 발생했어";
+            ? "이 제안은 더 이상 유효하지 않습니다."
+            : body.error?.message ?? "승인 중 오류가 발생했습니다";
         setApproveError(msg);
       } else {
         // Refresh all three: thread, focus, suggestions
         refresh();
       }
     } catch {
-      setApproveError("승인 중 오류가 발생했어. 다시 시도해봐.");
+      setApproveError("승인 중 오류가 발생했습니다. 다시 시도하세요.");
     } finally {
       setApprovingKey(null);
     }
@@ -389,8 +390,8 @@ export function Thread({ id }: { id: number }) {
       <main className="app-shell" aria-labelledby="thread-title">
         <section className="quiet-card" role="alert">
           <p className="eyebrow">Thread</p>
-          <h1 id="thread-title">로그인이 필요해</h1>
-          <p>세션이 만료됐어. 페이지를 새로 고침해봐.</p>
+          <h1 id="thread-title">로그인이 필요합니다</h1>
+          <p>세션이 만료됐습니다. 페이지를 새로 고침하세요.</p>
           <button className="today-submit-btn" onClick={() => openAccessLogin()}>다시 로그인</button>
         </section>
       </main>
@@ -402,7 +403,7 @@ export function Thread({ id }: { id: number }) {
       <main className="app-shell" aria-labelledby="thread-title">
         <section className="quiet-card" role="alert">
           <p className="eyebrow">Thread</p>
-          <h1 id="thread-title">불러오지 못했어</h1>
+          <h1 id="thread-title">불러오지 못했습니다</h1>
           <p>{view.message}</p>
         </section>
       </main>
@@ -413,8 +414,6 @@ export function Thread({ id }: { id: number }) {
 
   const { progress } = detail;
   const { incoming, outgoing } = detail.relations;
-  const hasRelations = incoming.length > 0 || outgoing.length > 0;
-  const hasItems = detail.events.length > 0 || detail.tasks.length > 0 || (detail.childThreads?.length ?? 0) > 0;
 
   // Compute highlighted ids for the active resource.
   const activeItem = focus?.resources.find((r) => r.resource.id === activeResourceId) ?? null;
@@ -497,16 +496,6 @@ export function Thread({ id }: { id: number }) {
           onSaved={refresh}
         />
 
-        {!hasItems && (
-          <p
-            className="card-meta"
-            data-testid="thread-empty"
-            style={{ width: "min(100%, var(--content-w))", padding: "8px 0", opacity: 0.8 }}
-          >
-            아직 연결된 항목이 없어. 이벤트나 작업을 연결하면 여기 나타나.
-          </p>
-        )}
-
         {detail.nodeLinks.length > 0 && (
           <NodeLinksSection threadId={detail.thread.id} nodeLinks={detail.nodeLinks} onConfirmed={refresh} />
         )}
@@ -544,6 +533,10 @@ export function Thread({ id }: { id: number }) {
           />
         </div>
 
+        {/* Links to other threads are not part of the working view (contained threads already show as
+            board cards). They live here, closed, for when a thread needs to be linked or unlinked. */}
+        <details className="thread-links-manage" data-testid="thread-links-manage">
+          <summary>스레드 연결 관리</summary>
         {/* Relations section */}
         <section
           aria-labelledby="thread-relations-title"
@@ -562,9 +555,6 @@ export function Thread({ id }: { id: number }) {
             </button>
           </div>
 
-          {!hasRelations && (
-            <p className="card-meta" style={{ padding: "8px 0" }}>아직 연결된 스레드가 없어</p>
-          )}
 
           {outgoing.length > 0 && (
             <ul className="today-stack" role="list" style={{ marginBottom: "8px" }}>
@@ -602,6 +592,9 @@ export function Thread({ id }: { id: number }) {
           )}
         </section>
 
+          <ThreadRollupSection rollup={detail.rollup} />
+        </details>
+
         {/* Person focus section (cycle-66 FR-PPL-07/FR-XREL-03) */}
         {detail.personFocus.people.length > 0 && (
           <PersonFocusSection
@@ -637,8 +630,6 @@ export function Thread({ id }: { id: number }) {
           />
         )}
 
-        {/* Rollup section (FR-THR-10 Rollup A) */}
-        <ThreadRollupSection rollup={detail.rollup} />
       </main>
 
       {linkSheet.tag === "open" && (
@@ -673,7 +664,7 @@ export function Thread({ id }: { id: number }) {
             {linkSheet.threads === null ? (
               <p className="card-meta">스레드 목록 불러오는 중...</p>
             ) : linkSheet.threads.length === 0 ? (
-              <p className="card-meta">연결할 스레드가 없어</p>
+              <p className="card-meta">스레드 없음</p>
             ) : (
               <>
                 <label htmlFor="link-target" className="thread-new-label">대상 스레드</label>
@@ -739,14 +730,7 @@ export function Thread({ id }: { id: number }) {
 // The thread's events, tasks and directly contained threads laid out by state.
 // Dates are shown on the cards; they do not decide the column.
 
-type BoardColumnId = "todo" | "doing" | "done";
 type BoardPlace = { column: BoardColumnId | "folded"; chip: string };
-
-const BOARD_COLUMNS: Array<{ id: BoardColumnId; label: string }> = [
-  { id: "todo", label: "할 일" },
-  { id: "doing", label: "진행 중" },
-  { id: "done", label: "완료" }
-];
 
 function placeTask(task: TaskRow): BoardPlace {
   if (task.status === "dropped") return { column: "folded", chip: "드롭" };
@@ -769,10 +753,12 @@ function placeEvent(event: EventRow, nowMs: number): BoardPlace {
   return endMs <= nowMs ? { column: "done", chip: "지남" } : { column: "doing", chip: "진행 중" };
 }
 
-function placeChild(status: ThreadStatus | null): BoardColumnId | "folded" {
-  if (status === "done") return "done";
-  if (status === "paused" || status === "dropped") return "folded";
-  return "doing";
+// A contained thread sits where its real state puts it: done → 완료; otherwise 진행 중 once it was
+// started (moved there on a board, or something inside it is under way or finished), else 할 일.
+function placeChild(child: ChildCard, progress: { done: number; total: number } | undefined): BoardColumnId | "folded" {
+  if (child.status === "done") return "done";
+  if (child.status === "paused" || child.status === "dropped") return "folded";
+  return child.startedAt || (progress?.done ?? 0) > 0 || (child.doingCount ?? 0) > 0 ? "doing" : "todo";
 }
 
 function shortDay(value: string): string {
@@ -788,6 +774,7 @@ function ChildThreadCard({ child, progress }: { child: ChildCard; progress: { do
     : null;
   return (
     <li className="today-card thread-child-card" data-child-thread-id={child.id}>
+      <BoardGrip cardKey={`thread:${child.id}`} label={child.name} />
       <span className="card-chip">스레드{child.status && child.status !== "active" ? ` · ${THREAD_STATUS_LABEL[child.status]}` : ""}</span>
       <a className="card-title thread-child-link" href={`/threads/${child.id}`}>{child.name}</a>
       <p className="card-meta">
@@ -810,13 +797,39 @@ function ThreadBoard({ detail, nodeClass, highlightedTaskIds, highlightedEventId
   const nowMs = Date.now();
   const tasks = detail.tasks.map((task) => ({ task, place: placeTask(task) }));
   const events = detail.events.map((event) => ({ event, place: placeEvent(event, nowMs) }));
-  const children = (detail.childThreads ?? []).map((child) => ({ child, column: placeChild(child.status) }));
   const progressById = new Map(detail.rollup.children.map((c) => [c.thread.id, c.progress]));
+  const children = (detail.childThreads ?? []).map((child) => ({ child, column: placeChild(child, progressById.get(child.id)) }));
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // A dropped card becomes a real state change: a task's status, or the contained thread's own state.
+  const move = async (cardKey: string, to: BoardColumnId) => {
+    const [kind, rawId] = cardKey.split(":");
+    const id = Number(rawId);
+    setNotice(null);
+    if (kind === "thread") {
+      const entry = children.find((c) => c.child.id === id);
+      const progress = progressById.get(id);
+      if (to === "todo" && entry && ((progress?.done ?? 0) > 0 || (entry.child.doingCount ?? 0) > 0)) {
+        setNotice("진행된 항목이 있는 스레드는 할 일로 되돌릴 수 없습니다.");
+        return;
+      }
+    }
+    try {
+      const res = await apiJson<{ ok: boolean; error?: { message: string } }>(
+        kind === "task" ? `/api/tasks/${id}/status` : `/api/threads/${id}/board`,
+        { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(kind === "task" ? { status: to } : { column: to }) }
+      );
+      if (!res.ok) {
+        setNotice(res.error?.message ?? "옮기지 못했습니다.");
+        return;
+      }
+      onSaved();
+    } catch {
+      setNotice("옮기지 못했습니다. 다시 시도하세요.");
+    }
+  };
   const countIn = (column: BoardColumnId | "folded") =>
     tasks.filter((t) => t.place.column === column).length + events.filter((e) => e.place.column === column).length + children.filter((c) => c.column === column).length;
-  // Phones show one column at a time; start on the first one that has something in it.
-  const [active, setActive] = useState<BoardColumnId>(() => BOARD_COLUMNS.find((c) => countIn(c.id) > 0)?.id ?? "todo");
-
   const cards = (column: BoardColumnId | "folded") => (
     <>
       {children.filter((c) => c.column === column).map(({ child }) => (
@@ -844,43 +857,17 @@ function ThreadBoard({ detail, nodeClass, highlightedTaskIds, highlightedEventId
     </>
   );
 
-  const folded = countIn("folded");
+  const column = (id: BoardColumnId | "folded") => ({ count: countIn(id), cards: cards(id) });
 
   return (
-    <section className="thread-board" aria-label="보드" data-testid="thread-board">
-      <div className="thread-board-tabs" role="tablist" aria-label="보드 열">
-        {BOARD_COLUMNS.map((col) => (
-          <button
-            key={col.id}
-            type="button"
-            role="tab"
-            className="day-panel-tab"
-            aria-selected={active === col.id}
-            onClick={() => setActive(col.id)}
-          >
-            {col.label}<span className="day-panel-tab-count">{countIn(col.id)}</span>
-          </button>
-        ))}
-      </div>
-      <div className="thread-board-cols">
-        {BOARD_COLUMNS.map((col) => (
-          <section key={col.id} className="thread-board-col" data-active={active === col.id ? "true" : "false"} data-column={col.id} aria-label={`${col.label} 열`}>
-            <h2 className="thread-board-col-title">{col.label}<span className="day-panel-tab-count">{countIn(col.id)}</span></h2>
-            {countIn(col.id) > 0 ? (
-              <ul className="today-stack" role="list">{cards(col.id)}</ul>
-            ) : (
-              <p className="note-hint thread-board-empty">비어 있어.</p>
-            )}
-          </section>
-        ))}
-      </div>
-      {folded > 0 && (
-        <details className="thread-board-folded">
-          <summary>접어둔 것 {folded}</summary>
-          <ul className="today-stack" role="list">{cards("folded")}</ul>
-        </details>
-      )}
-    </section>
+    <Board
+      label="보드"
+      testId="thread-board"
+      columns={{ todo: column("todo"), doing: column("doing"), done: column("done") }}
+      folded={column("folded")}
+      onMove={(cardKey, to) => void move(cardKey, to)}
+      notice={notice}
+    />
   );
 }
 
@@ -915,6 +902,13 @@ function EventNodeCard({ event, liClassName, chip, onSaved }: { event: EventRow;
     <li className={liClassName} data-event-id={event.id}>
       {!editing && (
         <>
+          {/* Events are placed by their time and recorded outcome, so they cannot be dragged. */}
+          <span className="kanban-pin" title="일정은 시간으로 위치가 정해집니다. 바꾸려면 수정을 누르세요." aria-label="고정된 카드: 시간으로 자리가 정해짐">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" />
+            </svg>
+            고정
+          </span>
           <span className="card-chip">{chip}</span>
           <p className="card-title">{event.title}</p>
           {event.start && (
@@ -1019,11 +1013,11 @@ function TaskNodeCard({ task, liClassName, chip, onSaved, droppable = false }: {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: to })
       });
-      if (!res.ok) { setDropError(res.error?.message ?? "상태를 바꾸지 못했어"); setMoving(false); return; }
+      if (!res.ok) { setDropError(res.error?.message ?? "상태를 바꾸지 못했습니다"); setMoving(false); return; }
       setMoving(false);
       onSaved();
     } catch {
-      setDropError("상태를 바꾸지 못했어"); setMoving(false);
+      setDropError("상태를 바꾸지 못했습니다"); setMoving(false);
     }
   }
   // Soft-remove (cycle-81): reuse the existing task status route, sending ONLY
@@ -1045,7 +1039,7 @@ function TaskNodeCard({ task, liClassName, chip, onSaved, droppable = false }: {
   }
   async function loadSlots() {
     if (task.due == null) {
-      setSlotState({ tag: "error", message: "마감일을 먼저 넣어야 후보를 계산할 수 있어" });
+      setSlotState({ tag: "error", message: "마감일을 입력해야 후보를 계산할 수 있습니다" });
       return;
     }
     setSlotState({ tag: "loading" });
@@ -1072,6 +1066,7 @@ function TaskNodeCard({ task, liClassName, chip, onSaved, droppable = false }: {
     <li className={liClassName} data-task-id={task.id}>
       {!editing && (
         <>
+          <BoardGrip cardKey={`task:${task.id}`} label={task.title} />
           <span className="card-chip">{chip}</span>
           <p className="card-title">{task.title}</p>
           {task.context && <p className="card-meta">{task.context}</p>}
@@ -1091,7 +1086,7 @@ function TaskNodeCard({ task, liClassName, chip, onSaved, droppable = false }: {
           </div>
           {canSuggestTime && (
             task.due == null ? (
-              <p className="card-meta">시간 추천은 마감일 입력 후 가능해.</p>
+              <p className="card-meta">시간 추천은 마감일 입력 후 가능합니다.</p>
             ) : (
               <ThreadTaskSlotControls
                 state={slotState}
@@ -1130,7 +1125,7 @@ function ThreadEventSlotControls({
         {state.tag === "applying" && <p className="today-slot-loading">배정 중...</p>}
         <SlotCandidatePicker
           candidates={state.candidates}
-          emptyMessage="빈 시간이 없어. 나중에 다시 해봐."
+          emptyMessage="비어있는 시간이 없습니다"
           onPick={onPick}
           testIdPrefix={`thread-event-slot-${eventId}`}
         />
@@ -1156,11 +1151,11 @@ function ThreadTaskSlotControls({
   if (state.tag === "loaded" || state.tag === "applying") {
     return (
       <div className="thread-node-slot">
-        <p className="card-meta">선택하면 작업 블록을 만들어. 완료 처리는 아님.</p>
+        <p className="card-meta">선택하면 작업 블록이 생성됩니다. 완료 처리는 아닙니다.</p>
         {state.tag === "applying" && <p className="today-slot-loading">만드는 중...</p>}
         <SlotCandidatePicker
           candidates={state.candidates}
-          emptyMessage="빈 시간이 없어. 나중에 다시 해봐."
+          emptyMessage="비어있는 시간이 없습니다"
           onPick={onPick}
           testIdPrefix={`thread-task-slot-${taskId}`}
         />
@@ -1339,7 +1334,7 @@ function SettlementSection({ settlement }: { settlement: ThreadSettlement }) {
       </p>
       {sampleStatus === "partial" && (
         <p className="card-meta" data-testid="settlement-partial-note" style={{ marginTop: "8px", color: "var(--moved)" }}>
-          아직 끝나지 않은 항목이 있어 — 정산은 참고용이야.
+          끝나지 않은 항목이 있습니다. 정산은 참고용입니다.
         </p>
       )}
     </section>
@@ -1384,9 +1379,9 @@ function StarDraftSection({ threadId, onSaved }: { threadId: number; onSaved: ()
       const res = await postStarDraft(threadId);
       if (!res.ok || !res.data) {
         const msg = res.error?.code === "LLM_UNAVAILABLE"
-          ? "지금은 초안을 만들 수 없어 — 잠시 후 다시 시도해줘."
+          ? "지금은 초안을 만들 수 없습니다. 잠시 후 다시 시도하세요."
           : res.error?.code === "LLM_INVALID_DRAFT"
-            ? "초안 형식이 올바르지 않아 — 다시 시도해줘."
+            ? "초안 형식이 올바르지 않습니다. 다시 시도하세요."
             : (res.error?.message ?? "초안 생성 실패");
         setState({ tag: "error", message: msg });
         return;
@@ -1401,7 +1396,7 @@ function StarDraftSection({ threadId, onSaved }: { threadId: number; onSaved: ()
     <section className="quiet-card warm thread-star" aria-labelledby="thread-star-title" data-testid="thread-star" style={{ width: "min(100%, var(--content-w))", marginTop: "24px" }}>
       <p className="eyebrow" style={{ margin: "0 0 8px" }}>STAR 회고</p>
       <h2 id="thread-star-title" className="card-title" style={{ margin: "0 0 8px" }}>완료한 일을 STAR로 정리</h2>
-      <p className="card-meta" style={{ margin: "0 0 12px", opacity: 0.7 }}>완료된 스레드의 증거로 초안을 만들어 — 저장은 안 하고, 직접 다듬어 쓰면 돼.</p>
+      <p className="card-meta" style={{ margin: "0 0 12px", opacity: 0.7 }}>완료된 스레드의 증거로 초안을 만듭니다. 저장되지 않으니 직접 다듬어 사용하세요.</p>
 
       <button className="today-submit-btn thread-star-btn" data-testid="star-generate-btn" onClick={() => void generate()} disabled={state.tag === "loading"}>
         {state.tag === "loading" ? "초안 만드는 중…" : "STAR 초안 만들기"}
@@ -1432,7 +1427,7 @@ function StarDraftSection({ threadId, onSaved }: { threadId: number; onSaved: ()
               </p>
             </div>
           )}
-          <p className="card-meta" style={{ opacity: 0.7, marginTop: "2px" }}>초안일 뿐이야 — 직접 확인하고 고쳐 써.</p>
+          <p className="card-meta" style={{ opacity: 0.7, marginTop: "2px" }}>초안입니다. 직접 확인하고 고쳐 쓰세요.</p>
           {state.data.evidence.warnings.map((w, i) => (
             <p key={i} className="card-meta" data-testid="star-warning" style={{ color: "var(--moved)" }}>{w}</p>
           ))}
@@ -1569,7 +1564,7 @@ function ResumeSection({ threadId, resume, onSaved }: { threadId: number; resume
     <section className="quiet-card warm thread-resume" aria-labelledby="thread-resume-title" data-testid="thread-resume" style={{ width: "min(100%, var(--content-w))", marginTop: "24px" }}>
       <p className="eyebrow" style={{ margin: "0 0 8px" }}>이력서 칸</p>
       <h2 id="thread-resume-title" className="card-title" style={{ margin: "0 0 4px" }}>저장된 STAR 정리</h2>
-      <p className="card-meta" style={{ margin: "0 0 12px", opacity: 0.7 }}>직접 다듬어 저장해 — 내 자료야. (Task는 저장 안 해.)</p>
+      <p className="card-meta" style={{ margin: "0 0 12px", opacity: 0.7 }}>직접 다듬어 저장하세요. (Task는 저장되지 않습니다.)</p>
 
       <label className="thread-resume-toggle card-meta" style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
         <input type="checkbox" data-testid="resume-relevant-toggle" checked={resume.resumeRelevant} onChange={() => void toggleRelevant()} disabled={saving} aria-label="이력서 후보로 표시" />
@@ -1614,8 +1609,8 @@ function ResumeSection({ threadId, resume, onSaved }: { threadId: number; resume
                 <button type="button" className="thread-node-save-btn" data-testid="resume-export-copy-btn" onClick={() => void copyExport(exportState.data)}>복사</button>
                 <button type="button" className="thread-node-save-btn" data-testid="resume-export-download-btn" onClick={() => downloadExport(exportState.data)}>파일 저장</button>
               </div>
-              {actionFeedback === "copied" && <p className="card-meta" role="status" data-testid="resume-export-action-feedback" style={{ marginTop: "8px", opacity: 0.8 }}>복사했어.</p>}
-              {actionFeedback === "saved" && <p className="card-meta" role="status" data-testid="resume-export-action-feedback" style={{ marginTop: "8px", opacity: 0.8 }}>파일로 저장했어.</p>}
+              {actionFeedback === "copied" && <p className="card-meta" role="status" data-testid="resume-export-action-feedback" style={{ marginTop: "8px", opacity: 0.8 }}>복사됨</p>}
+              {actionFeedback === "saved" && <p className="card-meta" role="status" data-testid="resume-export-action-feedback" style={{ marginTop: "8px", opacity: 0.8 }}>파일 저장됨</p>}
               {actionFeedback === "copy_failed" && <p className="card-meta" role="alert" data-testid="resume-export-action-error" style={{ marginTop: "8px", color: "var(--moved)" }}>복사 실패</p>}
               {actionFeedback === "save_failed" && <p className="card-meta" role="alert" data-testid="resume-export-action-error" style={{ marginTop: "8px", color: "var(--moved)" }}>파일 저장 실패</p>}
             </div>
@@ -1683,7 +1678,7 @@ function ThreadRollupSection({ rollup }: { rollup: ThreadRollup }) {
 
       {!hasChildren ? (
         <p className="card-meta" style={{ padding: "8px 0", opacity: 0.8 }} data-testid="rollup-no-children">
-          포함된 하위 스레드가 아직 없어
+          포함된 하위 스레드가 없습니다
         </p>
       ) : (
         <>
@@ -1721,7 +1716,7 @@ function ThreadRollupSection({ rollup }: { rollup: ThreadRollup }) {
             <span className="card-chip" data-testid="rollup-paid-total">합계 {paidCostLabel(rollup.total.paidCost)}</span>
           </p>
           <p className="card-meta" style={{ opacity: 0.6, margin: "0 0 12px", fontSize: "0.75rem" }}>
-            관찰된 치른 비용만 표시 — 누락·회피 비용 모델은 아직 없어
+            관찰된 치른 비용만 표시합니다. 누락·회피 비용 모델은 없습니다
           </p>
 
           <ul className="today-stack" role="list" style={{ marginTop: "8px" }} data-testid="rollup-children">
@@ -1882,7 +1877,7 @@ function PromotionSuggestionsPanel({
                     {s.name}
                   </p>
                   <p className="card-meta" style={{ opacity: 0.8 }}>
-                    {s.name}이(가) {s.occurrenceCount}곳에 나타나. 리소스로 묶을까?
+                    {s.name}이(가) {s.occurrenceCount}곳에 나타납니다. 리소스로 묶을까요?
                   </p>
                 </div>
                 <button

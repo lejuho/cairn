@@ -52,7 +52,7 @@ export function getGcalSyncStatus(opts: GcalSyncControlOptions): GcalSyncStatusD
       syncTokenPresent,
       lastSyncAt,
       tokenPath: config.tokenPath,
-      message: "Google Calendar OAuth 값이 설정되지 않았어."
+      message: "Google Calendar OAuth 값이 설정되지 않았습니다."
     };
   }
 
@@ -64,7 +64,7 @@ export function getGcalSyncStatus(opts: GcalSyncControlOptions): GcalSyncStatusD
       syncTokenPresent,
       lastSyncAt,
       tokenPath: config.tokenPath,
-      message: "Google Calendar 인증 토큰이 아직 없어."
+      message: "Google Calendar 인증 토큰이 없습니다."
     };
   }
 
@@ -75,7 +75,7 @@ export function getGcalSyncStatus(opts: GcalSyncControlOptions): GcalSyncStatusD
     syncTokenPresent,
     lastSyncAt,
     tokenPath: config.tokenPath,
-    message: lastSyncAt ? "Google Calendar가 연결되어 있어." : "Google Calendar가 연결되어 있고 첫 동기화를 기다려."
+    message: lastSyncAt ? "Google Calendar가 연결되어 있습니다." : "Google Calendar가 연결되어 있고 첫 동기화를 기다리고 있습니다."
   };
 }
 

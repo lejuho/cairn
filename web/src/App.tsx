@@ -86,8 +86,8 @@ export function App() {
       <main className="app-shell" aria-labelledby="not-found-title">
         <section className="quiet-card">
           <span className="quiet-dot" aria-hidden="true" />
-          <h1 id="not-found-title">아직 없는 길이야</h1>
-          <p>달력으로 돌아가면 오늘 것부터 보여줄게.</p>
+          <h1 id="not-found-title">없는 페이지입니다</h1>
+          <p>달력으로 돌아가 오늘부터 확인하세요.</p>
           <a className="action-btn" href="/calendar">달력으로</a>
         </section>
       </main>

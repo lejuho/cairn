@@ -238,7 +238,7 @@ describe("Telegram worker: inbound replies", () => {
     expect(readParamValue(conn, "telegram.promptMessage.777")).toBeNull();
     expect(client.sentMessages).toHaveLength(1);
     expect(client.sentMessages[0]!.replyToMessageId).toBe(888);
-    expect(client.sentMessages[0]!.text).toBe("기록했어.");
+    expect(client.sentMessages[0]!.text).toBe("기록됨");
     conn.sqlite.close();
   });
 
@@ -276,7 +276,7 @@ describe("Telegram worker: inbound replies", () => {
     expect(row.reason_text).toBe("옮김");
     expect(row.outcome).toBeNull();
     expect(client.sentMessages).toHaveLength(1);
-    expect(client.sentMessages[0]!.text).toContain("원문 저장했어");
+    expect(client.sentMessages[0]!.text).toContain("원문 저장됨");
 
     const app = buildServer(conn.db);
     const res = await app.inject({

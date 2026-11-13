@@ -597,7 +597,7 @@ export function Watchers() {
     return (
       <main className="app-shell watchers-shell">
         <section className="quiet-card warm">
-          <p>로그인 세션이 만료됐거나 네트워크가 끊겼어.</p>
+          <p>로그인 세션이 만료됐거나 네트워크가 끊겼습니다.</p>
           <button className="btn-primary" onClick={() => openAccessLogin()}>
             Access 로그인 다시 열기
           </button>
@@ -620,11 +620,9 @@ export function Watchers() {
   if (screen.tag === "quiet") {
     return (
       <main className="app-shell watchers-shell">
-        <section className="quiet-card">
-          <span className="quiet-dot" aria-hidden="true" />
-          <h1>아직 추가된 watcher가 없어</h1>
-          <p>날짜를 기준으로 챙겨야 할 것들을 여기에 등록해둬.</p>
-          <button className="btn-primary" onClick={openCreate} aria-label="Watcher 추가">
+        <section className="quiet-card empty-state">
+          <h1>Watcher가 없습니다</h1>
+          <button className="empty-add-btn" onClick={openCreate} aria-label="Watcher 추가">
             + Watcher 추가
           </button>
         </section>
@@ -655,9 +653,9 @@ export function Watchers() {
           testId="watcher-result"
           kind={createResult.kind}
           title={createResult.label}
-          status="지켜볼 것이 만들어졌어"
+          status="지켜볼 것 생성됨"
           primary={{ label: "지켜볼 것에서 보기", onClick: () => setCreateResult(null) }}
-          secondary="아래 목록에서 방금 만든 Watcher를 확인할 수 있어."
+          secondary="아래 목록에서 방금 만든 Watcher를 확인할 수 있습니다."
         />
       )}
 

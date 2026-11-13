@@ -61,7 +61,7 @@ describe("Watchers — quiet state", () => {
   it("shows quiet copy and '+ Watcher 추가' button when no watchers", async () => {
     mockFetch([]);
     render(<Watchers />);
-    await waitFor(() => expect(screen.getByText(/아직 추가된 watcher가 없어/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Watcher가 없습니다")).toBeInTheDocument());
     expect(screen.getByLabelText("Watcher 추가")).toBeInTheDocument();
   });
 });

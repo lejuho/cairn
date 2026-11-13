@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ThreadIndex } from "./ThreadIndex.js";
 import type { ThreadSummary } from "@cairn/shared";
@@ -84,7 +84,7 @@ describe("ThreadIndex — access-session", () => {
       text: () => Promise.resolve("/cdn-cgi/access/login")
     }));
     render(<ThreadIndex />);
-    await waitFor(() => expect(screen.getByRole("heading", { name: "로그인이 필요해" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "로그인이 필요합니다" })).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "다시 로그인" })).toBeInTheDocument();
   });
 });
@@ -127,5 +127,92 @@ describe("ThreadIndex — domain filter (cycle-67)", () => {
     expect(screen.getByText("업무 스레드")).toBeInTheDocument();
     expect(calls.some((c) => c.url.includes("domain=work"))).toBe(true);
     expect(calls.every((c) => c.method === "GET")).toBe(true); // filtering never mutates
+  });
+});
+
+describe("ThreadIndex — board", () => {
+  const thread = (id: number, name: string, status: ThreadSummary["thread"]["status"], doneCount: number, totalCount: number): ThreadSummary => ({
+    ...SUMMARY,
+    thread: { ...SUMMARY.thread, id, name, status },
+    doneCount,
+    totalCount
+  });
+
+  it("sorts every thread into 할 일 / 진행 중 / 완료 and folds paused and dropped ones", async () => {
+    mockFetch([
+      thread(1, "방금 만든 스레드", "active", 0, 0),
+      thread(2, "아직 손 안 댄 것", "active", 0, 4),
+      thread(3, "한창 하는 중", "active", 2, 5),
+      thread(4, "끝낸 것", "done", 3, 3),
+      thread(5, "잠시 멈춤", "paused", 1, 2),
+      thread(6, "접은 것", "dropped", 0, 1)
+    ]);
+    render(<ThreadIndex />);
+    const todo = await screen.findByRole("region", { name: "할 일 열" });
+    const names = (el: HTMLElement) => [...el.querySelectorAll(".card-title")].map((n) => n.textContent);
+
+    // 스레드에는 "할 일" 상태가 없어서, 끝낸 항목이 하나도 없는 활성 스레드를 아직 시작 전으로 본다.
+    expect(names(todo)).toEqual(["방금 만든 스레드", "아직 손 안 댄 것"]);
+    expect(names(screen.getByRole("region", { name: "진행 중 열" }))).toEqual(["한창 하는 중"]);
+    expect(names(screen.getByRole("region", { name: "완료 열" }))).toEqual(["끝낸 것"]);
+
+    const folded = screen.getByText("접어둔 것 2").closest("details")!;
+    expect(folded).not.toHaveAttribute("open");
+    expect(names(folded)).toEqual(["잠시 멈춤", "접은 것"]);
+    expect(screen.getByRole("link", { name: "한창 하는 중" })).toHaveAttribute("href", "/threads/3");
+  });
+
+  it("shows an empty column as empty rather than hiding it", async () => {
+    mockFetch([thread(4, "끝낸 것", "done", 3, 3)]);
+    render(<ThreadIndex />);
+    const todo = await screen.findByRole("region", { name: "할 일 열" });
+    expect(todo.querySelector(".kanban-cards")).toBeNull();
+    expect(todo).toHaveTextContent(/^할 일0$/);
+    expect(screen.queryByText(/접어둔 것/)).not.toBeInTheDocument();
+  });
+
+  it("moving a thread card changes the thread's real state", async () => {
+    const calls: Array<{ url: string; body: unknown }> = [];
+    let list = [thread(1, "새 스레드", "active", 0, 2), thread(3, "한창 하는 중", "active", 2, 5)];
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
+      if (opts?.method === "PATCH") {
+        const body = JSON.parse(String(opts.body)) as { column: "todo" | "doing" | "done" };
+        calls.push({ url, body });
+        list = list.map((s) => (url.includes(`/threads/${s.thread.id}/`)
+          ? { ...s, thread: { ...s.thread, status: body.column === "done" ? "done" : "active", startedAt: body.column === "todo" ? null : "2026-11-13T00:00:00.000Z" } }
+          : s));
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: {} }) });
+      }
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: list }) });
+    }));
+    render(<ThreadIndex />);
+    const names = (label: string) => [...screen.getByRole("region", { name: label }).querySelectorAll(".card-title")].map((n) => n.textContent);
+    await waitFor(() => expect(names("할 일 열")).toEqual(["새 스레드"]));
+
+    // 진행 중으로: 안에 끝낸 게 없어도 "시작함"으로 남는다.
+    fireEvent.keyDown(screen.getByRole("button", { name: "새 스레드 옮기기" }), { key: "ArrowRight" });
+    await waitFor(() => expect(names("진행 중 열")).toEqual(["새 스레드", "한창 하는 중"]));
+    // 완료로: 스레드 상태가 완료가 된다.
+    fireEvent.keyDown(screen.getByRole("button", { name: "새 스레드 옮기기" }), { key: "ArrowRight" });
+    await waitFor(() => expect(names("완료 열")).toEqual(["새 스레드"]));
+    expect(calls).toEqual([
+      { url: "/api/threads/1/board", body: { column: "doing" } },
+      { url: "/api/threads/1/board", body: { column: "done" } }
+    ]);
+
+    // 안에 이미 진행된 항목이 있는 스레드는 할 일로 되돌리지 않고 이유를 말해준다.
+    fireEvent.keyDown(screen.getByRole("button", { name: "한창 하는 중 옮기기" }), { key: "ArrowLeft" });
+    expect(await screen.findByRole("status")).toHaveTextContent("진행된 항목이 있는 스레드는 할 일로 되돌릴 수 없습니다.");
+    expect(calls).toHaveLength(2);
+    // 맨 끝 열에서 더 가는 건 아무 일도 하지 않는다.
+    fireEvent.keyDown(screen.getByRole("button", { name: "새 스레드 옮기기" }), { key: "ArrowRight" });
+    expect(calls).toHaveLength(2);
+  });
+
+  it("puts a thread in 진행 중 as soon as something inside it is under way", async () => {
+    mockFetch([{ ...thread(7, "막 시작한 것", "active", 0, 3), doingCount: 1 }]);
+    render(<ThreadIndex />);
+    const doing = await screen.findByRole("region", { name: "진행 중 열" });
+    expect(doing).toHaveTextContent("막 시작한 것");
   });
 });

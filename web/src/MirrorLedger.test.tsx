@@ -231,7 +231,7 @@ describe("MirrorLedger — quiet state", () => {
     await waitFor(() => {
       expect(screen.getByTestId("mirror-quiet")).toBeInTheDocument();
     });
-    expect(screen.getByRole("heading", { name: "아직 기록된 이동/취소 원장이 없어" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "기록된 이동·취소가 없습니다" })).toBeInTheDocument();
   });
 
   it("stays quiet when automation-needs is empty", async () => {
@@ -374,7 +374,7 @@ describe("MirrorLedger — live state", () => {
     await waitFor(() => {
       expect(screen.getByTestId("mirror-low-sample")).toBeInTheDocument();
     });
-    expect(screen.getByTestId("mirror-low-sample")).toHaveTextContent("표본이 적어 패턴으로 보긴 이르다");
+    expect(screen.getByTestId("mirror-low-sample")).toHaveTextContent("표본이 적어 패턴으로 보기 이릅니다");
   });
 
   it("shows patterns-level low-sample when patterns sampleStatus is low_sample", async () => {
@@ -457,7 +457,7 @@ describe("MirrorLedger — error states", () => {
     );
     render(<MirrorLedger />);
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "불러오지 못했어" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "불러오지 못했습니다" })).toBeInTheDocument();
     });
     expect(screen.getByRole("button", { name: "다시 시도" })).toBeInTheDocument();
   });
@@ -466,7 +466,7 @@ describe("MirrorLedger — error states", () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("network"))));
     render(<MirrorLedger />);
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "로그인이 필요해" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "로그인이 필요합니다" })).toBeInTheDocument();
     });
     expect(screen.getByRole("button", { name: "다시 로그인" })).toBeInTheDocument();
   });
@@ -520,7 +520,7 @@ describe("MirrorLedger — diary section", () => {
     render(<MirrorLedger />);
     await waitFor(() => expect(screen.getByTestId("mirror-energy-trend")).toBeInTheDocument());
     expect(screen.queryByTestId("mirror-diary")).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "불러오지 못했어" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "불러오지 못했습니다" })).not.toBeInTheDocument();
   });
 
   it("existing ledger/pattern/energy sections still render alongside diary", async () => {

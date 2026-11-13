@@ -116,10 +116,10 @@ const STATUS_LABEL: Record<string, string> = { planned: "예정", confirmed: "�
 type PanelTab = "schedule" | "actions" | "notes" | "space";
 
 const OUTCOMES = [
-  { id: "done", label: "했어" },
-  { id: "moved", label: "옮겼어" },
-  { id: "cancelled", label: "취소됐어" },
-  { id: "late", label: "늦었어" }
+  { id: "done", label: "완료" },
+  { id: "moved", label: "이동" },
+  { id: "cancelled", label: "취소" },
+  { id: "late", label: "지연" }
 ] as const;
 
 // Events that are over and still unanswered: one tap records what happened.
@@ -136,10 +136,10 @@ function DayOutcomes({ day, events, onRecorded }: { day: string; events: EventRo
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ outcome })
       });
-      if (!res || res.ok !== true) throw new Error((res && !res.ok && res.error?.message) || "결과를 저장하지 못했어");
+      if (!res || res.ok !== true) throw new Error((res && !res.ok && res.error?.message) || "결과를 저장하지 못했습니다");
       onRecorded();
     } catch (e) {
-      setError(e && typeof e === "object" && "message" in e && typeof e.message === "string" ? e.message : "결과를 저장하지 못했어");
+      setError(e && typeof e === "object" && "message" in e && typeof e.message === "string" ? e.message : "결과를 저장하지 못했습니다");
     } finally {
       setBusy(null);
     }
@@ -148,7 +148,7 @@ function DayOutcomes({ day, events, onRecorded }: { day: string; events: EventRo
   if (events.length === 0) return null;
   return (
     <section className="day-outcomes" aria-label="결과 기록">
-      <p className="event-detail-section-label">어떻게 됐어?</p>
+      <p className="event-detail-section-label">어떻게 됐나요?</p>
       <ul className="day-event-list" role="list">
         {events.map((event) => (
           <li key={event.id} className="day-outcome">
@@ -171,7 +171,7 @@ function DayOutcomes({ day, events, onRecorded }: { day: string; events: EventRo
 
 function DaySchedule({ day, bucket, onOpenEvent }: { day: string; bucket: DayBucket; onOpenEvent: (id: number) => void }) {
   if (bucket.events.length === 0 && bucket.tasks.length === 0) {
-    return <p className="day-panel-quiet">이 날은 잡힌 일정도, 마감도 없어.</p>;
+    return null;
   }
 
   return (
@@ -262,7 +262,6 @@ function DayPanel({ day, today, bucket, open, onClose, onReload }: DayPanelProps
           {tab === "actions" && (
             <>
               <DayOutcomes day={day} events={bucket.pending} onRecorded={onReload} />
-              {actionCount === 0 && <p className="day-panel-quiet">{day === today ? "지금 처리할 건 없어." : "이 날은 따로 처리할 게 없어."}</p>}
             </>
           )}
           {tab === "notes" && (
@@ -321,13 +320,13 @@ export function CalendarPage() {
     try {
       const res = await apiJson<ApiResponse<CalendarData>>(`/api/calendar?from=${from}&to=${to}`);
       if (mine !== seq.current) return;
-      if (!res || res.ok !== true) throw new Error((res && !res.ok && res.error?.message) || "달력을 불러오지 못했어");
+      if (!res || res.ok !== true) throw new Error((res && !res.ok && res.error?.message) || "달력을 불러오지 못했습니다");
       setData(res.data);
       setState({ tag: "ready" });
     } catch (e) {
       if (mine !== seq.current) return;
       const needsLogin = Boolean(e && typeof e === "object" && "kind" in e && e.kind === "access_session_required");
-      const message = e && typeof e === "object" && "message" in e && typeof e.message === "string" ? e.message : "달력을 불러오지 못했어";
+      const message = e && typeof e === "object" && "message" in e && typeof e.message === "string" ? e.message : "달력을 불러오지 못했습니다";
       setState({ tag: "error", message, needsLogin });
     }
   }, [from, to]);
@@ -370,7 +369,7 @@ export function CalendarPage() {
 
         {state.tag === "error" && (
           <div className="calendar-error" role="alert">
-            <p>달력을 불러오지 못했어. {state.message}</p>
+            <p>달력을 불러오지 못했습니다. {state.message}</p>
             {state.needsLogin && <button type="button" className="note-btn note-btn--primary" onClick={openAccessLogin}>다시 로그인</button>}
             <button type="button" className="note-btn" onClick={() => { setState({ tag: "loading" }); void load(); }}>다시 시도</button>
           </div>

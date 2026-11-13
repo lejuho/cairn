@@ -55,7 +55,7 @@ export function EventMaterials({ eventId, initial }: { eventId: number; initial:
       setMaterials(data.materials);
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "자료를 불러오지 못했어요");
+      setError(e instanceof Error ? e.message : "자료를 불러오지 못했습니다요");
     }
   }, [eventId]);
 
@@ -78,7 +78,7 @@ export function EventMaterials({ eventId, initial }: { eventId: number; initial:
       setForm((f) => ({ ...f, url: "", label: "", submitting: false }));
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "자료를 붙이지 못했어요");
+      setError(e instanceof Error ? e.message : "자료를 붙이지 못했습니다");
       setForm((f) => ({ ...f, submitting: false }));
     }
   };
@@ -92,7 +92,7 @@ export function EventMaterials({ eventId, initial }: { eventId: number; initial:
       setFillUrl("");
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "링크를 저장하지 못했어요");
+      setError(e instanceof Error ? e.message : "링크를 저장하지 못했습니다");
     }
   };
 

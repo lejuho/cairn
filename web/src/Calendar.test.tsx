@@ -193,12 +193,12 @@ describe("CalendarPage", () => {
     fireEvent.click(await within(panel).findByRole("tab", { name: /^처리\s*1$/ }));
 
     const group = within(panel).getByRole("group", { name: "어제 스터디 결과" });
-    fireEvent.click(within(group).getByRole("button", { name: "했어" }));
+    fireEvent.click(within(group).getByRole("button", { name: "완료" }));
     await waitFor(() => expect(posts).toEqual([{ url: "/api/events/5/outcome", body: { outcome: "done" } }]));
 
     // 기록하면 달력을 다시 불러와 사라진다.
     await waitFor(() => expect(within(panel).queryByRole("group", { name: "어제 스터디 결과" })).not.toBeInTheDocument());
-    expect(within(panel).getByText("이 날은 따로 처리할 게 없어.")).toBeInTheDocument();
+    expect(within(panel).getByRole("tab", { name: "처리" })).toBeInTheDocument(); // 숫자가 사라진다
     expect(screen.getByRole("button", { name: "2026년 11월 11일 (수), 일정 1건" })).toBeInTheDocument();
   });
 
@@ -252,8 +252,8 @@ describe("CalendarPage", () => {
     const panel = screen.getByRole("complementary", { name: "2026년 11월 5일 (목) 상세" });
     await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("/api/today?date=2026-11-05"))).toBe(true));
     fireEvent.click(within(panel).getByRole("tab", { name: "처리" }));
-    expect(await within(panel).findByText("이 날은 따로 처리할 게 없어.")).toBeInTheDocument();
     expect(within(panel).queryByRole("button", { name: /충돌 해결/ })).not.toBeInTheDocument();
+    expect(within(panel).queryByRole("list", { name: "처리할 것" })).not.toBeInTheDocument();
   });
 
   it("starts a new event on the chosen day from the schedule tab", async () => {
@@ -267,12 +267,14 @@ describe("CalendarPage", () => {
     expect(within(sheet).getByDisplayValue("2026-11-22T10:00")).toBeInTheDocument();
   });
 
-  it("says so when a day has nothing, and starts a note on that day", async () => {
+  it("shows just the add buttons on an empty day, and starts a note on that day", async () => {
     calendarOnly();
     render(<CalendarPage />);
     fireEvent.click(await screen.findByRole("button", { name: "2026년 11월 22일 (일)" }));
     const panel = screen.getByRole("complementary", { name: "2026년 11월 22일 (일) 상세" });
-    expect(within(panel).getByText("이 날은 잡힌 일정도, 마감도 없어.")).toBeInTheDocument();
+    // 빈 날에는 안내 문구 없이 추가 버튼만 있다.
+    expect(within(panel).queryByRole("list", { name: "일정" })).not.toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "+ 일정·할 일" })).toBeInTheDocument();
     expect(within(panel).queryByText("오늘")).not.toBeInTheDocument();
 
     fireEvent.click(within(panel).getByRole("tab", { name: "메모" }));
@@ -319,7 +321,7 @@ describe("CalendarPage", () => {
     let fail = true;
     stubFetch((url) => (url.startsWith("/api/calendar") && fail ? json("DB 잠김", false) : url.startsWith("/api/calendar") ? json(DATA) : url.startsWith("/api/today") ? json(surface()) : json({ notes: [] })));
     render(<CalendarPage />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("달력을 불러오지 못했어. DB 잠김");
+    expect(await screen.findByRole("alert")).toHaveTextContent("달력을 불러오지 못했습니다. DB 잠김");
     expect(screen.getAllByRole("gridcell")).toHaveLength(42);
     expect(screen.queryByRole("button", { name: "다시 로그인" })).not.toBeInTheDocument();
     fail = false;

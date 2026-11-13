@@ -223,7 +223,7 @@ describe("ItemIndex", () => {
 
     fireEvent.click(screen.getByRole("button", { name: TASK.title }));
     const dialog = await screen.findByRole("dialog", { name: "할 일 상세" });
-    expect(within(dialog).getByText("마감일을 먼저 넣어야 후보를 계산할 수 있어.")).toBeInTheDocument();
+    expect(within(dialog).getByText("마감일을 입력해야 후보를 계산할 수 있습니다.")).toBeInTheDocument();
 
     fireEvent.change(within(dialog).getByLabelText("할 일 마감일"), { target: { value: "2026-06-30" } });
     fireEvent.change(within(dialog).getByLabelText("할 일 예상 분"), { target: { value: "25" } });

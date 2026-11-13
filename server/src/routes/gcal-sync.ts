@@ -19,7 +19,7 @@ export function registerGcalSyncRoutes(app: FastifyInstance, opts: GcalSyncContr
     if (inFlight) {
       return reply.code(409).send({
         ok: false,
-        error: { code: "GCAL_SYNC_IN_PROGRESS", message: "Google Calendar 동기화가 이미 실행 중이야." }
+        error: { code: "GCAL_SYNC_IN_PROGRESS", message: "Google Calendar 동기화가 이미 실행 중입니다." }
       });
     }
 
@@ -36,7 +36,7 @@ export function registerGcalSyncRoutes(app: FastifyInstance, opts: GcalSyncContr
       }
       return reply.code(502).send({
         ok: false,
-        error: { code: "GCAL_SYNC_FAILED", message: "Google Calendar 동기화에 실패했어." }
+        error: { code: "GCAL_SYNC_FAILED", message: "Google Calendar 동기화에 실패했습니다." }
       });
     } finally {
       inFlight = false;

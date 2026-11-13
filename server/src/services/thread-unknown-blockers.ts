@@ -100,7 +100,7 @@ export function computeThreadUnknownBlockers(
         blockedNode: blocked.ref,
         missingField,
         blockedField,
-        message: `‘${prereq.ref.title}’의 ${MISSING_FIELD_TEXT[missingField]}이(가) 없어 ‘${blocked.ref.title}’ 일정을 역산할 수 없어.`,
+        message: `‘${prereq.ref.title}’의 ${MISSING_FIELD_TEXT[missingField]}이(가) 없어 ‘${blocked.ref.title}’ 일정을 역산할 수 없습니다.`,
         reasonCodes
       });
     }

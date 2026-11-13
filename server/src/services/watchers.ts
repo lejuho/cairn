@@ -57,13 +57,13 @@ function daysOverdue(date: string, threshold: string): number {
 }
 
 function bubbleMessage(days: number): string {
-  return days === 0 ? "오늘 확인할 watcher야" : `${days}일 지난 watcher야`;
+  return days === 0 ? "오늘 확인할 watcher입니다" : `${days}일 지난 watcher입니다`;
 }
 
 function reversePlanBubbleMessage(overdue: number, view: ReversePlanView): string {
   const idx = view.nextStepIndex;
   const label = idx !== null && idx < view.steps.length ? (view.steps[idx]?.label ?? "") : "";
-  return overdue === 0 ? `${label}을 시작할 때야` : `${overdue}일 지난 역산 watcher야: ${label}`;
+  return overdue === 0 ? `${label}을 시작할 때입니다` : `${overdue}일 지난 역산 watcher입니다: ${label}`;
 }
 
 export function evaluateWatcherA(

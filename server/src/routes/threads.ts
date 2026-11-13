@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { CreateThreadLinkRequestSchema, CreateThreadRequestSchema, PatchThreadResumeRequestSchema, PatchThreadStatusRequestSchema, ThreadListQuerySchema, ThreadResumeExportQuerySchema } from "@cairn/shared";
+import { CreateThreadLinkRequestSchema, CreateThreadRequestSchema, PatchThreadResumeRequestSchema, MoveThreadOnBoardRequestSchema, PatchThreadStatusRequestSchema, ThreadListQuerySchema, ThreadResumeExportQuerySchema } from "@cairn/shared";
 import {
   createThread,
   createThreadLink,
@@ -9,7 +9,7 @@ import {
   updateThreadStatus
 } from "../services/threads.js";
 import { confirmThreadNodeLink } from "../repositories/links.js";
-import { findThreadById, updateThreadResume } from "../repositories/threads.js";
+import { findThreadById, moveThreadOnBoard, updateThreadResume } from "../repositories/threads.js";
 import { exportThreadResume } from "../services/threadResumeExport.js";
 import type { CairnDatabase } from "../db/index.js";
 
@@ -87,6 +87,22 @@ export function registerThreadRoutes(app: FastifyInstance, db: CairnDatabase): v
         ok: false,
         error: { code: "NOT_FOUND", message: "Thread not found" }
       });
+    }
+    return reply.send({ ok: true, data: { thread } });
+  });
+
+  app.patch("/api/threads/:id/board", async (req, reply) => {
+    const id = parsePositiveIntParam((req.params as { id: string }).id);
+    if (id === null) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: "id must be a positive integer" } });
+    }
+    const parsed = MoveThreadOnBoardRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: parsed.error.message } });
+    }
+    const thread = moveThreadOnBoard(db, id, parsed.data.column, new Date().toISOString());
+    if (!thread) {
+      return reply.code(404).send({ ok: false, error: { code: "NOT_FOUND", message: "Thread not found" } });
     }
     return reply.send({ ok: true, data: { thread } });
   });

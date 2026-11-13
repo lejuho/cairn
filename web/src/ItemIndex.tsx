@@ -125,7 +125,7 @@ function taskMeta(task: TaskRow): string {
 
 async function fetchEventDetail(id: number): Promise<EventDetailData> {
   const body = await apiJson<{ ok: boolean; data?: EventDetailData; error?: { message: string } }>(`/api/events/${id}`);
-  if (!body.ok || !body.data) throw new Error(body.error?.message ?? "일정을 불러오지 못했어");
+  if (!body.ok || !body.data) throw new Error(body.error?.message ?? "일정을 불러오지 못했습니다");
   return body.data;
 }
 
@@ -242,14 +242,14 @@ function isTaskRow(value: unknown): value is TaskRow {
 
 function parseList(raw: unknown): ItemListData {
   if (!isRecord(raw) || raw.ok !== true || !isRecord(raw.data)) {
-    throw new Error("항목 응답 형식이 맞지 않아");
+    throw new Error("항목 응답 형식이 맞지 않습니다");
   }
   const { scope, events, tasks } = raw.data;
   if ((scope !== "active" && scope !== "all") || !Array.isArray(events) || !Array.isArray(tasks)) {
-    throw new Error("항목 응답 형식이 맞지 않아");
+    throw new Error("항목 응답 형식이 맞지 않습니다");
   }
   if (!events.every(isEventRow) || !tasks.every(isTaskRow)) {
-    throw new Error("항목 응답 형식이 맞지 않아");
+    throw new Error("항목 응답 형식이 맞지 않습니다");
   }
   return { scope, events, tasks };
 }
@@ -273,7 +273,7 @@ export function ItemIndex() {
       setData(parseList(raw));
       setState("live");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "항목을 불러오지 못했어");
+      setError(err instanceof Error ? err.message : "항목을 불러오지 못했습니다");
       setState("error");
     }
   }, []);
@@ -301,7 +301,7 @@ export function ItemIndex() {
       const detail = await fetchEventDetail(eventId);
       setEventSheet({ tag: "loaded", eventId, data: detail, saving: null, error: null });
     } catch (err: unknown) {
-      setEventSheet({ tag: "error", eventId, message: err instanceof Error ? err.message : "일정을 불러오지 못했어" });
+      setEventSheet({ tag: "error", eventId, message: err instanceof Error ? err.message : "일정을 불러오지 못했습니다" });
     }
   };
 
@@ -383,7 +383,7 @@ export function ItemIndex() {
 
   const loadTaskSlots = async (task: TaskRow) => {
     if (task.due == null) {
-      setTaskSlotState((s) => ({ ...s, [task.id]: { tag: "error", message: "마감일을 먼저 넣어야 후보를 계산할 수 있어" } }));
+      setTaskSlotState((s) => ({ ...s, [task.id]: { tag: "error", message: "마감일을 입력해야 후보를 계산할 수 있습니다" } }));
       return;
     }
     setTaskSlotState((s) => ({ ...s, [task.id]: { tag: "loading" } }));
@@ -432,8 +432,8 @@ export function ItemIndex() {
 
       {state === "error" && (
         <section className="items-error" role="alert" data-testid="items-error">
-          <h2>항목을 못 불러왔어</h2>
-          <p>{error ?? "서버 상태를 확인해줘."}</p>
+          <h2>항목을 불러오지 못했습니다</h2>
+          <p>{error ?? "서버 상태를 확인하세요."}</p>
           <button type="button" onClick={() => void load(scope)}>다시 시도</button>
         </section>
       )}
@@ -441,8 +441,8 @@ export function ItemIndex() {
       {isQuiet && (
         <section className="quiet-card warm" data-testid="items-quiet">
           <span className="quiet-dot" aria-hidden="true" />
-          <h2>{scope === "active" ? "진행 중인 항목은 조용해" : "아직 항목이 없어"}</h2>
-          <p>새 일정이나 할 일을 넣으면 여기서 바로 찾을 수 있어.</p>
+          <h2>{scope === "active" ? "진행 중인 항목이 없습니다" : "항목이 없습니다"}</h2>
+          <p>새 일정이나 할 일을 추가하면 여기에 표시됩니다.</p>
           <a className="items-create-link" href="/input">입력하기</a>
         </section>
       )}
@@ -455,7 +455,7 @@ export function ItemIndex() {
               <span>{data.events.length}</span>
             </div>
             {data.events.length === 0 ? (
-              <p className="items-empty-line">보이는 일정이 없어.</p>
+              <p className="items-empty-line">표시할 일정이 없습니다.</p>
             ) : (
               <ul className="items-list" role="list">
                 {data.events.map((event) => {
@@ -489,7 +489,7 @@ export function ItemIndex() {
               <span>{data.tasks.length}</span>
             </div>
             {data.tasks.length === 0 ? (
-              <p className="items-empty-line">보이는 할 일이 없어.</p>
+              <p className="items-empty-line">표시할 할 일이 없습니다.</p>
             ) : (
               <ul className="items-list" role="list">
                 {data.tasks.map((task) => {
@@ -553,9 +553,9 @@ export function ItemIndex() {
                 <section className="item-detail-actions" aria-labelledby="event-slot-title">
                   <p id="event-slot-title" className="event-detail-section-label">시간 추천</p>
                   {eventSheet.data.event.source === "gcal" ? (
-                    <p className="card-meta">외부 일정은 Cairn에서 시간을 바꾸지 않아.</p>
+                    <p className="card-meta">외부 일정은 Cairn에서 시간을 바꾸지 않습니다.</p>
                   ) : eventSheet.data.event.start != null ? (
-                    <p className="card-meta">이미 시간이 있어. 미정 일정만 여기서 배정해.</p>
+                    <p className="card-meta">이미 시간이 있습니다. 미정 일정만 여기서 배정할 수 있습니다.</p>
                   ) : (
                     <EventSlotControls
                       state={eventSlotState[eventSheet.eventId] ?? { tag: "idle" }}
@@ -638,7 +638,7 @@ export function ItemIndex() {
               <section className="item-detail-actions" aria-labelledby="task-slot-title">
                 <p id="task-slot-title" className="event-detail-section-label">시간 추천</p>
                 {taskSheet.task.due == null ? (
-                  <p className="card-meta">마감일을 먼저 넣어야 후보를 계산할 수 있어.</p>
+                  <p className="card-meta">마감일을 입력해야 후보를 계산할 수 있습니다.</p>
                 ) : (
                   <TaskSlotControls
                     state={taskSlotState[taskSheet.task.id] ?? { tag: "idle" }}
@@ -699,12 +699,12 @@ function TaskDetailEditor({
     const trimmedContext = context.trim();
     const parsedEst = Number(trimmedEst);
     if (trimmedEst !== "" && (!Number.isInteger(parsedEst) || parsedEst <= 0)) {
-      setLocalError("예상 시간은 양수 분 단위로 넣어줘");
+      setLocalError("예상 시간은 양수 분 단위로 입력하세요");
       return;
     }
     const est = trimmedEst === "" ? null : parsedEst;
     if (trimmedDue !== "" && !/^\d{4}-\d{2}-\d{2}$/.test(trimmedDue)) {
-      setLocalError("마감일은 YYYY-MM-DD 형식이어야 해");
+      setLocalError("마감일은 YYYY-MM-DD 형식이어야 합니다");
       return;
     }
     setSaving(true);
@@ -761,7 +761,7 @@ function EventSlotControls({
         {state.tag === "applying" && <p className="today-slot-loading">배정 중...</p>}
         <SlotCandidatePicker
           candidates={state.candidates}
-          emptyMessage="빈 시간이 없어. 나중에 다시 해봐."
+          emptyMessage="비어있는 시간이 없습니다"
           onPick={onPick}
           testIdPrefix="item-event-slot"
         />
@@ -785,11 +785,11 @@ function TaskSlotControls({
   if (state.tag === "loaded" || state.tag === "applying") {
     return (
       <>
-        <p className="card-meta">선택하면 작업 블록을 만들어. 완료 처리는 아님.</p>
+        <p className="card-meta">선택하면 작업 블록이 생성됩니다. 완료 처리는 아닙니다.</p>
         {state.tag === "applying" && <p className="today-slot-loading">만드는 중...</p>}
         <SlotCandidatePicker
           candidates={state.candidates}
-          emptyMessage="빈 시간이 없어. 나중에 다시 해봐."
+          emptyMessage="비어있는 시간이 없습니다"
           onPick={onPick}
           testIdPrefix="item-task-slot"
         />

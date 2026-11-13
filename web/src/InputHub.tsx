@@ -165,7 +165,7 @@ export function InputHub() {
         await loadData();
       }
     } catch (e) {
-      const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "저장 실패";
+      const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼습니다" : e instanceof Error ? e.message : "저장 실패";
       setComposer((c) => ({ ...c, submitting: false, error: msg }));
     }
   }, [composer, loadData, watcherSubtype, watcherFields, recordTargetId, recordTargets]);
@@ -179,7 +179,7 @@ export function InputHub() {
       if (form.mode === "event") {
         const { title, start, end, threadId, personIds, eventMode } = form.eventForm;
         if (!title.trim() || !start || !end) {
-          setForm((f) => ({ ...f, submitting: false, error: "제목, 시작, 종료 시간을 입력해줘" }));
+          setForm((f) => ({ ...f, submitting: false, error: "제목, 시작, 종료 시간을 입력하세요" }));
           return;
         }
         const payload: Record<string, unknown> = { title: title.trim(), start, end };
@@ -197,7 +197,7 @@ export function InputHub() {
       } else {
         const { title, estMinutes, threadId } = form.taskForm;
         if (!title.trim()) {
-          setForm((f) => ({ ...f, submitting: false, error: "제목을 입력해줘" }));
+          setForm((f) => ({ ...f, submitting: false, error: "제목을 입력하세요" }));
           return;
         }
         const payload: Record<string, unknown> = { title: title.trim() };
@@ -214,7 +214,7 @@ export function InputHub() {
         setForm((f) => ({ ...f, taskForm: EMPTY_TASK, submitting: false, saved: true, error: null }));
       }
     } catch (e) {
-      const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "저장 실패";
+      const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼습니다" : e instanceof Error ? e.message : "저장 실패";
       setForm((f) => ({ ...f, submitting: false, error: msg }));
     }
   }, [form]);
@@ -280,7 +280,7 @@ export function InputHub() {
       setForm((f) => ({ ...f, eventForm: { ...f.eventForm, personIds: [...f.eventForm.personIds, created.id] } }));
       setNewPerson({ show: false, name: "", channel: "none", relation: "", submitting: false, error: null });
     } catch (e) {
-      const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "저장 실패";
+      const msg = (e as AccessSessionError).kind === "access_session_required" ? "로그인 세션이 만료됐거나 네트워크가 끊겼습니다" : e instanceof Error ? e.message : "저장 실패";
       setNewPerson((s) => ({ ...s, submitting: false, error: msg }));
     }
   }, [newPerson]);
@@ -315,7 +315,7 @@ export function InputHub() {
       setConstraintSheet({ open: false });
     } catch (e) {
       const msg = (e as AccessSessionError).kind === "access_session_required"
-        ? "로그인 세션이 만료됐거나 네트워크가 끊겼어" : e instanceof Error ? e.message : "저장 실패";
+        ? "로그인 세션이 만료됐거나 네트워크가 끊겼습니다" : e instanceof Error ? e.message : "저장 실패";
       setConstraintSheet((s) => s.open ? { ...s, submitting: false, error: msg } : s);
     }
   }, [constraintSheet]);
@@ -333,11 +333,11 @@ export function InputHub() {
   const threads = view.tag === "quiet" ? view.threads : view.tag === "live" ? view.threads : [];
 
   const COMPOSER_MODES: { mode: ComposerMode; label: string; placeholder: string }[] = [
-    { mode: "event", label: "일정", placeholder: "내일 3시 치과 — 한 줄로 적으면 일정으로 잡아줄게" },
+    { mode: "event", label: "일정", placeholder: "내일 3시 치과 — 한 줄로 적으면 일정으로 등록됩니다" },
     { mode: "thread", label: "스레드", placeholder: "예: 6월 파리 여행 준비. 항공권 예약하고 여권 유효기간 확인." },
     { mode: "task", label: "할 일", placeholder: "할 일 제목 — 예: 코드 리뷰" },
     { mode: "watcher", label: "Watcher", placeholder: "지켜볼 것 이름 — 예: 여권 갱신" },
-    { mode: "record", label: "기록", placeholder: "무슨 일이 있었는지 적어줘 — 이벤트에 기록돼" }
+    { mode: "record", label: "기록", placeholder: "무슨 일이 있었는지 적으세요 — 이벤트에 기록됩니다" }
   ];
   const composerResultCard = (() => {
     const r = composer.result;
@@ -346,13 +346,13 @@ export function InputHub() {
       return (
         <ResultCard
           kind={r.scheduled ? "일정" : "미정 일정"}
-          status={r.scheduled ? "저장됐어" : "날짜 없이 저장됐어"}
+          status={r.scheduled ? "저장됨" : "날짜 없이 저장됨"}
           primary={r.scheduled
             ? { label: "달력에서 보기", href: "/calendar" }
             : { label: "날짜 잡기", onClick: () => { setComposer((c) => ({ ...c, result: null })); void loadData(); } }}
           secondary={r.scheduled
-            ? "방금 만든 일정은 오늘 화면에서 볼 수 있어."
-            : "날짜를 잡으면 일정으로 확정돼 — 아래 미정 일정 목록에서 잡을 수 있어."}
+            ? "방금 만든 일정은 오늘 화면에서 볼 수 있습니다."
+            : "날짜를 잡으면 일정으로 확정됩니다 — 아래 미정 일정 목록에서 잡을 수 있습니다."}
           testId="capture-result"
         />
       );
@@ -363,7 +363,7 @@ export function InputHub() {
           testId="thread-draft-success"
           kind="스레드 초안"
           title={`“${r.draft.thread.name}”`}
-          status="초안이 만들어졌어"
+          status="초안 생성됨"
           primary={{ label: "스레드 열기", href: `/threads/${r.draft.thread.id}`, testId: "draft-open-link" }}
           secondary={
             <>
@@ -388,9 +388,9 @@ export function InputHub() {
       return (
         <ResultCard
           kind="할 일"
-          status="저장됐어"
+          status="저장됨"
           primary={{ label: "달력에서 보기", href: "/calendar" }}
-          secondary="오늘 화면에서 할 일을 확인할 수 있어."
+          secondary="오늘 화면에서 할 일을 확인할 수 있습니다."
           testId="task-result"
         />
       );
@@ -400,9 +400,9 @@ export function InputHub() {
         <ResultCard
           kind="Watcher"
           title={r.label}
-          status={`${watcherSubtypeLabel(r.subtype)} Watcher가 만들어졌어`}
+          status={`${watcherSubtypeLabel(r.subtype)} Watcher 생성됨`}
           primary={{ label: "지켜볼 것에서 보기", href: "/watch" }}
-          secondary="여백(/watch)에서 방금 만든 Watcher를 확인할 수 있어."
+          secondary="여백(/watch)에서 방금 만든 Watcher를 확인할 수 있습니다."
           testId="watcher-result"
         />
       );
@@ -411,9 +411,9 @@ export function InputHub() {
       <ResultCard
         kind="기록"
         title={r.eventTitle}
-        status={r.parseStatus === "parsed" ? "기록됐어" : "원문 저장됨 (분석 대기)"}
+        status={r.parseStatus === "parsed" ? "기록됨" : "원문 저장됨 (분석 대기)"}
         primary={{ label: "달력에서 보기", href: "/calendar" }}
-        secondary="이벤트에 연결된 기록이야 — 이벤트 상세와 거울에서 볼 수 있어."
+        secondary="이벤트에 연결된 기록입니다 — 이벤트 상세와 거울에서 볼 수 있습니다."
         testId="record-result"
       />
     );
@@ -695,9 +695,9 @@ export function InputHub() {
       {form.saved && (
         <ResultCard
           kind={form.mode === "event" ? "일정" : "할 일"}
-          status="저장됐어"
+          status="저장됨"
           primary={{ label: "달력에서 보기", href: "/calendar" }}
-          secondary={form.mode === "event" ? "오늘 화면에서 확인할 수 있어." : "오늘 화면에서 할 일을 확인할 수 있어."}
+          secondary={form.mode === "event" ? "오늘 화면에서 확인할 수 있습니다." : "오늘 화면에서 할 일을 확인할 수 있습니다."}
           testId="manual-result"
         />
       )}
@@ -725,7 +725,7 @@ export function InputHub() {
                 )}
                 {ss.tag === "loading" && <p className="today-slot-loading">후보 찾는 중…</p>}
                 {ss.tag === "loaded" && ss.candidates.length === 0 && (
-                  <p className="today-slot-empty">빈 시간이 없어. 나중에 다시 해봐.</p>
+                  <p className="today-slot-empty">비어있는 시간이 없습니다</p>
                 )}
                 {ss.tag === "loaded" && ss.candidates.length > 0 && (
                   <ul className="today-slot-list" role="list">
@@ -766,8 +766,8 @@ export function InputHub() {
   if (view.tag === "access_error") {
     return (
       <main className="app-shell input-hub" aria-label="입력 허브">
-        <p className="input-error" role="alert" data-testid="input-error">로그인 세션이 필요해</p>
-        <p>Cloudflare Access 세션이 만료됐거나 아직 인증되지 않았어. 다시 로그인한 뒤 이 화면으로 돌아오면 돼.</p>
+        <p className="input-error" role="alert" data-testid="input-error">로그인이 필요합니다</p>
+        <p>Cloudflare Access 세션이 만료됐거나 인증되지 않았습니다. 다시 로그인한 뒤 이 화면으로 돌아오세요.</p>
         <button className="input-submit-btn" onClick={() => { openAccessLogin(); }}>
           Access 로그인 다시 열기
         </button>
@@ -790,7 +790,7 @@ export function InputHub() {
       <div className="sheet-panel">
         <button className="sheet-close-btn" onClick={() => setConstraintSheet({ open: false })} aria-label="닫기">✕</button>
         <h2 className="sheet-title">{constraintSheet.personName} 요일 제약</h2>
-        <p className="constraint-hint">만나기 어려운 요일을 선택해.</p>
+        <p className="constraint-hint">만나기 어려운 요일을 선택하세요.</p>
         <div className="constraint-weekdays" role="group" aria-label="요일 선택">
           {ALL_WEEKDAYS.map(({ key, label }) => (
             <button

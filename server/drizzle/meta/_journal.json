@@ -141,6 +141,13 @@
       "when": 1794498162190,
       "tag": "0019_cuddly_smasher",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1794525018798,
+      "tag": "0020_stormy_thundra",
+      "breakpoints": true
     }
   ]
 }

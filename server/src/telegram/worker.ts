@@ -224,14 +224,14 @@ function promptMessageKey(messageId: number): string {
 }
 
 function formatPrompt(event: EventRow): string {
-  return `${event.title}\n${formatTimeWindow(event)}\n어떻게 됐어? 한 줄로 답해줘.`;
+  return `${event.title}\n${formatTimeWindow(event)}\n어떻게 됐나요? 한 줄로 답해 주세요.`;
 }
 
 function formatAck(result: AnnotationIntakeSuccessData): string {
   if (result.parseStatus === "parsed") {
-    return "기록했어.";
+    return "기록됨";
   }
-  return "원문 저장했어. 구조화는 지금 안 됐어.";
+  return "원문 저장됨. 구조화는 되지 않았습니다.";
 }
 
 function formatTimeWindow(event: EventRow): string {

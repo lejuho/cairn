@@ -93,8 +93,8 @@ describe("Today — quiet state", () => {
     await waitFor(() => {
       expect(screen.getByTestId("today-quiet")).toBeInTheDocument();
     });
-    expect(screen.getByRole("heading", { name: "오늘은 조용해" })).toBeInTheDocument();
-    expect(screen.getByText("새로 생기면 올려둘게. 닫고 네 일 해도 돼.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "오늘은 조용합니다" })).toBeInTheDocument();
+    expect(screen.getByText("새 항목이 생기면 표시됩니다.")).toBeInTheDocument();
   });
 });
 
@@ -257,7 +257,7 @@ describe("Today — error state", () => {
     mockFetchError();
     render(<Today />);
     await waitFor(() => {
-      expect(screen.getByText("데이터를 불러오지 못했어")).toBeInTheDocument();
+      expect(screen.getByText("데이터를 불러오지 못했습니다")).toBeInTheDocument();
     });
     expect(screen.getByRole("button", { name: "다시 시도" })).toBeInTheDocument();
   });
@@ -267,7 +267,7 @@ describe("Today — Access session error state", () => {
   it("renders Access-specific title and recovery action for rejected fetch", async () => {
     mockFetchAccessError();
     render(<Today />);
-    await waitFor(() => expect(screen.getByText("로그인 세션이 필요해")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("로그인이 필요합니다")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Access 로그인 다시 열기" })).toBeInTheDocument();
   });
 
@@ -285,8 +285,8 @@ describe("Today — Access session error state", () => {
   it("generic API failure still shows 데이터를 불러오지 못했어 not Access copy", async () => {
     mockFetchError("API 오류");
     render(<Today />);
-    await waitFor(() => expect(screen.getByText("데이터를 불러오지 못했어")).toBeInTheDocument());
-    expect(screen.queryByText("로그인 세션이 필요해")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("데이터를 불러오지 못했습니다")).toBeInTheDocument());
+    expect(screen.queryByText("로그인이 필요합니다")).not.toBeInTheDocument();
   });
 });
 
@@ -564,7 +564,7 @@ describe("Today — needs_review card", () => {
     await waitFor(() => {
       expect(screen.getByText("기록", { selector: ".card-chip" })).toBeInTheDocument();
     });
-    expect(screen.getByText("팀 회의 — 어떻게 됐어?")).toBeInTheDocument();
+    expect(screen.getByText("팀 회의 — 어떻게 됐나요?")).toBeInTheDocument();
     expect(screen.getByLabelText("팀 회의 메모")).toBeInTheDocument();
     // placement line (no_context)
     const placement = screen.getByTestId("review-placement");
@@ -574,7 +574,7 @@ describe("Today — needs_review card", () => {
 
   it.each([
     ["low_context_slot", "맥락 맞는 틈"],
-    ["stale_due", "미루면 기억이 흐려져"],
+    ["stale_due", "미루면 기억이 흐려짐"],
     ["no_context", "짧게 확인"]
   ])("renders placement copy for %s mode", async (mode, copy) => {
     const placement = {
@@ -669,7 +669,7 @@ describe("Today — needs_review card", () => {
 
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
     // Card still visible
-    expect(screen.getByText("팀 회의 — 어떻게 됐어?")).toBeInTheDocument();
+    expect(screen.getByText("팀 회의 — 어떻게 됐나요?")).toBeInTheDocument();
   });
 
   it("clicking the title opens the event detail sheet without breaking the reply form", async () => {
@@ -965,7 +965,7 @@ describe("Today — compact Composer (cycle-70)", () => {
     fireEvent.click(screen.getByLabelText("만들기"));
     const card = await screen.findByTestId("capture-result");
     expect(card).toHaveTextContent("미정 일정");
-    expect(card).toHaveTextContent("날짜 없이 저장됐어");
+    expect(card).toHaveTextContent("날짜 없이 저장됨");
     expect(within(card).getByText("날짜 잡기")).toHaveAttribute("href", "/input");
   });
 
@@ -1053,7 +1053,7 @@ describe("Today — schedule prompt", () => {
     }));
     render(<Today />);
     await waitFor(() => expect(screen.getByLabelText("독서 날짜 잡기")).toBeInTheDocument());
-    expect(screen.getByText(/날짜 잡을까\?/)).toBeInTheDocument();
+    expect(screen.getByText(/날짜 잡을까요\?/)).toBeInTheDocument();
   });
 
   it("schedule_prompt card renders both the date-pick and dismiss actions", async () => {
@@ -2177,7 +2177,7 @@ describe("Today — feasibility panel", () => {
     const row = screen.getByTestId("transition-row");
     expect(row).toHaveAttribute("data-cost", "unknown");
     expect(row).toHaveTextContent("전환 비용 불확실");
-    expect(row).toHaveTextContent("스레드 정보가 없어");
+    expect(row).toHaveTextContent("스레드 정보 없음");
     // not a warning-styled gap/continuous row
     expect(row.className).not.toContain("feas-gap");
   });
@@ -2238,7 +2238,7 @@ describe("Today — feasibility panel", () => {
     render(<Today />);
     await waitFor(() => expect(screen.getByLabelText("전환 포함")).toBeInTheDocument());
     const node = screen.getByTestId("sequence-energy");
-    expect(node).toHaveTextContent("전환 2건은 스레드 정보가 없어 비용을 매기지 않았어");
+    expect(node).toHaveTextContent("전환 2건은 스레드 정보 없음 비용을 매기지 않았습니다");
     // total equals work (no inflation)
     expect(node).toHaveTextContent("합계 3.00h / 8h");
   });
@@ -2663,7 +2663,7 @@ describe("Today — conflict decision sheet", () => {
     fireEvent.click(screen.getByLabelText(/충돌 해결/));
     await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
     fireEvent.click(screen.getByLabelText("미팅 B 이동 처리"));
-    await waitFor(() => expect(screen.getByText("충돌이 이미 해소됐어")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("충돌이 이미 해소됐습니다")).toBeInTheDocument());
     expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument();
   });
 
@@ -2681,7 +2681,7 @@ describe("Today — conflict decision sheet", () => {
     await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toBeInTheDocument());
     fireEvent.click(screen.getByLabelText(/충돌 해결/));
     await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
-    expect(screen.getByText("아직 계획 구간이라 해소 버튼은 잠가둠")).toBeInTheDocument();
+    expect(screen.getByText("계획 구간이라 해소 버튼이 잠겨 있습니다")).toBeInTheDocument();
     const moveBtns = screen.getAllByRole("button", { name: /이동 처리/ });
     moveBtns.forEach((btn) => expect(btn).toBeDisabled());
     const cancelBtns = screen.getAllByRole("button", { name: /취소 처리/ });
@@ -2703,7 +2703,7 @@ describe("Today — conflict decision sheet", () => {
     await waitFor(() => expect(screen.getByLabelText(/충돌 해결/)).toBeInTheDocument());
     fireEvent.click(screen.getByLabelText(/충돌 해결/));
     await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
-    expect(screen.queryByText("아직 계획 구간이라 해소 버튼은 잠가둠")).not.toBeInTheDocument();
+    expect(screen.queryByText("계획 구간이라 해소 버튼이 잠겨 있습니다")).not.toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("미팅 B 이동 처리"));
     await waitFor(() =>
       expect(fetchSpy.mock.calls.some(
@@ -2720,7 +2720,7 @@ describe("Today — conflict decision sheet", () => {
     await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
     fireEvent.click(screen.getByLabelText("미팅 B 이동 처리"));
     await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결 완료" })).toBeInTheDocument());
-    expect(screen.getByText("연결된 사람이 없어 통보 초안이 없어.")).toBeInTheDocument();
+    expect(screen.getByText("연결된 사람이 없어 통보 초안이 없습니다.")).toBeInTheDocument();
     expect(screen.queryByText("보내기")).not.toBeInTheDocument();
     expect(screen.queryByText("전송")).not.toBeInTheDocument();
   });
@@ -2859,7 +2859,7 @@ describe("Today — conflict decision sheet", () => {
     fireEvent.click(screen.getByLabelText(/충돌 해결/));
     await waitFor(() => expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument());
     fireEvent.click(screen.getByLabelText("미팅 B 이동 처리"));
-    await waitFor(() => expect(screen.getByText("서버 응답이 예상과 달라")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("서버 응답이 예상과 다릅니다")).toBeInTheDocument());
     expect(screen.queryByRole("dialog", { name: "충돌 해결 완료" })).not.toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "충돌 해결" })).toBeInTheDocument();
   });
@@ -2985,7 +2985,7 @@ describe("Today — conflict sheet people guard", () => {
     };
     setupMock(BOTH_BLOCKED);
     await openSheet();
-    expect(screen.getByText(/두 선택지 모두 사람 제약에 걸려있어/)).toBeInTheDocument();
+    expect(screen.getByText(/두 선택지 모두 사람 제약에 걸려 있습니다/)).toBeInTheDocument();
   });
 
   it("existing read_only disables all (not just guard-blocked) — no regression", async () => {
@@ -2996,7 +2996,7 @@ describe("Today — conflict sheet people guard", () => {
     expect(screen.getByLabelText("미팅 A 취소 처리")).toBeDisabled();
     expect(screen.getByLabelText("미팅 B 이동 처리")).toBeDisabled();
     expect(screen.getByLabelText("미팅 B 취소 처리")).toBeDisabled();
-    expect(screen.getByText("아직 계획 구간이라 해소 버튼은 잠가둠")).toBeInTheDocument();
+    expect(screen.getByText("계획 구간이라 해소 버튼이 잠겨 있습니다")).toBeInTheDocument();
   });
 });
 
@@ -3268,7 +3268,7 @@ describe("Today — due task schedule prompt (cycle-62)", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ json: () => Promise.resolve({ ok: true, data: surfaceWithTaskPrompt() }) }));
     render(<Today />);
     await waitFor(() => expect(screen.getByTestId("task-schedule-prompt-77")).toBeInTheDocument());
-    expect(screen.getByText(/마감 잡을까\?/)).toBeInTheDocument();
+    expect(screen.getByText(/마감 잡을까요\?/)).toBeInTheDocument();
     expect(screen.getByText(/마감 2026-06-16 · 예상 90분/)).toBeInTheDocument();
     expect(screen.getByLabelText("보고서 후보 보기")).toBeInTheDocument();
   });
@@ -3288,7 +3288,7 @@ describe("Today — due task schedule prompt (cycle-62)", () => {
     // an explicit "작업 블록 만들기" button (not a done/complete action)
     const apply = screen.getByLabelText("2026-06-20 09:00 작업 블록 만들기");
     expect(apply).toBeInTheDocument();
-    expect(screen.getByText(/작업 블록을 만들어 \(완료 처리는 아님\)/)).toBeInTheDocument();
+    expect(screen.getByText(/선택하면 작업 블록이 생성됩니다 \(완료 처리는 아님\)/)).toBeInTheDocument();
   });
 
   it("applying a candidate POSTs schedule-block (only) and refreshes the card away", async () => {
@@ -3746,7 +3746,7 @@ describe("Today — event location preview (cycle-74)", () => {
       mockGeo({ geocodeImpl: () => Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, data: geo }) }) });
       await openSheet();
       await waitFor(() => expect(screen.getByTestId(`geo-${status}`)).toBeInTheDocument());
-      expect(screen.getByText("위치를 찾지 못했어 — 입력한 텍스트로 지도를 열 수 있어.")).toBeInTheDocument();
+      expect(screen.getByText("위치를 찾지 못했습니다 — 입력한 텍스트로 지도를 열 수 있습니다.")).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "지도에서 열기" })).toHaveAttribute("href", `https://map.naver.com/p/search/${encodeURIComponent("서울타워")}`);
     }
   });
@@ -3772,7 +3772,7 @@ describe("Today — event location preview (cycle-74)", () => {
     mockGeo({ geocodeImpl: () => Promise.reject(new Error("network")) });
     await openSheet();
     await waitFor(() => expect(screen.getByTestId("geo-error")).toBeInTheDocument());
-    expect(screen.getByText("로그인 세션이 만료됐거나 네트워크가 끊겼어")).toBeInTheDocument();
+    expect(screen.getByText("로그인 세션이 만료됐거나 네트워크가 끊겼습니다")).toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "일정 상세" })).toBeInTheDocument();
   });
 
@@ -3780,7 +3780,7 @@ describe("Today — event location preview (cycle-74)", () => {
     mockGeo({ geocodeImpl: () => Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, data: { garbage: 1 } }) }) });
     await openSheet();
     await waitFor(() => expect(screen.getByTestId("geo-error")).toBeInTheDocument());
-    expect(screen.getByText("위치 정보를 불러오지 못했어")).toBeInTheDocument();
+    expect(screen.getByText("위치 정보를 불러오지 못했습니다")).toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "일정 상세" })).toBeInTheDocument();
   });
 
@@ -3971,7 +3971,7 @@ describe("Today — pinned transit fact (cycle-78)", () => {
     fireEvent.click(screen.getByLabelText("회의→운동 고정 이동시간 입력"));
     fireEvent.change(await screen.findByLabelText("이동 시간(분)"), { target: { value: "0" } });
     fireEvent.click(screen.getByRole("button", { name: "저장" }));
-    expect(await screen.findByText("이동 시간을 1~600분 사이로 입력해줘")).toBeInTheDocument();
+    expect(await screen.findByText("이동 시간을 1~600분 사이로 입력하세요")).toBeInTheDocument();
     expect(calls).toHaveLength(0);
     expect(screen.getByLabelText("이동 시간(분)")).toBeInTheDocument(); // form stays open
   });

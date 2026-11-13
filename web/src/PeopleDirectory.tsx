@@ -57,8 +57,8 @@ export function PeopleDirectory() {
     return (
       <main className="app-shell" aria-label="사람 목록">
         <section className="quiet-card warm">
-          <h1>로그인 세션이 필요해</h1>
-          <p>Cloudflare Access 세션이 만료됐거나 네트워크가 끊겼어.</p>
+          <h1>로그인이 필요합니다</h1>
+          <p>Cloudflare Access 세션이 만료됐거나 네트워크가 끊겼습니다.</p>
           <button className="action-btn" onClick={() => openAccessLogin()}>
             Access 로그인 다시 열기
           </button>
@@ -82,11 +82,9 @@ export function PeopleDirectory() {
   if (view.tag === "quiet") {
     return (
       <main className="app-shell" aria-label="사람 목록" data-testid="people-quiet">
-        <section className="quiet-card">
-          <span className="quiet-dot" aria-hidden="true" />
-          <h1>아직 사람이 없어</h1>
-          <p>일정을 추가할 때 함께한 사람을 기록하면 여기에 나타나.</p>
-          <a className="action-btn" href="/input">입력 화면으로</a>
+        <section className="quiet-card empty-state">
+          <h1>사람이 없습니다</h1>
+          <a className="empty-add-btn" href="/input">+ 사람 추가</a>
         </section>
       </main>
     );

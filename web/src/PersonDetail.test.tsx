@@ -59,7 +59,7 @@ describe("PersonDetail", () => {
     stubDetail({ ok: true, data: { person: { ...ALICE_DIR, totalMeets: 0, lastMet: null, frequencyBand: "cold_start" }, recentMeetings: [] } });
     render(<PersonDetail id={1} />);
     await waitFor(() => expect(screen.getByTestId("person-live")).toBeInTheDocument());
-    expect(screen.getByText("아직 기록된 만남이 없어.")).toBeInTheDocument();
+    expect(screen.getByText("기록된 만남 없음")).toBeInTheDocument();
     // Null lastMet keeps the explicit fallback copy.
     expect(screen.getByText("만남 기록 없음")).toBeInTheDocument();
   });
@@ -82,7 +82,7 @@ describe("PersonDetail", () => {
   it("access_error state shows Access login button", async () => {
     stubAccessError();
     render(<PersonDetail id={1} />);
-    await waitFor(() => expect(screen.getByRole("heading", { name: "로그인 세션이 필요해" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "로그인이 필요합니다" })).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Access 로그인 다시 열기" })).toBeInTheDocument();
   });
 

@@ -86,6 +86,7 @@ export function listThreads(db: CairnDatabase, domain?: DomainFilter): ThreadSum
       taskCount: threadTasks.length,
       doneCount: allItems.filter((s) => s === "done").length,
       totalCount: allItems.length,
+      doingCount: threadTasks.filter((t) => t.status === "doing").length,
       relationCounts: { incoming: c.incoming, outgoing: c.outgoing }
     };
   });
@@ -134,7 +135,7 @@ function buildChildCards(db: CairnDatabase, parentId: number): ThreadChildCard[]
   if (childIds.length === 0) return [];
   const rows = db.select().from(threadsTable).where(inArray(threadsTable.id, childIds)).all();
   const eventRows = db.select({ threadId: eventsTable.threadId, start: eventsTable.start, end: eventsTable.end }).from(eventsTable).where(inArray(eventsTable.threadId, childIds)).all();
-  const taskRows = db.select({ threadId: tasksTable.threadId, due: tasksTable.due }).from(tasksTable).where(inArray(tasksTable.threadId, childIds)).all();
+  const taskRows = db.select({ threadId: tasksTable.threadId, due: tasksTable.due, status: tasksTable.status }).from(tasksTable).where(inArray(tasksTable.threadId, childIds)).all();
   return rows
     .map((row) => {
       const days = [
@@ -147,7 +148,9 @@ function buildChildCards(db: CairnDatabase, parentId: number): ThreadChildCard[]
         name: row.name,
         status: row.status as ThreadChildCard["status"],
         deadline: row.deadline,
-        period: days.length > 0 ? { from: days[0]!, to: days[days.length - 1]! } : null
+        period: days.length > 0 ? { from: days[0]!, to: days[days.length - 1]! } : null,
+        startedAt: row.startedAt,
+        doingCount: taskRows.filter((t) => t.threadId === row.id && t.status === "doing").length
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);

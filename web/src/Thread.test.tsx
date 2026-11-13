@@ -169,16 +169,16 @@ describe("Thread — access-session state", () => {
       text: () => Promise.resolve("Cloudflare-Access")
     }));
     render(<Thread id={1} />);
-    await waitFor(() => expect(screen.getByRole("heading", { name: "로그인이 필요해" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "로그인이 필요합니다" })).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "다시 로그인" })).toBeInTheDocument();
   });
 });
 
 describe("Thread — empty items still expose relations", () => {
-  it("shows quiet empty-items note inside live state, not a dead-end screen", async () => {
+  it("shows the empty board inside live state, not a dead-end screen", async () => {
     mockFetch({ thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 } });
     render(<Thread id={1} />);
-    await waitFor(() => expect(screen.getByTestId("thread-empty")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("thread-board")).toBeInTheDocument());
     // Header and relation section remain reachable even with no events/tasks.
     expect(screen.getByRole("heading", { name: "프로젝트 알파" })).toBeInTheDocument();
     expect(screen.getByTestId("thread-relations")).toBeInTheDocument();
@@ -297,14 +297,24 @@ describe("Thread — board", () => {
 
     // 드롭·취소·중지는 접어둔다.
     const folded = screen.getByText("접어둔 것 3").closest("details")!;
+    expect(folded).not.toHaveAttribute("open");
     expect(titles(folded)).toEqual(["보류한 갈래", "안 하기로 한 것", "취소된 발표"]);
 
-    // 폰에서는 열을 탭으로 넘긴다. 처음엔 내용이 있는 첫 열.
-    const tabs = within(screen.getByRole("tablist", { name: "보드 열" })).getAllByRole("tab");
-    expect(tabs.map((t) => [t.textContent, t.getAttribute("aria-selected")])).toEqual([["할 일3", "true"], ["진행 중2", "false"], ["완료2", "false"]]);
-    fireEvent.click(tabs[2]!);
-    expect(done).toHaveAttribute("data-active", "true");
-    expect(todo).toHaveAttribute("data-active", "false");
+    // 열 머리에는 개수가 붙고, 열마다 색(tone)이 다르다.
+    expect([todo, doing, done].map((col) => [col.dataset.tone, within(col).getByRole("heading").textContent])).toEqual([
+      ["todo", "할 일3"], ["doing", "진행 중2"], ["done", "완료2"]
+    ]);
+  });
+
+  it("keeps links to other threads out of the working view, under a closed section", async () => {
+    mockFetch({ thread: BASE_THREAD, events: [], tasks: [], progress: { done: 0, total: 0 } });
+    render(<Thread id={1} />);
+    const manage = await screen.findByTestId("thread-links-manage");
+    expect(manage.tagName).toBe("DETAILS");
+    expect(manage).not.toHaveAttribute("open");
+    expect(within(manage).getByText("스레드 연결 관리")).toBeInTheDocument();
+    expect(manage).toContainElement(screen.getByTestId("thread-relations"));
+    expect(manage).toContainElement(screen.getByTestId("thread-rollup"));
   });
 
   it("moves a task to the next state in one tap", async () => {
@@ -337,6 +347,52 @@ describe("Thread — board", () => {
       { url: "/api/tasks/20/status", body: { status: "doing" } },
       { url: "/api/tasks/20/status", body: { status: "done" } }
     ]);
+  });
+
+  it("moves cards with the grip: a task changes status, a contained thread changes its own state", async () => {
+    const calls: Array<{ url: string; body: unknown }> = [];
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
+      if (opts?.method === "PATCH") {
+        calls.push({ url, body: JSON.parse(String(opts.body)) });
+        return Promise.resolve(makeResponse({ ok: true, data: {} }, url));
+      }
+      if (url.includes("promotion-suggestions")) return Promise.resolve(makeResponse({ ok: true, data: { suggestions: [] } }, url));
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: {
+        thread: BASE_THREAD, events: [BASE_EVENT], tasks: [task({})], progress: { done: 0, total: 2 },
+        relations: EMPTY_RELATIONS, nodeLinks: [], unknownBlockers: [], settlement: EMPTY_SETTLEMENT_T,
+        missingNodeSuggestions: [], resume: EMPTY_RESUME_T, personFocus: EMPTY_PERSON_FOCUS_T,
+        rollup: { ...EMPTY_ROLLUP, children: [{ thread: { id: 5, name: "실험 설계" }, depth: 1, relationId: 9, progress: { done: 2, total: 5 }, energyHours: 0, paidCost: EMPTY_SETTLEMENT_T.paidCost, descendantCount: 0 }] },
+        childThreads: [
+          { id: 5, name: "실험 설계", status: "active", deadline: null, period: null, startedAt: null, doingCount: 0 },
+          { id: 6, name: "새 갈래", status: "active", deadline: null, period: null, startedAt: null, doingCount: 0 }
+        ]
+      } }, url));
+    }));
+    render(<Thread id={1} />);
+    const todo = await screen.findByRole("region", { name: "할 일 열" });
+    // 아직 시작 안 한 하위 스레드는 할 일, 안에 끝낸 항목이 있는 것은 진행 중.
+    expect(within(todo).getByText("새 갈래")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "진행 중 열" })).getByText("실험 설계")).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "자료 준비 옮기기" }), { key: "ArrowRight" });
+    fireEvent.keyDown(screen.getByRole("button", { name: "새 갈래 옮기기" }), { key: "ArrowRight" });
+    fireEvent.keyDown(screen.getByRole("button", { name: "실험 설계 옮기기" }), { key: "ArrowRight" });
+    await waitFor(() => expect(calls).toHaveLength(3));
+    expect(calls).toEqual(expect.arrayContaining([
+      { url: "/api/tasks/20/status", body: { status: "doing" } },
+      { url: "/api/threads/6/board", body: { column: "doing" } },
+      { url: "/api/threads/5/board", body: { column: "done" } }
+    ]));
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "실험 설계 옮기기" }), { key: "ArrowLeft" });
+    expect(await screen.findByRole("status")).toHaveTextContent("할 일로 되돌릴 수 없습니다");
+    expect(calls).toHaveLength(3);
+    // 일정은 시간으로 자리가 정해져서 옮기는 손잡이가 없고, 대신 고정 표시가 붙는다.
+    expect(screen.queryByRole("button", { name: "킥오프 미팅 옮기기" })).not.toBeInTheDocument();
+    const eventCard = screen.getByText("킥오프 미팅").closest("li")!;
+    expect(within(eventCard).getByLabelText("고정된 카드: 시간으로 자리가 정해짐")).toHaveTextContent("고정");
+    expect(within(screen.getByText("자료 준비").closest("li")!).queryByText("고정")).not.toBeInTheDocument();
   });
 });
 
@@ -396,7 +452,7 @@ describe("Thread — relations section", () => {
     });
     render(<Thread id={1} />);
     await waitFor(() => expect(screen.getByTestId("thread-relations")).toBeInTheDocument());
-    expect(screen.getByText("아직 연결된 스레드가 없어")).toBeInTheDocument();
+    expect(within(screen.getByTestId("thread-relations")).queryAllByRole("listitem")).toHaveLength(0);
   });
 
   it("renders outgoing relation with peer name and delete button", async () => {
@@ -463,7 +519,7 @@ describe("Thread — relations section", () => {
     render(<Thread id={1} />);
     await waitFor(() => expect(screen.getByRole("button", { name: "하위 스레드 관계 삭제" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "하위 스레드 관계 삭제" }));
-    await waitFor(() => expect(screen.getByText("아직 연결된 스레드가 없어")).toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("button", { name: "하위 스레드 관계 삭제" })).not.toBeInTheDocument());
   });
 });
 
@@ -507,7 +563,7 @@ describe("Thread — add link sheet", () => {
     fireEvent.change(screen.getByLabelText("대상 스레드"), { target: { value: "2" } });
     fireEvent.click(screen.getByRole("button", { name: "연결하기 →" }));
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
-    expect(screen.getByText("이 연결은 순환 구조를 만들어. 다른 방향을 선택해봐.")).toBeInTheDocument();
+    expect(screen.getByText("이 연결은 순환 구조를 만듭니다. 다른 방향을 선택하세요.")).toBeInTheDocument();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
@@ -527,7 +583,7 @@ describe("Thread — add link sheet", () => {
     fireEvent.change(screen.getByLabelText("대상 스레드"), { target: { value: "2" } });
     fireEvent.click(screen.getByRole("button", { name: "연결하기 →" }));
     await waitFor(() => screen.getByRole("alert"));
-    expect(screen.getByText("이 스레드는 이미 다른 상위 스레드가 있어.")).toBeInTheDocument();
+    expect(screen.getByText("이 스레드는 이미 다른 상위 스레드가 있습니다.")).toBeInTheDocument();
   });
 
   it("successful add closes sheet and refreshes relations", async () => {
@@ -852,7 +908,7 @@ describe("Thread — promotion suggestions panel", () => {
     render(<Thread id={1} />);
     await waitFor(() => expect(screen.getByTestId("promotion-suggestions")).toBeInTheDocument());
     expect(screen.getByTestId("promotion-suggestion-card")).toBeInTheDocument();
-    expect(screen.getByText(/노트북이\(가\) 2곳에 나타나/)).toBeInTheDocument();
+    expect(screen.getByText(/노트북이\(가\) 2곳에 나타납니다/)).toBeInTheDocument();
   });
 
   it("shows approve button for each suggestion", async () => {
@@ -898,7 +954,7 @@ describe("Thread — promotion suggestions panel", () => {
     await waitFor(() => expect(screen.getByTestId("promotion-approve-btn")).toBeInTheDocument());
     fireEvent.click(screen.getByTestId("promotion-approve-btn"));
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
-    expect(screen.getByText(/제안이 바뀌었어/)).toBeInTheDocument();
+    expect(screen.getByText(/제안이 바뀌었습니다/)).toBeInTheDocument();
     // Thread detail still shown — not a full error state
     expect(screen.getByRole("heading", { name: "프로젝트 알파" })).toBeInTheDocument();
   });
@@ -1363,7 +1419,7 @@ describe("Thread — STAR draft (cycle-55)", () => {
     stub(detail(), () => ({ ok: false, error: { code: "LLM_INVALID_DRAFT", message: "bad" } }));
     render(<Thread id={1} />);
     fireEvent.click(await screen.findByTestId("star-generate-btn"));
-    await waitFor(() => expect(screen.getByTestId("star-error")).toHaveTextContent("형식이 올바르지 않아"));
+    await waitFor(() => expect(screen.getByTestId("star-error")).toHaveTextContent("형식이 올바르지 않습니다"));
   });
 });
 

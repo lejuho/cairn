@@ -32,20 +32,20 @@ export async function apiJson<T>(input: RequestInfo, init?: RequestInit): Promis
   } catch {
     const err: AccessSessionError = {
       kind: "access_session_required",
-      message: "로그인 세션이 만료됐거나 네트워크가 끊겼어"
+      message: "로그인 세션이 만료됐거나 네트워크가 끊겼습니다"
     };
     throw err;
   }
 
   // 302/401/403 → Access boundary
   if (res.status != null && (res.status === 302 || res.status === 401 || res.status === 403)) {
-    const err: AccessSessionError = { kind: "access_session_required", message: "로그인 세션이 만료됐거나 네트워크가 끊겼어" };
+    const err: AccessSessionError = { kind: "access_session_required", message: "로그인 세션이 만료됐거나 네트워크가 끊겼습니다" };
     throw err;
   }
 
   // Redirected to CF Access login page
   if (res.redirected && ACCESS_MARKERS.some((m) => res.url?.includes(m))) {
-    const err: AccessSessionError = { kind: "access_session_required", message: "로그인 세션이 만료됐거나 네트워크가 끊겼어" };
+    const err: AccessSessionError = { kind: "access_session_required", message: "로그인 세션이 만료됐거나 네트워크가 끊겼습니다" };
     throw err;
   }
 
@@ -53,7 +53,7 @@ export async function apiJson<T>(input: RequestInfo, init?: RequestInit): Promis
   if (isHtmlContentType(res)) {
     const text = await res.text();
     if (isAccessBody(text)) {
-      const err: AccessSessionError = { kind: "access_session_required", message: "로그인 세션이 만료됐거나 네트워크가 끊겼어" };
+      const err: AccessSessionError = { kind: "access_session_required", message: "로그인 세션이 만료됐거나 네트워크가 끊겼습니다" };
       throw err;
     }
     const err: ApiError = { kind: "api_error", status: res.status, message: `Unexpected HTML response (${res.status})` };

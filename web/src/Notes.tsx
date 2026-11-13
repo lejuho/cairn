@@ -15,7 +15,7 @@ function announceChange(): void {
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await apiJson<ApiResponse<T>>(url, init);
-  if (!res || res.ok !== true) throw new Error((res && !res.ok && res.error?.message) || "요청을 처리하지 못했어");
+  if (!res || res.ok !== true) throw new Error((res && !res.ok && res.error?.message) || "요청을 처리하지 못했습니다");
   return res.data;
 }
 
@@ -111,9 +111,9 @@ function TargetPicker({ selected, onAdd, only }: { selected: NoteTargetView[]; o
         aria-label={only === "thread" ? "스레드 찾기" : "붙일 대상 찾기"}
       />
       {state === "loading" && <p className="note-hint">찾는 중…</p>}
-      {state === "error" && <p className="note-hint" role="alert">대상을 불러오지 못했어. 다시 입력해 봐.</p>}
+      {state === "error" && <p className="note-hint" role="alert">대상을 불러오지 못했습니다. 다시 입력하세요.</p>}
       {state === "ready" && choices.length === 0 && (
-        <p className="note-hint">{query.trim() ? "이 이름으로 찾은 게 없어." : "요즘 일정·할 일이 없어. 이름으로 찾아봐."}</p>
+        query.trim() ? <p className="note-hint">검색 결과 없음</p> : null
       )}
       {choices.length > 0 && (
         <ul className="note-picker-list" role="list">
@@ -287,7 +287,7 @@ function LineEditor({ kind, lines, onChange, onSubmit, disabled, autoFocus }: Li
                 e.preventDefault();
               }
             }}
-            placeholder={index === 0 ? (kind === "checklist" ? "할 일 하나 적고 엔터" : "적어둘 것. 엔터로 다음 줄") : ""}
+            placeholder={index === 0 ? (kind === "checklist" ? "할 일 입력 후 엔터" : "내용 입력. 엔터로 다음 줄") : ""}
             aria-label={`${index + 1}번째 줄`}
             maxLength={kind === "checklist" ? 300 : 2000}
             disabled={disabled}
@@ -391,7 +391,7 @@ function InlineNoteComposer({ placement, onSaved }: { placement: Placement; onSa
       onSaved(saved);
     } catch (e) {
       setSaving(false);
-      setError(errorText(e, "메모를 저장하지 못했어"));
+      setError(errorText(e, "메모를 저장하지 못했습니다"));
     }
   };
 
@@ -437,6 +437,24 @@ export function NoteFlow({ note, defaultDate, defaultTargets, onClose, onSaved }
   const [estMinutes, setEstMinutes] = useState<number | null>(null);
   const [eventForm, setEventForm] = useState({ title: "", start: "09:00", end: "10:00", touched: false });
   const [aiState, setAiState] = useState<"idle" | "reading" | "read" | "unread">("idle");
+  // Editing a saved note: it can also be turned into an event, or its items into tasks, from here.
+  const [toEvent, setToEvent] = useState(false);
+  const [convertBusy, setConvertBusy] = useState<number | null>(null);
+  const [convertError, setConvertError] = useState<string | null>(null);
+  const makeTask = async (itemId: number) => {
+    if (!note) return;
+    setConvertBusy(itemId);
+    setConvertError(null);
+    try {
+      const data = await call<{ note: NoteView }>(`/api/notes/${note.id}/items/${itemId}/task`, { method: "POST" });
+      announceChange();
+      onSaved?.(data.note);
+    } catch (e) {
+      setConvertError(errorText(e, "할 일로 만들지 못했습니다"));
+    } finally {
+      setConvertBusy(null);
+    }
+  };
   const aiText = useRef<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -529,17 +547,17 @@ export function NoteFlow({ note, defaultDate, defaultTargets, onClose, onSaved }
       onClose();
     } catch (e) {
       setSaving(false);
-      setError(errorText(e, kind === "note" ? "메모를 저장하지 못했어" : kind === "task" ? "할 일을 만들지 못했어" : "일정을 만들지 못했어"));
+      setError(errorText(e, kind === "note" ? "메모를 저장하지 못했습니다" : kind === "task" ? "할 일을 만들지 못했습니다" : "일정을 만들지 못했습니다"));
     }
   };
 
   const heading = note ? "메모 고치기" : "빠른 기록";
   const taskCount = draft.kind === "checklist" ? filled.length : 1;
   const whatHint = what === "note"
-    ? "쓴 글 그대로 남겨."
+    ? "쓴 글이 그대로 남습니다."
     : what === "task"
-      ? draft.kind === "checklist" ? `항목 ${filled.length}개가 각각 할 일이 돼. 체크리스트도 같이 남아.` : "첫 줄이 할 일 제목, 나머지는 설명이 돼."
-      : filled.length > 1 ? "일정을 만들고, 쓴 글은 그 일정의 메모로 붙어." : "쓴 글로 일정을 만들어.";
+      ? draft.kind === "checklist" ? `항목 ${filled.length}개가 각각 할 일이 됩니다. 체크리스트도 함께 남습니다.` : "첫 줄이 할 일 제목, 나머지는 설명이 됩니다."
+      : filled.length > 1 ? "일정을 만들고, 쓴 글은 그 일정의 메모로 붙습니다." : "쓴 글로 일정을 만듭니다.";
   const saveLabel = what === "note" || note
     ? null
     : what === "task" ? (taskCount > 1 ? `할 일 만들기 (${taskCount}개)` : "할 일 만들기") : "일정 만들기";
@@ -601,8 +619,8 @@ export function NoteFlow({ note, defaultDate, defaultTargets, onClose, onSaved }
             <section className="note-flow-place" aria-label="붙일 곳 고르기">
               {!note && (
                 <div className="note-flow-field">
-                  <span className="note-field-label">무엇으로 남길까</span>
-                  <div className="notes-filter-row" role="group" aria-label="무엇으로 남길까">
+                  <span className="note-field-label">무엇으로 남길까요?</span>
+                  <div className="notes-filter-row" role="group" aria-label="무엇으로 남길까요?">
                     <button type="button" className="notes-filter-chip" aria-pressed={what === "note"} onClick={() => setWhat("note")}>메모</button>
                     <button type="button" className="notes-filter-chip" aria-pressed={what === "task"} onClick={() => setWhat("task")}>할 일</button>
                     <button type="button" className="notes-filter-chip" aria-pressed={what === "event"} onClick={() => setWhat("event")}>일정</button>
@@ -652,11 +670,11 @@ export function NoteFlow({ note, defaultDate, defaultTargets, onClose, onSaved }
                     </label>
                   </div>
                   <p className="note-hint" role="status">
-                    {aiState === "reading" && "쓴 글에서 날짜와 시간을 읽는 중… 기다리지 않고 직접 골라도 돼."}
-                    {aiState === "read" && "쓴 글에서 읽은 값이야. 맞는지 보고 고쳐줘."}
-                    {aiState === "unread" && "날짜를 읽지 못했어. 직접 골라줘."}
+                    {aiState === "reading" && "쓴 글에서 날짜와 시간을 읽는 중… 기다리지 않고 직접 선택해도 됩니다."}
+                    {aiState === "read" && "쓴 글에서 읽은 값입니다. 맞는지 확인하고 고치세요."}
+                    {aiState === "unread" && "날짜를 읽지 못했습니다. 직접 선택하세요."}
                   </p>
-                  {eventForm.end <= eventForm.start && <p className="sheet-error" role="alert">끝 시간이 시작보다 늦어야 해.</p>}
+                  {eventForm.end <= eventForm.start && <p className="sheet-error" role="alert">끝 시간이 시작보다 늦어야 합니다.</p>}
                 </div>
               )}
               {what === "task" && (
@@ -708,6 +726,30 @@ export function NoteFlow({ note, defaultDate, defaultTargets, onClose, onSaved }
                   )}
                 </div>
               )}
+              {note && (
+                <div className="note-flow-field" role="group" aria-label="이 메모로 만들기">
+                  <span className="note-field-label">이 메모로 만들기 (선택)</span>
+                  <p className="note-hint">메모는 그대로 남고, 만든 일정·할 일에 붙습니다. 저장된 내용 기준입니다.</p>
+                  <button type="button" className="note-btn note-convert-btn" onClick={() => setToEvent(true)}>일정으로 만들기</button>
+                  {note.items.length > 0 && (
+                    <ul className="note-convert-list" role="list" aria-label="항목을 할 일로">
+                      {note.items.map((item) => (
+                        <li key={item.id} className="note-item-row">
+                          <span className="note-convert-text">{item.text}</span>
+                          {item.taskId != null ? (
+                            <span className="note-badge note-badge--muted">할 일</span>
+                          ) : (
+                            <button type="button" className="note-text-btn" disabled={convertBusy === item.id} onClick={() => void makeTask(item.id)} aria-label={`${item.text} 할 일로 만들기`}>
+                              할 일로
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {convertError && <p className="sheet-error" role="alert">{convertError}</p>}
+                </div>
+              )}
               {what === "note" && (
                 <div className="note-flow-field">
                   <span className="note-field-label">AI 커넥터</span>
@@ -723,7 +765,7 @@ export function NoteFlow({ note, defaultDate, defaultTargets, onClose, onSaved }
                     <span>ChatGPT 같은 원격 AI에 공개</span>
                   </label>
                   <p className="note-hint" id="note-remote-hint">
-                    {remoteVisible ? "원격 AI가 이 메모를 읽을 수 있어." : "꺼져 있으면 이 기기와 Pi 안에서만 보여."}
+                    {remoteVisible ? "원격 AI가 이 메모를 읽을 수 있습니다." : "꺼져 있으면 이 기기와 Pi 안에서만 보입니다."}
                   </p>
                 </div>
               )}
@@ -752,6 +794,7 @@ export function NoteFlow({ note, defaultDate, defaultTargets, onClose, onSaved }
           )}
         </footer>
       </div>
+      {toEvent && note && <NoteToEvent note={note} onClose={() => setToEvent(false)} onCreated={(next) => onSaved?.(next)} />}
     </>,
     document.body
   );
@@ -816,7 +859,7 @@ function NoteToEvent({ note, onClose, onCreated }: { note: NoteView; onClose: ()
       onClose();
     } catch (e) {
       setSaving(false);
-      setError(errorText(e, "일정을 만들지 못했어"));
+      setError(errorText(e, "일정을 만들지 못했습니다"));
     }
   };
 
@@ -833,7 +876,7 @@ function NoteToEvent({ note, onClose, onCreated }: { note: NoteView; onClose: ()
         ) : (
           <form className="note-composer" onSubmit={(e) => { e.preventDefault(); void create(); }}>
             <p className="note-hint" role="status">
-              {parsed ? "메모에서 읽은 값이야. 맞는지 보고 고쳐줘." : "날짜를 읽지 못했어. 직접 골라줘."}
+              {parsed ? "메모에서 읽은 값입니다. 맞는지 확인하고 고치세요." : "날짜를 읽지 못했습니다. 직접 선택하세요."}
             </p>
             <label className="note-date-field">
               <span className="note-field-label">제목</span>
@@ -853,8 +896,8 @@ function NoteToEvent({ note, onClose, onCreated }: { note: NoteView; onClose: ()
                 <input className="note-input" type="time" value={form.end} onChange={(e) => set({ end: e.target.value })} aria-label="끝 시간" disabled={saving} />
               </label>
             </div>
-            {form.end <= form.start && <p className="sheet-error" role="alert">끝 시간이 시작보다 늦어야 해.</p>}
-            <p className="note-hint">메모는 그대로 남고, 만든 일정에 붙어.</p>
+            {form.end <= form.start && <p className="sheet-error" role="alert">끝 시간이 시작보다 늦어야 합니다.</p>}
+            <p className="note-hint">메모는 그대로 남고, 만든 일정에 붙습니다.</p>
             {error && <p className="sheet-error" role="alert">{error}</p>}
             <div className="note-composer-actions">
               <button type="button" className="note-btn" onClick={onClose} disabled={saving}>그만두기</button>
@@ -883,7 +926,6 @@ export function NoteCard({ note, hideTarget, onChanged, onRemoved }: CardProps) 
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyItem, setBusyItem] = useState<number | null>(null);
-  const [toEvent, setToEvent] = useState(false);
 
   const patch = async (body: unknown, failure: string) => {
     try {
@@ -903,21 +945,7 @@ export function NoteCard({ note, hideTarget, onChanged, onRemoved }: CardProps) 
       setError(null);
       onChanged(data.note);
     } catch (e) {
-      setError(errorText(e, "체크를 저장하지 못했어"));
-    } finally {
-      setBusyItem(null);
-    }
-  };
-
-  const makeTask = async (itemId: number) => {
-    setBusyItem(itemId);
-    try {
-      const data = await call<{ note: NoteView }>(`/api/notes/${note.id}/items/${itemId}/task`, { method: "POST" });
-      setError(null);
-      announceChange();
-      onChanged(data.note);
-    } catch (e) {
-      setError(errorText(e, "할 일로 만들지 못했어"));
+      setError(errorText(e, "체크를 저장하지 못했습니다"));
     } finally {
       setBusyItem(null);
     }
@@ -929,7 +957,7 @@ export function NoteCard({ note, hideTarget, onChanged, onRemoved }: CardProps) 
       announceChange();
       onRemoved(note.id);
     } catch (e) {
-      setError(errorText(e, "메모를 지우지 못했어"));
+      setError(errorText(e, "메모를 지우지 못했습니다"));
     }
   };
 
@@ -960,13 +988,7 @@ export function NoteCard({ note, hideTarget, onChanged, onRemoved }: CardProps) 
                 />
                 <span>{item.text}</span>
               </label>
-              {item.taskId != null ? (
-                <span className="note-badge note-badge--muted">할 일</span>
-              ) : (
-                <button type="button" className="note-text-btn" disabled={busyItem === item.id} onClick={() => void makeTask(item.id)} aria-label={`${item.text} 할 일로 만들기`}>
-                  할 일로
-                </button>
-              )}
+              {item.taskId != null && <span className="note-badge note-badge--muted">할 일</span>}
             </li>
           ))}
         </ul>
@@ -988,19 +1010,18 @@ export function NoteCard({ note, hideTarget, onChanged, onRemoved }: CardProps) 
       </div>
       <div className="note-card-actions">
         <button type="button" className="note-text-btn" onClick={() => setEditing(true)}>고치기</button>
-        <button type="button" className="note-text-btn" onClick={() => setToEvent(true)}>일정으로</button>
-        <button type="button" className="note-text-btn" onClick={() => void patch({ pinned: !note.pinned }, "고정을 바꾸지 못했어")}>
+        <button type="button" className="note-text-btn" onClick={() => void patch({ pinned: !note.pinned }, "고정을 바꾸지 못했습니다")}>
           {note.pinned ? "고정 풀기" : "고정"}
         </button>
         <button
           type="button"
           className="note-text-btn"
           aria-pressed={note.remoteVisible}
-          onClick={() => void patch({ remoteVisible: !note.remoteVisible }, "공개 설정을 바꾸지 못했어")}
+          onClick={() => void patch({ remoteVisible: !note.remoteVisible }, "공개 설정을 바꾸지 못했습니다")}
         >
           {note.remoteVisible ? "AI 비공개로" : "AI 공개"}
         </button>
-        <button type="button" className="note-text-btn" onClick={() => void patch({ archived: !note.archivedAt }, "보관 상태를 바꾸지 못했어")}>
+        <button type="button" className="note-text-btn" onClick={() => void patch({ archived: !note.archivedAt }, "보관 상태를 바꾸지 못했습니다")}>
           {note.archivedAt ? "다시 꺼내기" : "보관"}
         </button>
         {confirmDelete ? (
@@ -1014,7 +1035,6 @@ export function NoteCard({ note, hideTarget, onChanged, onRemoved }: CardProps) 
       </div>
       {error && <p className="sheet-error" role="alert">{error}</p>}
       {editing && <NoteFlow note={note} onClose={() => setEditing(false)} onSaved={onChanged} />}
-      {toEvent && <NoteToEvent note={note} onClose={() => setToEvent(false)} onCreated={onChanged} />}
     </li>
   );
 }
@@ -1094,10 +1114,9 @@ export function AttachedNotes({ title = "메모", target, date, initial, canAdd 
       {state === "loading" && <p className="note-hint">메모 불러오는 중…</p>}
       {state === "error" && (
         <p className="note-hint" role="alert">
-          메모를 불러오지 못했어. <button type="button" className="note-text-btn" onClick={() => void load()}>다시 시도</button>
+          메모를 불러오지 못했습니다. <button type="button" className="note-text-btn" onClick={() => void load()}>다시 시도</button>
         </p>
       )}
-      {state === "ready" && notes.length === 0 && !adding && <p className="note-hint">아직 붙여둔 메모가 없어.</p>}
       {notes.length > 0 && (
         <ul className="note-list" role="list">
           {notes.map((note) => (
@@ -1236,7 +1255,7 @@ export function NotesPage() {
       setState("ready");
     } catch (e) {
       if (mine !== seq.current) return;
-      setError(errorText(e, "메모를 불러오지 못했어"));
+      setError(errorText(e, "메모를 불러오지 못했습니다"));
       setNeedsLogin(Boolean(e && typeof e === "object" && "kind" in e && e.kind === "access_session_required"));
       setState("error");
     }
@@ -1290,7 +1309,7 @@ export function NotesPage() {
       <header className="notes-header">
         <div>
           <h1 id="notes-title">메모</h1>
-          <p>적어두고, 날짜·일정·할 일·스레드에 붙여둬. 나중에 여기서 다시 찾아.</p>
+          <p>적어두고, 날짜·일정·할 일·스레드에 붙여 두세요. 나중에 여기서 다시 찾을 수 있습니다.</p>
         </div>
         <button type="button" className="note-btn note-btn--primary" onClick={() => setWriting(true)}>+ 새 메모</button>
       </header>
@@ -1360,7 +1379,7 @@ export function NotesPage() {
       )}
       {state === "error" && (
         <section className="notes-panel" role="alert">
-          <h2 className="notes-empty-title">메모를 불러오지 못했어</h2>
+          <h2 className="notes-empty-title">메모를 불러오지 못했습니다</h2>
           <p>{error}</p>
           {needsLogin && <button type="button" className="note-btn note-btn--primary" onClick={openAccessLogin}>다시 로그인</button>}
           <button type="button" className="note-btn" onClick={() => { setState("loading"); void load(); }}>다시 시도</button>
@@ -1379,10 +1398,12 @@ export function NotesPage() {
             />
           )}
           {data.notes.length === 0 ? (
-            <section className="notes-panel notes-empty" data-testid="notes-empty">
-              <h2 className="notes-empty-title">{filtered ? "이 조건에 맞는 메모가 없어" : "아직 메모가 없어"}</h2>
-              <p>{filtered ? "검색어나 기간을 바꿔봐." : "위에 적으면 오늘 날짜로 남아."}</p>
-            </section>
+            // No notes at all: the "+ 새 메모" button above is enough. A search that found nothing still says so.
+            filtered ? (
+              <section className="notes-panel notes-empty" data-testid="notes-empty">
+                <h2 className="notes-empty-title">검색 결과 없음</h2>
+              </section>
+            ) : null
           ) : (
             <div className="notes-results" data-testid="notes-live">
               <p className="note-hint">

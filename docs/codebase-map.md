@@ -88,7 +88,9 @@ Use this file to narrow read scope. Do not treat it as full spec. Product rules 
     returns `parseStatus: "unparsed"` with the note's headline; `POST /api/notes/:id/event` creates the event from
     the user-confirmed values and links the note to it; `POST /api/notes/:id/items/:itemId/task` makes a task from
     one checklist item (once), after which checking the item moves the task between todo and done. A note linked
-    to exactly one thread passes that thread on. Web: `NoteToEvent` dialog and per-item "할 일로" in `NoteCard`;
+    to exactly one thread passes that thread on. Web: both conversions live in the edit screen (`NoteFlow` step 2, "이 메모로 만들기") rather than on
+    the card, so a plain note is not nudged toward becoming something else; the card only shows a "할 일" badge on
+    items that already have a task;
     `NoteFlow`/`NoteToEvent` render through a portal so they are not clipped inside sheets.
   - Quick record: `NoteFlow` step 2 asks what the writing becomes — 메모 (note, as before), 할 일 (one task from
     a plain note via `POST /api/tasks`; a checklist is saved and each item converted), 일정 (AI prefill through
@@ -125,13 +127,26 @@ Use this file to narrow read scope. Do not treat it as full spec. Product rules 
     Schedule rows open Today's event detail sheet through the embedded instance (`openEvent` prop).
     `Today` is no longer routed as a page — it lives on as the embedded engine (its page-mode render and
     tests remain). Not carried over: the 개인/업무 domain filter and the free-text "한 줄로 남겨줘" reply.
-- Thread board (`web/src/Thread.tsx` `ThreadBoard`): the thread's tasks, events and directly contained threads
-  in columns 할 일 / 진행 중 / 완료 by state, with drop·cancel·pause folded under "접어둔 것". `placeTask` /
-  `placeEvent` / `placeChild` decide the column (an event that is over counts as done, chip "지남"); dates stay
-  on the cards. Task cards move one state per tap through `PATCH /api/tasks/:id/status`. Touch screens show one
-  column behind tabs; a wide screen with a mouse shows all three. `ThreadDetail.childThreads` (optional,
-  `buildChildCards` in `server/src/services/threads.ts`) carries each direct child's status and a period computed
-  from its items' dates and deadline — nothing is stored. The other thread sections still stack below the board.
+- Boards (`web/src/Board.tsx`): one shared state board — three coloured columns 할 일 / 진행 중 / 완료 across the
+  full width (`.kanban*` in styles.css; sideways scroll with snapping when they do not fit) and a closed
+  "접어둔 것" underneath.
+  - Thread page (`ThreadBoard` in `Thread.tsx`): the thread's tasks, events and directly contained threads.
+    `placeTask` / `placeEvent` / `placeChild` pick the column (an event that is over counts as done, chip "지남");
+    dates stay on the cards; task cards move one state per tap through `PATCH /api/tasks/:id/status`.
+    `ThreadDetail.childThreads` (optional, `buildChildCards` in `server/src/services/threads.ts`) carries each direct
+    child's status and a period computed from its items' dates and deadline — nothing is stored.
+    Relations and the contains rollup sit in a closed `<details>` "스레드 연결 관리"; they are not part of the
+    working view but remain the place to link or unlink threads.
+  - Moving cards: a card carries a `<BoardGrip cardKey label>`; dragging it (pointer events, so mouse and touch;
+    the board scrolls sideways near its edge) or pressing ←/→ on it calls the board's `onMove(cardKey, column)`.
+    The owner turns that into real state and reloads: tasks → `PATCH /api/tasks/:id/status`; threads →
+    `PATCH /api/threads/:id/board` {column} (`moveThreadOnBoard`: done = status done, doing = active +
+    `started_at`, todo = active with `started_at` cleared; migration 0020 adds `threads.started_at`).
+    Events have no grip — their column follows time and recorded outcome.
+  - Thread list (`ThreadIndex.tsx`): every thread on the same board. `placeThread`: done → 완료, paused/dropped →
+    folded, otherwise 진행 중 once started (`startedAt`, or inner progress: `doneCount`/`doingCount` > 0) and
+    할 일 until then. A thread with inner progress cannot be dragged back to 할 일 (the board says why).
+    Contained-thread cards on a thread's own board follow the same rule (`placeChild`).
 - App shell / theme (web): `AppNav.tsx` renders a bottom tab bar on mobile (primary links + 더보기) and a
   left sidebar from 900px; `App.tsx` wraps pages in `.app-frame > .app-main`. Tokens live at the top of
   `web/src/styles.css` (light default, dark via OS or `data-theme`); `web/src/theme.ts` stores the pinned

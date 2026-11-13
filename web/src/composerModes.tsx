@@ -192,7 +192,7 @@ export function RecordTargetSelect({
   onSelect: (id: number) => void;
 }) {
   if (targets.length === 0) {
-    return <p className="composer-detail composer-detail-empty" data-testid="record-no-target">기록할 이벤트가 없어.</p>;
+    return <p className="composer-detail composer-detail-empty" data-testid="record-no-target">기록할 이벤트가 없습니다.</p>;
   }
   return (
     <label className="composer-field composer-detail" data-testid="record-target">

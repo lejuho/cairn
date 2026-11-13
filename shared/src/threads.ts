@@ -13,8 +13,15 @@ export const ThreadRowSchema = z.object({
   status: ThreadStatusSchema.nullable(),
   // Thread domain (cycle-67 FR-DOM-01). Required; always lowercase personal|work.
   domain: ThreadDomainSchema,
-  createdAt: z.string().nullable()
+  createdAt: z.string().nullable(),
+  // 보드에서 "진행 중"으로 옮긴 시각. 없으면 안의 항목 상태로만 시작 여부를 본다. 옛 응답 호환을 위해 optional.
+  startedAt: z.string().nullable().optional()
 });
+
+// 보드에서 스레드 카드를 다른 열로 옮긴다. 열은 실제 상태로 저장된다 (완료 = status done,
+// 진행 중 = active + startedAt, 할 일 = active + startedAt 없음).
+export const ThreadBoardColumnSchema = z.enum(["todo", "doing", "done"]);
+export const MoveThreadOnBoardRequestSchema = z.object({ column: ThreadBoardColumnSchema }).strict();
 
 export const CreateThreadRequestSchema = z.object({
   name: z.string().trim().min(1),
@@ -94,6 +101,8 @@ export const ThreadSummarySchema = z.object({
   taskCount: z.number(),
   doneCount: z.number(),
   totalCount: z.number(),
+  // 지금 진행 중인 할 일 수. 옛 응답 호환을 위해 optional.
+  doingCount: z.number().optional(),
   relationCounts: ThreadRelationCountsSchema
 });
 
@@ -418,7 +427,9 @@ export const ThreadChildCardSchema = z.object({
   name: z.string(),
   status: ThreadStatusSchema.nullable(),
   deadline: z.string().nullable(),
-  period: z.object({ from: z.string(), to: z.string() }).nullable()
+  period: z.object({ from: z.string(), to: z.string() }).nullable(),
+  startedAt: z.string().nullable().optional(),
+  doingCount: z.number().optional()
 });
 export type ThreadChildCard = z.infer<typeof ThreadChildCardSchema>;
 
