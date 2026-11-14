@@ -56,7 +56,7 @@ const EVENT_COLS = { id: events.id, title: events.title, start: events.start, st
 const TASK_COLS = { id: tasks.id, title: tasks.title, due: tasks.due, status: tasks.status };
 const THREAD_COLS = { id: threads.id, name: threads.name, deadline: threads.deadline, status: threads.status };
 
-function resolveTargets(db: CairnDatabase, refs: Array<{ targetType: string; targetId: number }>): Map<string, NoteTargetView> {
+export function resolveTargets(db: CairnDatabase, refs: Array<{ targetType: string; targetId: number }>): Map<string, NoteTargetView> {
   const ids: Record<NoteTargetType, number[]> = { event: [], task: [], thread: [] };
   for (const ref of refs) {
     const list = ids[ref.targetType as NoteTargetType];

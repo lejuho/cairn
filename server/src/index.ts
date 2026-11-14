@@ -11,6 +11,7 @@ import { createTelegramWorkerFromEnv } from "./telegram/worker.js";
 import { createTelegramClient } from "./telegram/client.js";
 import { startObservationExtractor } from "./jobs/observation-extractor.js";
 import { parseSchedulerConfig, startWatcherDailyPushScheduler } from "./jobs/watcher-push-scheduler.js";
+import { createReasonClient, startReasonCollector } from "./agent/reason.js";
 
 const isMain = import.meta.url === pathToFileURL(process.argv[1] ?? "").href;
 
@@ -32,6 +33,9 @@ if (isMain) {
   const host = process.env.HOST ?? "0.0.0.0";
 
   await app.listen({ host, port });
+
+  // Keep the "cairn" seat on Reason Network registered and bank what other agents send it.
+  startReasonCollector(connection.db, createReasonClient(), (message) => console.log(`[agent] ${message}`));
 
   const telegramWorker = createTelegramWorkerFromEnv({
     db: connection.db,

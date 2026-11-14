@@ -285,6 +285,47 @@ describe("CalendarPage", () => {
     expect(within(flow).getByLabelText("메모 날짜")).toHaveValue("2026-11-22");
   });
 
+  it("marks days with candidates and lets one be put on the calendar from the day or the full list", async () => {
+    let list = [
+      { id: 31, title: "독서 모임", start: "2026-11-12T19:00:00+09:00", end: "2026-11-12T21:00:00+09:00", location: "합정역", online: false, url: null, origin: "gmail", proposedBy: "cairn-agent", note: "출처: 메일: 모임 안내", verdict: "possible", reasons: [], createdAt: "2026-11-11T03:00:00.000Z" },
+      { id: 32, title: "온라인 설명회", start: "2026-11-20T14:00:00+09:00", end: null, location: null, online: true, url: "https://example.com/e", origin: "reason", proposedBy: "muse", note: null, verdict: null, reasons: [], createdAt: "2026-11-11T03:00:00.000Z" }
+    ];
+    const answered: string[] = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u === "/api/inbox/candidates") return Promise.resolve(json({ candidates: list }));
+      if (u.startsWith("/api/inbox/") && init?.method === "POST") {
+        answered.push(`${u} ${String(init.body)}`);
+        list = list.filter((c) => !u.includes(`/${c.id}/`));
+        return Promise.resolve(json({ status: "answered" }));
+      }
+      if (u.startsWith("/api/calendar")) return Promise.resolve(json({ ...DATA, events: [], tasks: [], noteCounts: {} }));
+      if (u.startsWith("/api/today")) return Promise.resolve(json(surface()));
+      return Promise.resolve(json({ notes: [], total: 0, related: [], targets: [] }));
+    }));
+    render(<CalendarPage />);
+
+    // 후보가 있는 날은 달력에 표시되고, 그 날의 처리 탭에 나온다.
+    expect(await screen.findByRole("button", { name: /11월 20일 \(금\).*일정 후보 있음/ })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("tab", { name: /처리\s*1/ }));
+    const day = screen.getByRole("region", { name: "이 날 일정 후보" });
+    expect(within(day).getByText("독서 모임")).toBeInTheDocument();
+    expect(within(day).queryByText("온라인 설명회")).not.toBeInTheDocument();
+    fireEvent.click(within(day).getByRole("button", { name: "독서 모임 일정에 넣기" }));
+    await waitFor(() => expect(answered).toEqual(['/api/inbox/31/answer {"decision":"accept","answeredBy":"web"}']));
+    await waitFor(() => expect(screen.queryByText("독서 모임")).not.toBeInTheDocument());
+
+    // 전체 후보는 달력 위의 버튼으로 연다.
+    fireEvent.click(screen.getByRole("button", { name: "일정 후보 1건 보기" }));
+    const sheet = screen.getByRole("dialog", { name: "일정 후보" });
+    expect(within(sheet).getByText(/11월 20일 \(금\) 14:00 · 온라인/)).toBeInTheDocument();
+    expect(within(sheet).getByText("출처: 다른 에이전트 · muse")).toBeInTheDocument();
+    expect(within(sheet).getByRole("link", { name: "원문" })).toHaveAttribute("href", "https://example.com/e");
+    fireEvent.click(within(sheet).getByRole("button", { name: "온라인 설명회 버리기" }));
+    await waitFor(() => expect(answered[1]).toBe('/api/inbox/32/answer {"decision":"reject","answeredBy":"web"}'));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "일정 후보" })).not.toBeInTheDocument());
+  });
+
   it("moves between months, follows a tapped day outside the month, and comes back to today", async () => {
     const fetchMock = calendarOnly();
     render(<CalendarPage />);

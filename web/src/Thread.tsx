@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApprovePromotionRequest, EgoGraphData, EventMode, EventRow, PromotionSuggestion, SlotCandidate, TaskRow, ThreadDetail, ThreadLinkKind, ThreadMissingNodeSuggestion, ThreadNodeLink, ThreadResourceFocusData, ThreadResourceFocusItem, ThreadResumeData, ThreadResumeExportData, ThreadResumeExportFormat, ThreadRollup, ThreadRow, ThreadSettlement, ThreadSettlementPaidCost, ThreadStarDraftResponseData, ThreadStatus, ThreadSummary, ThreadUnknownBlocker } from "@cairn/shared";
-import { apiJson, type AccessSessionError, openAccessLogin } from "./api.js";
+import { apiJson, type AccessSessionError, DATA_CHANGED_EVENT, openAccessLogin } from "./api.js";
 import { localDateString, localNowRfc3339 } from "./dateUtils.js";
 import { Board, BoardGrip, type BoardColumnId } from "./Board.js";
 import { EgoSheet, loadEgoGraph } from "./EgoSheet.js";
@@ -116,7 +116,8 @@ type ViewState =
 
 type LinkSheetState =
   | { tag: "closed" }
-  | { tag: "open"; threads: ThreadRow[] | null; toThreadId: string; kind: ThreadLinkKind; submitting: boolean; error: string | null };
+  // incoming: the chosen thread points at this one (e.g. "the chosen thread contains this thread").
+  | { tag: "open"; threads: ThreadRow[] | null; toThreadId: string; kind: ThreadLinkKind; incoming: boolean; submitting: boolean; error: string | null };
 
 type EventSlotState =
   | { tag: "idle" }
@@ -202,6 +203,12 @@ export function Thread({ id }: { id: number }) {
       });
   }, [id]);
 
+  // Changes made elsewhere (the agent panel) show up without a manual reload.
+  useEffect(() => {
+    window.addEventListener(DATA_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(DATA_CHANGED_EVENT, refresh);
+  }, [refresh]);
+
   useEffect(() => {
     let cancelled = false;
     setView({ tag: "loading" });
@@ -227,7 +234,7 @@ export function Thread({ id }: { id: number }) {
   }, [id]);
 
   function openLinkSheet() {
-    setLinkSheet({ tag: "open", threads: null, toThreadId: "", kind: "contains", submitting: false, error: null });
+    setLinkSheet({ tag: "open", threads: null, toThreadId: "", kind: "contains", incoming: false, submitting: false, error: null });
     requestAnimationFrame(() => sheetCloseRef.current?.focus());
 
     // Resolution after close is a no-op: every setLinkSheet guards on prev.tag === "open".
@@ -254,12 +261,15 @@ export function Thread({ id }: { id: number }) {
     if (linkSheet.tag !== "open" || linkSheet.submitting || !linkSheet.toThreadId) return;
     setLinkSheet((prev) => prev.tag === "open" ? { ...prev, submitting: true, error: null } : prev);
     try {
+      // A link always runs from one thread to another. "Incoming" just swaps the two ends.
+      const other = Number(linkSheet.toThreadId);
+      const [fromId, toId] = linkSheet.incoming ? [other, id] : [id, other];
       const body = await apiJson<{ ok: boolean; error?: { code: string; message: string } }>(
-        `/api/threads/${id}/links`,
+        `/api/threads/${fromId}/links`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ toThreadId: Number(linkSheet.toThreadId), kind: linkSheet.kind })
+          body: JSON.stringify({ toThreadId: toId, kind: linkSheet.kind })
         }
       );
       if (!body.ok) {
@@ -667,23 +677,12 @@ export function Thread({ id }: { id: number }) {
               <p className="card-meta">스레드 없음</p>
             ) : (
               <>
-                <label htmlFor="link-target" className="thread-new-label">대상 스레드</label>
-                <select
-                  id="link-target"
-                  className="thread-new-input"
+                <ThreadPicker
+                  threads={linkSheet.threads}
                   value={linkSheet.toThreadId}
-                  onChange={(e) =>
-                    setLinkSheet((prev) =>
-                      prev.tag === "open" ? { ...prev, toThreadId: e.target.value } : prev
-                    )
-                  }
                   disabled={linkSheet.submitting}
-                >
-                  <option value="">선택...</option>
-                  {linkSheet.threads.map((t: ThreadRow) => (
-                    <option key={t.id} value={String(t.id)}>{t.name}</option>
-                  ))}
-                </select>
+                  onChange={(value) => setLinkSheet((prev) => prev.tag === "open" ? { ...prev, toThreadId: value } : prev)}
+                />
 
                 <label htmlFor="link-kind" className="thread-new-label">관계 종류</label>
                 <select
@@ -701,6 +700,38 @@ export function Thread({ id }: { id: number }) {
                     <option key={k} value={k}>{KIND_LABELS[k]}</option>
                   ))}
                 </select>
+
+                {/* The thread being viewed is never in the list above, so say which way the link runs
+                    and let it be flipped — e.g. to put THIS thread under another one. */}
+                <div className="link-direction" role="group" aria-label="방향">
+                  <button
+                    type="button"
+                    className="notes-filter-chip"
+                    aria-pressed={!linkSheet.incoming}
+                    disabled={linkSheet.submitting}
+                    onClick={() => setLinkSheet((prev) => prev.tag === "open" ? { ...prev, incoming: false } : prev)}
+                  >
+                    이 스레드 → 대상
+                  </button>
+                  <button
+                    type="button"
+                    className="notes-filter-chip"
+                    aria-pressed={linkSheet.incoming}
+                    disabled={linkSheet.submitting}
+                    onClick={() => setLinkSheet((prev) => prev.tag === "open" ? { ...prev, incoming: true } : prev)}
+                  >
+                    대상 → 이 스레드
+                  </button>
+                </div>
+                <p className="card-meta link-direction-preview" data-testid="link-direction-preview">
+                  {(() => {
+                    const target = linkSheet.threads.find((t) => String(t.id) === linkSheet.toThreadId)?.name ?? "대상";
+                    const [from, to] = linkSheet.incoming ? [target, detail.thread.name] : [detail.thread.name, target];
+                    return linkSheet.kind === "contains"
+                      ? `「${from}」 아래에 「${to}」이(가) 들어갑니다`
+                      : `「${from}」 —${KIND_LABELS[linkSheet.kind]}→ 「${to}」`;
+                  })()}
+                </p>
 
                 {linkSheet.error && (
                   <p className="today-reply-error" role="alert">{linkSheet.error}</p>
@@ -726,6 +757,65 @@ export function Thread({ id }: { id: number }) {
 
 // Event node card (cycle-50 FR-THR-06). Display + inline 수정 form for
 // title/type/location/mode. GCal events are read-only (no 수정 button).
+// ── Thread picker (link sheet) ──────────────────────────────────────────────
+// Threads pile up, so the list shows only a few — the newest first — and narrows as you type.
+
+const PICKER_VISIBLE = 5;
+
+function ThreadPicker({ threads, value, disabled, onChange }: { threads: ThreadRow[]; value: string; disabled: boolean; onChange: (value: string) => void }) {
+  const [query, setQuery] = useState("");
+  const selected = threads.find((t) => String(t.id) === value);
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const matches = [...threads]
+    .sort((a, b) => b.id - a.id)
+    .filter((t) => words.every((w) => t.name.toLowerCase().includes(w)));
+  const shown = matches.slice(0, PICKER_VISIBLE);
+
+  if (selected) {
+    return (
+      <div className="thread-picker">
+        <span className="thread-new-label">대상 스레드</span>
+        <p className="note-chip thread-picker-chosen">
+          <span className="note-chip-label">{selected.name}</span>
+          <button type="button" className="note-chip-remove" disabled={disabled} onClick={() => onChange("")} aria-label={`${selected.name} 선택 취소`}>✕</button>
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="thread-picker">
+      <label htmlFor="link-target-search" className="thread-new-label">대상 스레드</label>
+      <input
+        id="link-target-search"
+        className="thread-new-input"
+        type="search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="스레드 이름 검색"
+        disabled={disabled}
+      />
+      {shown.length > 0 ? (
+        <ul className="thread-picker-list" role="listbox" aria-label="대상 스레드 목록">
+          {shown.map((t) => (
+            <li key={t.id} role="presentation">
+              <button type="button" role="option" aria-selected={false} className="thread-picker-option" disabled={disabled} onClick={() => onChange(String(t.id))}>
+                <span className="thread-picker-name">{t.name}</span>
+                {t.status && t.status !== "active" && <span className="card-chip">{THREAD_STATUS_LABEL[t.status]}</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="card-meta">검색 결과 없음</p>
+      )}
+      {matches.length > shown.length && (
+        <p className="card-meta" data-testid="thread-picker-more">{matches.length - shown.length}개 더 있음 · 이름으로 검색</p>
+      )}
+    </div>
+  );
+}
+
 // ── Board ───────────────────────────────────────────────────────────────────
 // The thread's events, tasks and directly contained threads laid out by state.
 // Dates are shown on the cards; they do not decide the column.

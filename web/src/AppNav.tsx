@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { AgentPanel } from "./AgentPanel.js";
 import { QuickNoteSheet } from "./Notes.js";
 import { ProviderStatusBadges } from "./ProviderStatusBadges.js";
 import { applyTheme, nextTheme, readTheme, saveTheme, type ThemePreference } from "./theme.js";
@@ -63,6 +64,7 @@ function NavItem({ link, path }: { link: NavLink; path: string }) {
 export function AppNav({ path }: { path: string }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
+  const [agentOpen, setAgentOpen] = useState(false);
   const [theme, setTheme] = useState<ThemePreference>(() => readTheme());
 
   useEffect(() => {
@@ -81,6 +83,10 @@ export function AppNav({ path }: { path: string }) {
         <button type="button" className="quick-note-btn" onClick={() => setNoteOpen(true)} aria-label="빠른 기록 쓰기">
           <span className="quick-note-plus" aria-hidden="true">+</span>
           <span className="quick-note-label">빠른 기록</span>
+        </button>
+        <button type="button" className="agent-open-btn" onClick={() => setAgentOpen(true)} aria-label="에이전트 열기">
+          <Icon><path d="M4 5h16v11H9l-5 4z" /><path d="M8.5 9.500h7M8.5 12.500h4" /></Icon>
+          <span className="agent-open-label">에이전트</span>
         </button>
         <ul className="app-nav-list" role="list">
           {PRIMARY_LINKS.map((link) => <NavItem key={link.href} link={link} path={path} />)}
@@ -120,6 +126,7 @@ export function AppNav({ path }: { path: string }) {
         </div>
       </nav>
       {noteOpen && <QuickNoteSheet onClose={() => setNoteOpen(false)} />}
+      {agentOpen && <AgentPanel onClose={() => setAgentOpen(false)} />}
     </>
   );
 }

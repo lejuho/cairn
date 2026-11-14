@@ -17,7 +17,8 @@ import { upsertPinned } from "../repositories/pinned-transit-facts.js";
 import { checkCandidateFeasibility } from "../services/candidate-feasibility.js";
 import { geocodeText } from "../services/geocoding.js";
 import { insertObservation, listRecentObservations } from "../services/observations.js";
-import { answerInboxItem, buildContextNow, listInbox, setThreadWorkspace, upsertInboxItem } from "../services/inbox.js";
+import { answerInboxItem, buildContextNow, findInboxRow, isHiddenFromRemote, listEventCandidates, listInbox, setThreadWorkspace, upsertInboxItem } from "../services/inbox.js";
+import { isRemoteAudience } from "../utils/audience.js";
 import { inboxItems } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 
@@ -51,7 +52,12 @@ export function registerInboxRoutes(
   app.get("/api/inbox", async (req, reply) => {
     const parsed = InboxQuerySchema.safeParse(req.query);
     if (!parsed.success) return validationError(reply, parsed.error.message);
-    return reply.send({ ok: true, data: listInbox(db, parsed.data) });
+    return reply.send({ ok: true, data: listInbox(db, { ...parsed.data, remoteOnly: isRemoteAudience(req) }) });
+  });
+
+  // 달력과 에이전트 패널이 보여주는 일정 후보 목록.
+  app.get("/api/inbox/candidates", async (req, reply) => {
+    return reply.send({ ok: true, data: { candidates: listEventCandidates(db, undefined, { remoteOnly: isRemoteAudience(req) }) } });
   });
 
   app.post("/api/inbox/:id/answer", async (req, reply) => {
@@ -59,6 +65,10 @@ export function registerInboxRoutes(
     if (!Number.isInteger(id) || id <= 0) return validationError(reply, "id must be a positive integer");
     const parsed = InboxAnswerRequestSchema.safeParse(req.body);
     if (!parsed.success) return validationError(reply, parsed.error.message);
+    const row = findInboxRow(db, id);
+    if (row && isRemoteAudience(req) && isHiddenFromRemote(row)) {
+      return reply.code(404).send({ ok: false, error: { code: "NOT_FOUND", message: `inbox item ${id} not found` } });
+    }
     const result = answerInboxItem(db, id, parsed.data);
     if (!result.ok) {
       const status = result.error.code === "NOT_FOUND" ? 404 : result.error.code === "CONFLICT" ? 409 : 400;
@@ -70,7 +80,7 @@ export function registerInboxRoutes(
   app.get("/api/context/now", async (req, reply) => {
     const parsed = InboxQuerySchema.safeParse(req.query);
     if (!parsed.success) return validationError(reply, parsed.error.message);
-    return reply.send({ ok: true, data: buildContextNow(db, parsed.data) });
+    return reply.send({ ok: true, data: buildContextNow(db, { ...parsed.data, remoteOnly: isRemoteAudience(req) }) });
   });
 
   app.post("/api/feasibility/candidate", async (req, reply) => {

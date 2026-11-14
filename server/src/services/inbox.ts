@@ -1,5 +1,5 @@
 import { and, desc, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
-import { UpdatePersonProfileRequestSchema, type InboxAnswerRequest, type InboxItemView } from "@cairn/shared";
+import { UpdatePersonProfileRequestSchema, type EventCandidate, type InboxAnswerRequest, type InboxItemView } from "@cairn/shared";
 import { findPersonById, updatePersonProfile } from "../repositories/people.js";
 import type { CairnDatabase } from "../db/index.js";
 import { annotations, events, inboxItems, threads, threadWorkspaces } from "../db/schema.js";
@@ -197,9 +197,53 @@ function toView(row: InboxRow, names: Map<number, string>, boosted: Set<number>)
   };
 }
 
+// The in-app agent files candidates out of the user's mail and other agents' messages. Like other
+// personal records they are not shown to remote connectors; once the user accepts one it is an
+// ordinary event.
+export const IN_APP_AGENT = "cairn-agent";
+
+function proposer(row: InboxRow): string | null {
+  const first = (parseJson(row.evidence) as unknown[] | null)?.[0] as { proposedBy?: unknown } | undefined;
+  return typeof first?.proposedBy === "string" ? first.proposedBy : null;
+}
+
+export function isHiddenFromRemote(row: InboxRow): boolean {
+  return row.kind === "event_candidate" && proposer(row) === IN_APP_AGENT;
+}
+
+export function findInboxRow(db: CairnDatabase, id: number): InboxRow | undefined {
+  return db.select().from(inboxItems).where(eq(inboxItems.id, id)).get();
+}
+
+/** 사용자의 결정을 기다리는 일정 후보 전부 (가까운 날짜부터). */
+export function listEventCandidates(db: CairnDatabase, nowIso = new Date().toISOString(), opts: { remoteOnly?: boolean } = {}): EventCandidate[] {
+  expireStale(db, nowIso);
+  return db
+    .select()
+    .from(inboxItems)
+    .where(and(eq(inboxItems.kind, "event_candidate"), eq(inboxItems.status, "pending")))
+    .all()
+    .filter((row) => !(opts.remoteOnly && isHiddenFromRemote(row)))
+    .flatMap((row) => {
+      const p = (parseJson(row.payload) ?? {}) as Record<string, unknown>;
+      const title = str(p.title);
+      const start = str(p.start);
+      if (!title || !start) return [];
+      const feasibility = (p.feasibility ?? {}) as { verdict?: unknown; reasons?: unknown };
+      return [{
+        id: row.id, title, start, end: str(p.end) ?? null, location: str(p.location) ?? null, online: p.online === true,
+        url: str(p.url) ?? null, origin: str(p.origin) ?? null, proposedBy: proposer(row), note: str(p.note) ?? null,
+        verdict: str(feasibility.verdict) ?? null,
+        reasons: Array.isArray(feasibility.reasons) ? feasibility.reasons.filter((r): r is string => typeof r === "string").slice(0, 3) : [],
+        createdAt: row.createdAt ?? ""
+      }];
+    })
+    .sort((a, b) => a.start.localeCompare(b.start));
+}
+
 export function listInbox(
   db: CairnDatabase,
-  opts: { cwd?: string | undefined; now?: string | undefined; limit?: number | undefined }
+  opts: { cwd?: string | undefined; now?: string | undefined; limit?: number | undefined; remoteOnly?: boolean | undefined }
 ): { items: InboxItemView[]; pendingTotal: number } {
   const nowIso = opts.now ?? new Date().toISOString();
   materializeDerivedItems(db, nowIso);
@@ -209,7 +253,8 @@ export function listInbox(
     .select()
     .from(inboxItems)
     .where(and(eq(inboxItems.status, "pending"), or(isNull(inboxItems.snoozedUntil), lte(inboxItems.snoozedUntil, nowIso))))
-    .all();
+    .all()
+    .filter((row) => !(opts.remoteOnly && isHiddenFromRemote(row)));
   const names = new Map(db.select({ id: threads.id, name: threads.name }).from(threads).all().map((t) => [t.id, t.name]));
   const boosted = workspaceThreadIds(db, opts.cwd);
   const items = rows
@@ -384,7 +429,7 @@ export function setThreadWorkspace(db: CairnDatabase, threadId: number, path: st
 }
 
 /** 지금 맥락: 진행 중/다음 일정, cwd 에 묶인 thread, 상위 inbox. 결정적 집계(LLM 없음). */
-export function buildContextNow(db: CairnDatabase, opts: { cwd?: string | undefined; now?: string | undefined }) {
+export function buildContextNow(db: CairnDatabase, opts: { cwd?: string | undefined; now?: string | undefined; remoteOnly?: boolean | undefined }) {
   const nowIso = opts.now ?? new Date().toISOString();
   const nowMs = Date.parse(nowIso);
   const until = new Date(nowMs + DAY_MS).toISOString();
@@ -407,6 +452,6 @@ export function buildContextNow(db: CairnDatabase, opts: { cwd?: string | undefi
     .map((t) => ({ ...t, matchesWorkspace: boosted.has(t.id) }))
     .sort((a, b) => Number(b.matchesWorkspace) - Number(a.matchesWorkspace) || (a.deadline ?? "9999").localeCompare(b.deadline ?? "9999"));
 
-  const inbox = listInbox(db, { cwd: opts.cwd, now: nowIso, limit: 5 });
+  const inbox = listInbox(db, { cwd: opts.cwd, now: nowIso, limit: 5, remoteOnly: opts.remoteOnly });
   return { now: nowIso, cwd: opts.cwd ?? null, upcoming, activeThreads, inbox };
 }

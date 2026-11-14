@@ -560,11 +560,68 @@ describe("Thread — add link sheet", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "관계 추가" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "관계 추가" }));
     await waitFor(() => expect(screen.getByRole("option", { name: "하위 스레드" })).toBeInTheDocument());
-    fireEvent.change(screen.getByLabelText("대상 스레드"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("option", { name: "하위 스레드" }));
     fireEvent.click(screen.getByRole("button", { name: "연결하기 →" }));
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
     expect(screen.getByText("이 연결은 순환 구조를 만듭니다. 다른 방향을 선택하세요.")).toBeInTheDocument();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("shows only a few threads, newest first, and narrows them by search", async () => {
+    const many: ThreadSummary[] = Array.from({ length: 8 }, (_, i) => ({
+      ...SUMMARY_OTHER,
+      thread: { ...SUMMARY_OTHER.thread, id: i + 2, name: i === 0 ? "오래된 졸업 프로젝트" : `스레드 ${i + 2}` }
+    }));
+    mockWithSheet(many);
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "관계 추가" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "관계 추가" }));
+
+    const list = await screen.findByRole("listbox", { name: "대상 스레드 목록" });
+    expect(within(list).getAllByRole("option").map((o) => o.textContent)).toEqual(["스레드 9", "스레드 8", "스레드 7", "스레드 6", "스레드 5"]);
+    expect(screen.getByTestId("thread-picker-more")).toHaveTextContent("3개 더 있음");
+
+    // 목록에 안 보이는 오래된 스레드도 이름으로 찾는다.
+    fireEvent.change(screen.getByLabelText("대상 스레드"), { target: { value: "졸업" } });
+    expect(within(screen.getByRole("listbox", { name: "대상 스레드 목록" })).getAllByRole("option").map((o) => o.textContent)).toEqual(["오래된 졸업 프로젝트"]);
+    fireEvent.change(screen.getByLabelText("대상 스레드"), { target: { value: "없는이름" } });
+    expect(screen.getByText("검색 결과 없음")).toBeInTheDocument();
+
+    // 고르면 목록이 접히고, 취소하면 다시 고를 수 있다.
+    fireEvent.change(screen.getByLabelText("대상 스레드"), { target: { value: "졸업" } });
+    fireEvent.click(screen.getByRole("option", { name: "오래된 졸업 프로젝트" }));
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "연결하기 →" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "오래된 졸업 프로젝트 선택 취소" }));
+    expect(screen.getByRole("listbox", { name: "대상 스레드 목록" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "연결하기 →" })).toBeDisabled();
+  });
+
+  it("can link the other way round, putting this thread under the chosen one", async () => {
+    const posts: Array<{ url: string; body: unknown }> = [];
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string, opts?: { method?: string; body?: string }) => {
+      if (url.includes("resource-focus")) return Promise.resolve(makeResponse({ ok: true, data: EMPTY_FOCUS }, url));
+      if (opts?.method === "POST") {
+        posts.push({ url, body: JSON.parse(String(opts.body)) });
+        return Promise.resolve(makeResponse({ ok: true, data: { link: {} } }, url));
+      }
+      if (url.includes("/api/threads/1")) return Promise.resolve(makeResponse({ ok: true, data: THREAD_DATA }, url));
+      return Promise.resolve(makeResponse({ ok: true, data: [SUMMARY_OTHER] }, url));
+    }));
+    render(<Thread id={1} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "관계 추가" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "관계 추가" }));
+    await waitFor(() => expect(screen.getByRole("option", { name: "하위 스레드" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("option", { name: "하위 스레드" }));
+
+    // 기본은 "이 스레드 아래에 대상". 어느 쪽이 위인지 문장으로 보여준다.
+    expect(screen.getByTestId("link-direction-preview")).toHaveTextContent("「프로젝트 알파」 아래에 「하위 스레드」이(가) 들어갑니다");
+    fireEvent.click(screen.getByRole("button", { name: "대상 → 이 스레드" }));
+    expect(screen.getByTestId("link-direction-preview")).toHaveTextContent("「하위 스레드」 아래에 「프로젝트 알파」이(가) 들어갑니다");
+
+    fireEvent.click(screen.getByRole("button", { name: "연결하기 →" }));
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]).toEqual({ url: "/api/threads/2/links", body: { toThreadId: 1, kind: "contains" } });
   });
 
   it("shows 409 CONTAINS_PARENT_CONFLICT specific copy", async () => {
@@ -580,7 +637,7 @@ describe("Thread — add link sheet", () => {
     await waitFor(() => screen.getByRole("button", { name: "관계 추가" }));
     fireEvent.click(screen.getByRole("button", { name: "관계 추가" }));
     await waitFor(() => screen.getByRole("option", { name: "하위 스레드" }));
-    fireEvent.change(screen.getByLabelText("대상 스레드"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("option", { name: "하위 스레드" }));
     fireEvent.click(screen.getByRole("button", { name: "연결하기 →" }));
     await waitFor(() => screen.getByRole("alert"));
     expect(screen.getByText("이 스레드는 이미 다른 상위 스레드가 있습니다.")).toBeInTheDocument();
@@ -609,7 +666,7 @@ describe("Thread — add link sheet", () => {
     await waitFor(() => screen.getByRole("button", { name: "관계 추가" }));
     fireEvent.click(screen.getByRole("button", { name: "관계 추가" }));
     await waitFor(() => screen.getByRole("option", { name: "하위 스레드" }));
-    fireEvent.change(screen.getByLabelText("대상 스레드"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("option", { name: "하위 스레드" }));
     fireEvent.click(screen.getByRole("button", { name: "연결하기 →" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(screen.getByTestId("outgoing-relation")).toBeInTheDocument());

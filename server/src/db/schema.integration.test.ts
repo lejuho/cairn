@@ -23,6 +23,11 @@ describe("core SQLite migration", () => {
       .map((row) => (row as { name: string }).name);
 
     expect(tables).toEqual([
+      "agent_artifacts",
+      "agent_conversations",
+      "agent_messages",
+      "agent_reason_messages",
+      "agent_sheets",
       "annotations",
       "event_materials",
       "event_people",

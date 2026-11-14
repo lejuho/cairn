@@ -117,3 +117,23 @@ export const PinRouteRequestSchema = z
     note: z.string().max(300).optional()
   })
   .strict();
+
+// 메일·다른 에이전트·대화에서 찾아 사용자의 결정을 기다리는 일정 후보.
+export type EventCandidate = {
+  id: number;
+  title: string;
+  start: string;
+  end: string | null;
+  location: string | null;
+  online: boolean;
+  url: string | null;
+  // 어디서 찾았는지 (gmail, reason, conversation, x, luma ...).
+  origin: string | null;
+  // 누가 올렸는지 (cairn-agent, 원격 에이전트 이름 ...).
+  proposedBy: string | null;
+  note: string | null;
+  // 참여 가능 판정 (ok | tight | hard 등)과 한국어 이유.
+  verdict: string | null;
+  reasons: string[];
+  createdAt: string;
+};

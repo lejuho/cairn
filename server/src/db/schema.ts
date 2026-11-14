@@ -557,3 +557,74 @@ export const noteLinks = sqliteTable(
     index("note_links_target_idx").on(table.targetType, table.targetId)
   ]
 );
+
+// 에이전트 패널의 대화 (migration 0021). 메시지는 화면에 보인 그대로(말, 반영한 것, 확인 대기)를
+// JSON 으로 담는다. agent_artifacts 는 그 대화에서 만들거나 고친 일정·할 일·스레드·메모의 목록이다.
+export const agentConversations = sqliteTable("agent_conversations", {
+  id: integer("id").primaryKey(),
+  title: text("title").notNull(),
+  provider: text("provider").notNull(),
+  model: text("model").notNull().default(""),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull()
+});
+
+export const agentMessages = sqliteTable(
+  "agent_messages",
+  {
+    id: integer("id").primaryKey(),
+    conversationId: integer("conversation_id").notNull().references(() => agentConversations.id),
+    role: text("role").notNull(),
+    content: text("content").notNull(),
+    createdAt: text("created_at").notNull()
+  },
+  (table) => [
+    check("agent_messages_role_check", sql`${table.role} in ('user', 'agent', 'error')`),
+    index("agent_messages_conversation_idx").on(table.conversationId)
+  ]
+);
+
+export const agentArtifacts = sqliteTable(
+  "agent_artifacts",
+  {
+    id: integer("id").primaryKey(),
+    conversationId: integer("conversation_id").notNull().references(() => agentConversations.id),
+    targetType: text("target_type").notNull(),
+    targetId: integer("target_id").notNull(),
+    label: text("label").notNull(),
+    lastAction: text("last_action").notNull(),
+    updatedAt: text("updated_at").notNull()
+  },
+  (table) => [
+    check("agent_artifacts_target_type_check", sql`${table.targetType} in ('event', 'task', 'thread', 'note')`),
+    uniqueIndex("agent_artifacts_unique_idx").on(table.conversationId, table.targetType, table.targetId)
+  ]
+);
+
+// Messages other agents sent to this app's Reason Network session ("cairn"). The CLI hands each
+// message over exactly once, so they are kept here until the in-app agent reads them.
+export const agentReasonMessages = sqliteTable(
+  "agent_reason_messages",
+  {
+    id: integer("id").primaryKey(),
+    messageId: text("message_id").notNull(),
+    sender: text("sender").notNull(),
+    senderAgent: text("sender_agent").notNull().default(""),
+    body: text("body").notNull(),
+    receivedAt: text("received_at").notNull(),
+    readAt: text("read_at")
+  },
+  (table) => [uniqueIndex("agent_reason_messages_message_idx").on(table.messageId)]
+);
+
+// Spreadsheets the user let the in-app agent read (weekly actions, operations sheets …).
+export const agentSheets = sqliteTable(
+  "agent_sheets",
+  {
+    id: integer("id").primaryKey(),
+    spreadsheetId: text("spreadsheet_id").notNull(),
+    name: text("name").notNull(),
+    addedAt: text("added_at").notNull()
+  },
+  (table) => [uniqueIndex("agent_sheets_spreadsheet_idx").on(table.spreadsheetId)]
+);

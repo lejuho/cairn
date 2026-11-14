@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CalendarData, EventRow, TaskRow } from "@cairn/shared";
-import { apiJson, openAccessLogin } from "./api.js";
+import { createPortal } from "react-dom";
+import type { CalendarData, EventCandidate, EventRow, TaskRow } from "@cairn/shared";
+import { apiJson, DATA_CHANGED_EVENT, openAccessLogin } from "./api.js";
 import { AttachedNotes, NOTES_CHANGED_EVENT, NoteFlow, formatDay, localDateOf, shiftDate, todayLocal } from "./Notes.js";
+import { CandidateList, useCandidates } from "./Candidates.js";
 import { Today } from "./Today.js";
 
 type ApiResponse<T> = { ok: true; data: T } | { ok: false; error: { message: string } };
@@ -208,16 +210,16 @@ function DaySchedule({ day, bucket, onOpenEvent }: { day: string; bucket: DayBuc
   );
 }
 
-type DayPanelProps = { day: string; today: string; bucket: DayBucket; open: boolean; onClose: () => void; onReload: () => void };
+type DayPanelProps = { day: string; today: string; bucket: DayBucket; candidates: EventCandidate[]; open: boolean; onClose: () => void; onReload: () => void };
 
-function DayPanel({ day, today, bucket, open, onClose, onReload }: DayPanelProps) {
+function DayPanel({ day, today, bucket, candidates, open, onClose, onReload }: DayPanelProps) {
   const [tab, setTab] = useState<PanelTab>("schedule");
   const [writing, setWriting] = useState(false);
   const [cardCount, setCardCount] = useState(0);
   const [addSeq, setAddSeq] = useState(0);
   const [openEvent, setOpenEvent] = useState<{ id: number; seq: number } | null>(null);
   const scheduleCount = bucket.events.length + bucket.tasks.length;
-  const actionCount = bucket.pending.length + cardCount;
+  const actionCount = bucket.pending.length + cardCount + candidates.length;
   // Tabs follow the order of work: see the day → deal with what needs a decision → notes → headroom.
   const tabs: Array<{ id: PanelTab; label: string; count: number }> = [
     { id: "schedule", label: "일정", count: scheduleCount },
@@ -261,6 +263,7 @@ function DayPanel({ day, today, bucket, open, onClose, onReload }: DayPanelProps
           )}
           {tab === "actions" && (
             <>
+              <CandidateList candidates={candidates} label="이 날 일정 후보" />
               <DayOutcomes day={day} events={bucket.pending} onRecorded={onReload} />
             </>
           )}
@@ -335,10 +338,18 @@ export function CalendarPage() {
     void load();
     const onChange = () => void load();
     window.addEventListener(NOTES_CHANGED_EVENT, onChange);
-    return () => window.removeEventListener(NOTES_CHANGED_EVENT, onChange);
+    window.addEventListener(DATA_CHANGED_EVENT, onChange);
+    return () => {
+      window.removeEventListener(NOTES_CHANGED_EVENT, onChange);
+      window.removeEventListener(DATA_CHANGED_EVENT, onChange);
+    };
   }, [load]);
 
   const buckets = useMemo(() => bucketDays(data, Date.now()), [data]);
+  const { candidates } = useCandidates();
+  const [candidatesOpen, setCandidatesOpen] = useState(false);
+  const dayCandidates = useMemo(() => candidates.filter((c) => localDateOf(c.start) === selected), [candidates, selected]);
+  const candidateDays = useMemo(() => new Set(candidates.map((c) => localDateOf(c.start))), [candidates]);
 
   const pick = (day: string) => {
     if (day === selected && panelOpen) {
@@ -367,6 +378,13 @@ export function CalendarPage() {
           </div>
         </header>
 
+        {candidates.length > 0 && (
+          <button type="button" className="calendar-candidates-btn" onClick={() => setCandidatesOpen(true)} aria-haspopup="dialog" aria-label={`일정 후보 ${candidates.length}건 보기`}>
+            <span>일정 후보 <span className="day-panel-tab-count">{candidates.length}</span></span>
+            <span className="calendar-candidates-go" aria-hidden="true">보기 ›</span>
+          </button>
+        )}
+
         {state.tag === "error" && (
           <div className="calendar-error" role="alert">
             <p>달력을 불러오지 못했습니다. {state.message}</p>
@@ -392,6 +410,7 @@ export function CalendarPage() {
                   day === today ? "오늘" : null,
                   count > 0 ? `일정 ${count}건` : null,
                   bucket.pending.length > 0 ? `결과 기록 ${bucket.pending.length}건` : null,
+                  candidateDays.has(day) ? "일정 후보 있음" : null,
                   bucket.notes > 0 ? `메모 ${bucket.notes}건` : null
                 ].filter(Boolean).join(", ");
                 return (
@@ -405,6 +424,7 @@ export function CalendarPage() {
                       aria-pressed={day === selected}
                       aria-expanded={day === selected ? panelOpen : undefined}
                       aria-label={summary}
+                      data-candidate={candidateDays.has(day) ? "true" : undefined}
                       onClick={() => pick(day)}
                     >
                       <span className="calendar-cell-day">{dayNumber}</span>
@@ -439,7 +459,20 @@ export function CalendarPage() {
         </p>
       </section>
 
-      <DayPanel key={selected} day={selected} today={today} bucket={buckets.get(selected) ?? EMPTY_BUCKET} open={panelOpen} onClose={() => setPanelOpen(false)} onReload={() => void load()} />
+      <DayPanel key={selected} day={selected} today={today} bucket={buckets.get(selected) ?? EMPTY_BUCKET} candidates={dayCandidates} open={panelOpen} onClose={() => setPanelOpen(false)} onReload={() => void load()} />
+      {candidatesOpen && candidates.length > 0 && createPortal(
+        <>
+          <div className="sheet-backdrop" onClick={() => setCandidatesOpen(false)} aria-hidden="true" />
+          <div className="sheet sheet--entering candidate-sheet" role="dialog" aria-modal="true" aria-label="일정 후보">
+            <header className="candidate-sheet-head">
+              <h2 className="candidate-sheet-title">일정 후보</h2>
+              <button type="button" className="note-flow-close" onClick={() => setCandidatesOpen(false)} aria-label="닫기">✕</button>
+            </header>
+            <CandidateList candidates={candidates} />
+          </div>
+        </>,
+        document.body
+      )}
     </main>
   );
 }

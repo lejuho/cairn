@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { CreateEventPreparationRequestSchema, CreateEventRequestSchema, DismissSchedulePromptRequestSchema, PatchEventStatusRequestSchema, PatchThreadEventNodeRequestSchema, RecordEventOutcomeRequestSchema } from "@cairn/shared";
+import { CreateEventPreparationRequestSchema, CreateEventRequestSchema, DismissSchedulePromptRequestSchema, PatchEventRequestSchema, PatchEventStatusRequestSchema, PatchThreadEventNodeRequestSchema, RecordEventOutcomeRequestSchema } from "@cairn/shared";
 import { createEventWithPeople, dismissSchedulePromptForDate, findEventById, findNearestPriorThreadEvent, updateEventStatus, updateEventThreadNode } from "../repositories/events.js";
 import { findAnnotationsByEvent } from "../repositories/annotations.js";
 import { findEventWithPeople, findPeopleByIds } from "../repositories/people.js";
@@ -135,6 +135,33 @@ export function registerEventRoutes(app: FastifyInstance, db: CairnDatabase): vo
       tx.insert(annotations).values({ eventId: id, outcome, reasonText: reasonText || null }).run();
     });
     return reply.code(201).send({ ok: true, data: { event: findEventById(db, id)!, annotations: findAnnotationsByEvent(db, id) } });
+  });
+
+  // Edit an event's title, time or place. External calendar events are read-only here: the next
+  // sync would overwrite them, so the change has to be made in that calendar.
+  app.patch("/api/events/:id", async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!Number.isInteger(id) || id <= 0) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: "id must be a positive integer" } });
+    }
+    const parsed = PatchEventRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: parsed.error.message } });
+    }
+    const event = findEventById(db, id);
+    if (!event) {
+      return reply.code(404).send({ ok: false, error: { code: "NOT_FOUND", message: "event not found" } });
+    }
+    if (event.source === "gcal") {
+      return reply.code(409).send({ ok: false, error: { code: "EXTERNAL_EVENT_READ_ONLY", message: "외부 캘린더 일정은 그 캘린더에서 고쳐야 합니다" } });
+    }
+    const start = parsed.data.start ?? event.start;
+    const end = parsed.data.end ?? event.end;
+    if (start && end && Date.parse(end) <= Date.parse(start)) {
+      return reply.code(400).send({ ok: false, error: { code: "INVALID_TIME_RANGE", message: "end must be after start" } });
+    }
+    db.update(eventsTable).set({ ...parsed.data, updatedAt: new Date().toISOString() }).where(eq(eventsTable.id, id)).run();
+    return reply.send({ ok: true, data: { event: findEventById(db, id)! } });
   });
 
   // Thread node inline edit (cycle-50 FR-THR-06). Edits only title/type/

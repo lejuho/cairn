@@ -147,6 +147,55 @@ Use this file to narrow read scope. Do not treat it as full spec. Product rules 
     folded, otherwise 진행 중 once started (`startedAt`, or inner progress: `doneCount`/`doingCount` > 0) and
     할 일 until then. A thread with inner progress cannot be dragged back to 할 일 (the board says why).
     Contained-thread cards on a thread's own board follow the same rule (`placeChild`).
+- Agent panel (in-app chat that changes Cairn):
+  - Contract `shared/src/agent.ts`; routes `server/src/routes/agent.ts` — `GET /api/agent/providers`,
+    `POST /api/agent/chat` {provider, model, messages, includePrivate}, `POST /api/agent/confirm` {id, approve}.
+    Remote connectors get 403 on all of them.
+  - `server/src/agent/providers.ts`: each provider is a plain text generator with NO tools of its own —
+    Anthropic via the `claude` CLI (`-p --tools "" --strict-mcp-config --setting-sources ""`), OpenAI via
+    `codex exec` (read-only sandbox, no MCP servers), xAI via the existing LLM gateway/proxy. Subscription
+    logins, no metered API keys (user decision 2026-11-13). Binaries: `CAIRN_CLAUDE_BIN` / `CAIRN_CODEX_BIN`
+    or the default install paths; both run in an empty temp directory.
+  - `server/src/agent/tools.ts`: the closed tool list (reads, immediate writes, and `confirm` tools for
+    drop/cancel/pause/unlink/delete). Every tool calls an existing API route through `app.inject`, so the
+    screens' validation applies. `includePrivate: false` adds the remote-audience header → only shared notes.
+  - `server/src/agent/loop.ts`: the model answers with one JSON object {say, actions, done}; up to 5 rounds;
+    `confirm` tools are parked in memory (15 min) until `/api/agent/confirm`.
+  - Conversations are stored (migration 0021): `agent_conversations`, `agent_messages` (content = the message
+    as shown, JSON), `agent_artifacts` (what a conversation created or changed; unique per conversation+target).
+    `server/src/agent/store.ts`; routes `GET /api/agent/conversations`, `GET|DELETE /api/agent/conversations/:id`.
+    `POST /api/agent/chat` takes {conversationId?, text} and reads history from the store. Artifacts are listed
+    with their CURRENT label/when/status (`listArtifacts`). Tools report `refs` for what they touched.
+  - Outside sources (user decisions 2026-11-14): `GET /api/agent/sources` reports them.
+    - Mail: `server/src/agent/mail.ts`, read-only (`gmail.readonly`), reuses the GCal OAuth client unless
+      `GMAIL_CLIENT_ID/SECRET` are set; token at `CAIRN_GMAIL_TOKEN_PATH` or next to the GCal token. Connected from
+      the panel: `GET /api/agent/mail/auth-url` → user approves at Google → pastes the `http://localhost:3456/?code=…`
+      address into `POST /api/agent/mail/connect`; `DELETE /api/agent/mail` forgets the token. Tools `search_mail`,
+      `read_mail` exist only when the request has `includeMail: true` (panel switch, default off).
+    - Sheets: same Google consent also asks `spreadsheets.readonly` (`createGoogleAccess` → `{mail, sheets}`; each is
+      "connected" only if its scope is in the saved token). The agent reads ONLY spreadsheets the user registered:
+      `agent_sheets` (migration 0023), `POST /api/agent/sheets` {url}, `DELETE /api/agent/sheets/:id`. Tools
+      `list_sheets`, `read_sheet` {id, tab?, range?} (150 rows / 5000 chars per read; untrusted like mail).
+      The panel offers "N건 모두 승인" when one reply parks several actions.
+    - Reason Network: `server/src/agent/reason.ts`. The app's session name is `cairn` (`CAIRN_REASON_SESSION`).
+      `startReasonCollector` (index.ts) runs `listen --as cairn --wait 0` every minute and stores what arrives in
+      `agent_reason_messages` (migration 0022) — no model is called. Tools `reason_team`, `reason_inbox` (marks read),
+      `reason_send`. Messages are only acted on when the user talks to the panel.
+    - Candidates: events found in mail or sent by another agent are filed with `propose_event`
+      (→ `POST /api/inbox/propose-event`, `proposedBy: "cairn-agent"`), never created directly. The user picks:
+      `GET /api/inbox/candidates` feeds `web/src/Candidates.tsx` (calendar header button, the day's 처리 tab, the
+      panel's 후보 tab); 넣기/버리기 → `POST /api/inbox/:id/answer`. Candidates filed by the in-app agent are hidden
+      from remote connectors (`isHiddenFromRemote`), same rule as private notes.
+    - Text from mail or another agent is untrusted: once a turn has read any (`untrusted` tools), every later
+      write in that turn except `propose_event` is parked for approval like a `confirm` tool.
+  - Progress: a request with `Accept: text/event-stream` gets `AgentStreamEvent`s (status / say / step / done /
+    error) while the turn runs; without it the answer comes as one JSON body. The model's own text is JSON
+    instructions, so what streams is progress, not tokens.
+  - Edits are confirm tools too: `update_event` (new `PATCH /api/events/:id`; GCal events are read-only → 409),
+    `update_task`, `update_note`. A pending item carries `detail` (what changes) for the approval card.
+  - Web `web/src/AgentPanel.tsx` (opened from `AppNav`): provider chips, model select, private-notes switch,
+    chat log with applied steps and confirmation buttons. After a change it fires `cairn:data-changed`
+    (`DATA_CHANGED_EVENT` in `api.ts`); Calendar, ThreadIndex and Thread reload on it.
 - App shell / theme (web): `AppNav.tsx` renders a bottom tab bar on mobile (primary links + 더보기) and a
   left sidebar from 900px; `App.tsx` wraps pages in `.app-frame > .app-main`. Tokens live at the top of
   `web/src/styles.css` (light default, dark via OS or `data-theme`); `web/src/theme.ts` stores the pinned

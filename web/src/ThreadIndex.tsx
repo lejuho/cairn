@@ -1,7 +1,7 @@
 import { Board, BoardGrip, type BoardColumnId } from "./Board.js";
 import { useEffect, useState } from "react";
 import type { DomainFilter, ThreadSummary } from "@cairn/shared";
-import { apiJson, type AccessSessionError, openAccessLogin } from "./api.js";
+import { apiJson, type AccessSessionError, openAccessLogin, DATA_CHANGED_EVENT } from "./api.js";
 import { DomainFilterControl, domainLabel } from "./DomainFilter.js";
 
 type ViewState =
@@ -83,6 +83,12 @@ export function ThreadIndex() {
       });
     return () => { cancelled = true; };
   }, [domain, reloadSeq]);
+
+  useEffect(() => {
+    const onChange = () => setReloadSeq((n) => n + 1);
+    window.addEventListener(DATA_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(DATA_CHANGED_EVENT, onChange);
+  }, []);
 
   if (view.tag === "loading") {
     return (

@@ -32,6 +32,20 @@
   OpenAI-compatible `/v1/chat/completions` endpoint. Its local default base URL
   is `http://localhost:8000`; deployments override `LLM_PROXY_BASE_URL` with
   the proxy's container-network address.
+- **Agent panel models**: the in-app agent panel (user decision 2026-11-13) can
+  also call Anthropic through the installed `claude` CLI and OpenAI through the
+  installed `codex` CLI, both on subscription logins, plus Grok through the
+  proxy above. Still no metered API key. These calls get no tools of their own;
+  the server validates and executes a closed action list (see
+  `docs/codebase-map.md` → Agent panel). Additions and links apply at once;
+  drop/cancel/pause/unlink/delete wait for the user's confirmation.
+- **Agent panel sources** (user decisions 2026-11-14): the panel agent may read
+  Gmail (read-only, per-conversation switch, default off) and talks on Reason
+  Network as `cairn`. Incoming Reason messages are only stored; a model runs
+  only when the user speaks in the panel. Events found in mail or sent by
+  other agents become candidates the user accepts or discards — never direct
+  calendar entries. After reading such outside text, a turn's remaining writes
+  need approval.
 - **LLM gateway**: `server` reaches Grok only through one gateway module. The
   gateway owns bounded retries, timeout handling, and a rate-limit queue.
   When the proxy is unavailable, push input is stored raw for later parsing

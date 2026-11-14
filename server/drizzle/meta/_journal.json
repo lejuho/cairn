@@ -148,6 +148,27 @@
       "when": 1794525018798,
       "tag": "0020_stormy_thundra",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1794544927891,
+      "tag": "0021_late_justice",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1794663433922,
+      "tag": "0022_nebulous_fantastic_four",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1794664925178,
+      "tag": "0023_common_black_tarantula",
+      "breakpoints": true
     }
   ]
 }

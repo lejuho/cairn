@@ -6501,3 +6501,619 @@ p {
 .empty-add-btn:active {
   transform: scale(0.98);
 }
+
+/* Link sheet: which way the link runs */
+.link-direction {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.link-direction-preview {
+  margin-top: 8px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Thread picker in the link sheet */
+.thread-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.thread-picker-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  list-style: none;
+  overflow: hidden;
+}
+
+.thread-picker-list li + li {
+  border-top: 1px solid var(--border);
+}
+
+.thread-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 12px;
+  border: 0;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.95rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.thread-picker-option:hover {
+  background: var(--accent-soft);
+}
+
+.thread-picker-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.thread-picker-chosen {
+  align-self: flex-start;
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+/* ═══ Agent panel ═══════════════════════════════════════════════════════════
+   Full screen on phones, a right-hand drawer on wide screens. */
+.agent-open-btn {
+  position: absolute;
+  right: 20px;
+  bottom: calc(100% + 82px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 46px;
+  height: 46px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--accent);
+  box-shadow: var(--shadow);
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.agent-open-label {
+  display: none;
+}
+
+.app-nav[data-more="open"] .agent-open-btn,
+.app-frame:has(.calendar-page[data-panel="open"]) .agent-open-btn {
+  display: none;
+}
+
+.agent-backdrop {
+  z-index: 119;
+}
+
+.agent-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+}
+
+.agent-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: max(6px, env(safe-area-inset-top)) 4px 6px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.agent-title {
+  flex: 1;
+  margin: 0;
+  color: var(--text);
+  font-size: 1.05rem;
+}
+
+.agent-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--raised);
+}
+
+.agent-model {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-model .note-input {
+  flex: 1 1 180px;
+  width: auto;
+}
+
+.agent-log {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 14px 16px;
+  overflow-y: auto;
+}
+
+.agent-msg {
+  max-width: 88%;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  color: var(--text);
+  font-size: 0.96rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.agent-msg--user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.agent-msg--agent {
+  display: flex;
+  align-self: flex-start;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.agent-msg--waiting {
+  color: var(--muted);
+}
+
+.agent-msg--error {
+  align-self: flex-start;
+  border: 1px solid color-mix(in srgb, var(--error) 40%, var(--border));
+  color: var(--error);
+}
+
+.agent-msg-text {
+  color: var(--text);
+  font-size: 0.96rem;
+}
+
+.agent-msg-via {
+  color: var(--faint);
+  font-size: 0.72rem;
+}
+
+.agent-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-step {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--done);
+  font-size: 0.88rem;
+}
+
+.agent-step[data-ok="false"] {
+  color: var(--error);
+}
+
+.agent-step-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+}
+
+.agent-pending {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--moved) 45%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--moved) 9%, var(--surface));
+}
+
+.agent-pending-text {
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.agent-pending-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.agent-pending-actions .note-btn {
+  flex: 1;
+}
+
+.agent-input {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+}
+
+.agent-input .note-textarea {
+  flex: 1;
+}
+
+@media (min-width: 900px) {
+  .agent-open-btn {
+    position: static;
+    justify-content: flex-start;
+    width: 100%;
+    height: 44px;
+    padding: 0 12px;
+    border-radius: 10px;
+    box-shadow: none;
+  }
+
+  .agent-open-label {
+    display: inline;
+  }
+
+  .app-nav[data-more="open"] .agent-open-btn,
+  .app-frame:has(.calendar-page[data-panel="open"]) .agent-open-btn {
+    display: inline-flex;
+  }
+
+  .agent-panel {
+    inset: 0 0 0 auto;
+    width: min(440px, 100vw);
+    border-left: 1px solid var(--border);
+    box-shadow: var(--shadow);
+  }
+
+  /* The drawer sits beside the page: no dimming, the page stays readable. */
+  .agent-backdrop {
+    background: transparent;
+  }
+}
+
+/* Agent panel: tabs, collapsed settings, live progress, collected items, history */
+.agent-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.agent-tabs .day-panel-tab {
+  flex: 0 0 auto;
+}
+
+details.agent-settings {
+  padding: 0 16px;
+}
+
+details.agent-settings > summary {
+  min-height: 44px;
+  padding: 10px 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+details.agent-settings[open] {
+  padding-bottom: 12px;
+}
+
+.agent-note {
+  margin: 0;
+  padding: 8px 16px;
+}
+
+.agent-live-status {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.agent-live-status::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: pulse 1.1s ease-in-out infinite;
+}
+
+.agent-pending-detail {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.agent-items {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  padding: 14px 16px;
+  overflow-y: auto;
+}
+
+.agent-items-title {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.agent-item-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.agent-item[data-type="task"] { border-left-color: var(--done); }
+.agent-item[data-type="thread"] { border-left-color: var(--late); }
+.agent-item[data-type="note"] { border-left-color: var(--moved); }
+
+.agent-item[data-gone="true"] {
+  border-left-color: var(--border-strong);
+  background: var(--raised);
+}
+
+.agent-item[data-current="true"] {
+  border-color: var(--accent);
+}
+
+.agent-item-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.agent-history-open {
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-item-label {
+  color: var(--text);
+  font-size: 0.96rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.agent-item-meta {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.agent-item-open {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  text-decoration: none;
+}
+
+/* Event candidates: found in mail or by another agent, waiting for the user's decision */
+.candidate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.candidate {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 55%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+
+.candidate-title {
+  margin: 0;
+  color: var(--text);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.candidate-meta,
+.candidate-source,
+.candidate-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.candidate-meta {
+  color: var(--text);
+}
+
+.candidate-verdict {
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--done) 16%, var(--surface));
+  color: var(--text);
+  font-size: 0.75rem;
+}
+
+.candidate[data-verdict="unknown"] .candidate-verdict { background: var(--surface-2, color-mix(in srgb, var(--text-muted) 14%, var(--surface))); }
+.candidate[data-verdict="tight"] .candidate-verdict { background: color-mix(in srgb, var(--moved) 22%, var(--surface)); }
+.candidate[data-verdict="hard"] .candidate-verdict { background: color-mix(in srgb, var(--late) 22%, var(--surface)); }
+
+.candidate-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.candidate-actions .note-meta-link {
+  margin-right: auto;
+}
+
+.candidates {
+  margin-bottom: 12px;
+}
+
+.calendar-candidates-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  margin-bottom: 10px;
+  padding: 0 14px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 55%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  color: var(--text);
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.calendar-candidates-go {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.calendar-cell[data-candidate="true"] {
+  outline: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: -3px;
+}
+
+.candidate-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.candidate-sheet-title {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--text);
+}
+
+/* Agent panel: outside sources (mail, other agents) */
+.agent-source {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.agent-source-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.agent-connect {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-connect ol {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.agent-sheets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-sheet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-sheets .note-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-approve-all {
+  align-self: flex-end;
+}

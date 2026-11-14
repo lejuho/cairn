@@ -10,6 +10,11 @@ export type GmailMessage = {
   subject: string;
   snippet: string;
   body: string;
+  // Filled by the real client; fakes in tests may leave them out.
+  from?: string;
+  date?: string;
+  // Text of the HTML part, for mail that has no plain-text part.
+  htmlText?: string;
 };
 
 // Read-only Gmail surface used by the cost-sync job. Tests use fake
@@ -57,12 +62,38 @@ function extractMessage(msg: gmail_v1.Schema$Message): GmailMessage {
   const headers = msg.payload?.headers ?? [];
   const subject =
     headers.find((h) => (h.name ?? "").toLowerCase() === "subject")?.value ?? "";
+  const header = (name: string) => headers.find((h) => (h.name ?? "").toLowerCase() === name)?.value ?? "";
+  const body = extractPlainText(msg.payload);
   return {
     id: msg.id ?? "",
     subject,
     snippet: msg.snippet ?? "",
-    body: extractPlainText(msg.payload)
+    body,
+    from: header("from"),
+    date: msg.internalDate ? new Date(Number(msg.internalDate)).toISOString() : header("date"),
+    htmlText: body.trim() ? "" : extractHtmlText(msg.payload)
   };
+}
+
+function extractHtmlText(payload: gmail_v1.Schema$MessagePart | undefined): string {
+  if (!payload) return "";
+  const chunks: string[] = [];
+  const walk = (part: gmail_v1.Schema$MessagePart): void => {
+    if (part.mimeType === "text/html" && part.body?.data) chunks.push(decodeBase64Url(part.body.data));
+    for (const p of part.parts ?? []) walk(p);
+  };
+  walk(payload);
+  return htmlToText(chunks.join("\n"));
+}
+
+export function htmlToText(html: string): string {
+  return html
+    .replace(/<(style|script|head)[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<(br|\/p|\/div|\/tr|\/li|\/h[1-6])[^>]*>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/[ \t]+/g, " ")
+    .split("\n").map((line) => line.trim()).filter(Boolean).join("\n");
 }
 
 // Walk the MIME tree collecting text/plain parts. Falls back to the top-level

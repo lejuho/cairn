@@ -74,6 +74,19 @@ export const PatchThreadEventNodeRequestSchema = z
   .strict()
   .refine((p) => Object.keys(p).length >= 1, { message: "at least one field is required" });
 
+// 일정 고치기 (에이전트 패널에서 사용자가 승인한 뒤). 외부 캘린더 일정은 고칠 수 없다.
+export const PatchEventRequestSchema = z
+  .object({
+    title: z.string().trim().min(1).max(200),
+    start: z.string().datetime({ offset: true }),
+    end: z.string().datetime({ offset: true }),
+    location: z.string().trim().max(300).nullable()
+  })
+  .partial()
+  .strict()
+  .refine((p) => Object.keys(p).length >= 1, { message: "at least one field is required" });
+export type PatchEventRequest = z.infer<typeof PatchEventRequestSchema>;
+
 export type EventMode = z.infer<typeof EventModeSchema>;
 export type CreateEventRequest = z.infer<typeof CreateEventRequestSchema>;
 export type EventRow = z.infer<typeof EventRowSchema>;

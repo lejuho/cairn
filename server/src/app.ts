@@ -32,12 +32,15 @@ import { registerInboxRoutes } from "./routes/inbox.js";
 import { registerMaterialRoutes } from "./routes/materials.js";
 import { registerNoteRoutes } from "./routes/notes.js";
 import { registerCalendarRoutes } from "./routes/calendar.js";
+import { registerAgentRoutes, type AgentRouteOptions } from "./routes/agent.js";
 import type { GcalSyncControlOptions } from "./services/gcal-sync-control.js";
 
 export type BuildServerOptions = {
   gcalSync?: GcalSyncControlOptions;
   // POST /api/observations 인증 토큰. 미설정이면 loopback 요청만 허용.
   ingestToken?: string | undefined;
+  // In-app agent panel. Tests inject a fake model call here.
+  agent?: AgentRouteOptions;
 };
 
 export function buildServer(
@@ -109,6 +112,7 @@ export function buildServer(
     registerMaterialRoutes(app, db);
     registerNoteRoutes(app, db, gateway);
     registerCalendarRoutes(app, db);
+    registerAgentRoutes(app, db, gateway, opts.agent);
     if (opts.gcalSync) {
       registerGcalSyncRoutes(app, opts.gcalSync);
     }

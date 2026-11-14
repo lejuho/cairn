@@ -83,3 +83,6 @@ export function accessLoginUrl(href: string): string {
 export function openAccessLogin(): void {
   window.location.assign(accessLoginUrl(window.location.href));
 }
+
+// Fired when something outside a screen changed Cairn's data (the agent panel), so open screens reload.
+export const DATA_CHANGED_EVENT = "cairn:data-changed";
