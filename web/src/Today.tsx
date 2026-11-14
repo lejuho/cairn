@@ -628,7 +628,7 @@ function ScheduleBriefSection({ brief }: { brief: ScheduleBrief }) {
       <p className="event-detail-section-label">브리프</p>
       {brief.thread && (
         <div className="event-brief-thread" data-testid="brief-thread">
-          <span className="event-brief-thread-name">{brief.thread.name}</span>
+          <a className="event-brief-thread-name event-thread-link" href={`/threads/${brief.thread.id}`} aria-label={`${brief.thread.name} 스레드 열기`}>{brief.thread.name} <span aria-hidden="true">›</span></a>
           {brief.thread.goal && <span className="card-meta"> · {brief.thread.goal}</span>}
           {brief.thread.deadline && <span className="card-meta"> · 마감 {brief.thread.deadline.slice(0, 10)}</span>}
         </div>
@@ -1961,7 +1961,11 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
                 </p>
               )}
               {eventDetail.data.thread && (
-                <p className="event-detail-thread">{eventDetail.data.thread.name}</p>
+                <p className="event-detail-thread">
+                  <a className="event-thread-link" href={`/threads/${eventDetail.data.thread.id}`} aria-label={`${eventDetail.data.thread.name} 스레드 열기`}>
+                    {eventDetail.data.thread.name} <span aria-hidden="true">›</span>
+                  </a>
+                </p>
               )}
             </div>
             {geocodePreview.tag !== "idle" && geocodePreview.eventId === selectedEventId && (

@@ -131,7 +131,7 @@ export const AGENT_TOOLS: AgentTool[] = [
     run: async (ctx) => {
       const r = await api(ctx, "GET", "/api/threads");
       if (!okOf(r)) return failure(r, "스레드 조회");
-      const list = (r.body.data as Row[]).map((s) => ({ ...pick(s.thread, ["id", "name", "status", "goal", "deadline", "domain", "startedAt"]), ...pick(s, ["doneCount", "totalCount", "doingCount"]) }));
+      const list = (r.body.data as Row[]).map((s) => ({ ...pick(s.thread, ["id", "name", "status", "goal", "startDate", "deadline", "domain", "startedAt"]), ...pick(s, ["doneCount", "totalCount", "doingCount"]) }));
       return { ok: true, summary: `스레드 ${list.length}개 조회`, data: list };
     }
   }),
@@ -147,7 +147,7 @@ export const AGENT_TOOLS: AgentTool[] = [
       return {
         ok: true, summary: `스레드 #${a.id} 조회`, link: `/threads/${a.id}`,
         data: {
-          thread: pick(d.thread, ["id", "name", "status", "goal", "deadline", "domain", "startedAt"]),
+          thread: pick(d.thread, ["id", "name", "status", "goal", "startDate", "deadline", "domain", "startedAt"]),
           events: rows(d.events, EVENT_KEYS), tasks: rows(d.tasks, TASK_KEYS), childThreads: d.childThreads,
           relations: { incoming: Array.isArray(rel.incoming) ? rel.incoming.map(link) : [], outgoing: Array.isArray(rel.outgoing) ? rel.outgoing.map(link) : [] }
         }
@@ -186,7 +186,7 @@ export const AGENT_TOOLS: AgentTool[] = [
     }
   }),
   tool({
-    name: "create_task", writes: true, describe: (a) => `할 일 생성: ${a.title}`, description: "할 일을 만든다.",
+    name: "create_task", writes: true, describe: (a) => `할 일 생성: ${a.title}`, description: "할 일을 만든다. 기한이 말에 있으면 due, 속한 스레드가 있으면 threadId 를 반드시 넣는다.",
     args: "{title: string, due?: YYYY-MM-DD, estMinutes?: number, threadId?: number, context?: string}",
     schema: z.object({ title: z.string().min(1).max(200), due: localDate.optional(), estMinutes: z.number().int().positive().max(1440).optional(), threadId: id.optional(), context: z.string().max(2000).optional() }).strict(),
     run: async (ctx, a) => {
@@ -208,9 +208,9 @@ export const AGENT_TOOLS: AgentTool[] = [
     }
   }),
   tool({
-    name: "create_thread", writes: true, describe: (a) => `스레드 생성: ${a.name}`, description: "스레드를 만든다.",
-    args: "{name: string, goal?: string, deadline?: YYYY-MM-DD, domain?: 'personal'|'work'}",
-    schema: z.object({ name: z.string().min(1).max(200), goal: z.string().max(1000).optional(), deadline: localDate.optional(), domain: z.enum(["personal", "work"]).optional() }).strict(),
+    name: "create_thread", writes: true, describe: (a) => `스레드 생성: ${a.name}`, description: "스레드를 만든다. 시작하는 날이 말에 있으면 startDate, 끝나는 날이 있으면 deadline 을 반드시 넣는다 (기간이면 끝나는 날을 계산). startDate 가 되면 보드에서 자동으로 진행 중이 된다.",
+    args: "{name: string, goal?: string, startDate?: YYYY-MM-DD, deadline?: YYYY-MM-DD, domain?: 'personal'|'work'}",
+    schema: z.object({ name: z.string().min(1).max(200), goal: z.string().max(1000).optional(), startDate: localDate.optional(), deadline: localDate.optional(), domain: z.enum(["personal", "work"]).optional() }).strict(),
     run: async (ctx, a) => {
       const r = await api(ctx, "POST", "/api/threads", a);
       if (!okOf(r)) return failure(r, "스레드 생성");
@@ -316,6 +316,28 @@ export const AGENT_TOOLS: AgentTool[] = [
       if (!okOf(r)) return failure(r, "일정 수정");
       const label = a.title ?? currentTitle;
       return { ok: true, summary: `일정 수정: ${label}`, ...(a.start ? { link: `/calendar?date=${a.start.slice(0, 10)}` } : {}), refs: [{ type: "event", id: eventId, label, action: a.start || a.end ? "시간 변경" : "수정" }] };
+    }
+  }),
+  tool({
+    name: "update_thread", writes: true, confirm: true, description: "스레드의 이름·목표·시작일·마감·영역을 고친다. 바꿀 것만 넣는다. 날짜를 없애려면 null.",
+    args: "{id: number, currentName: string, name?: string, goal?: string|null, startDate?: YYYY-MM-DD|null, deadline?: YYYY-MM-DD|null, domain?: 'personal'|'work'}",
+    schema: z.object({ id, currentName: z.string().max(200), name: z.string().min(1).max(200).optional(), goal: z.string().max(1000).nullable().optional(), startDate: localDate.nullable().optional(), deadline: localDate.nullable().optional(), domain: z.enum(["personal", "work"]).optional() })
+      .strict()
+      .refine((a) => a.name !== undefined || a.goal !== undefined || a.startDate !== undefined || a.deadline !== undefined || a.domain !== undefined, { message: "nothing to change" }),
+    describe: (a) => `스레드 수정: ${a.currentName}`,
+    detail: (a) => [
+      a.name !== undefined ? `이름 → ${a.name}` : null,
+      a.startDate !== undefined ? `시작일 → ${a.startDate ?? "없음"}` : null,
+      a.deadline !== undefined ? `마감 → ${a.deadline ?? "없음"}` : null,
+      a.goal !== undefined ? `목표 → ${a.goal ?? "없음"}` : null,
+      a.domain !== undefined ? `영역 → ${a.domain === "work" ? "업무" : "개인"}` : null
+    ].filter(Boolean).join("\n"),
+    run: async (ctx, a) => {
+      const { id: threadId, currentName, ...patch } = a;
+      const r = await api(ctx, "PATCH", `/api/threads/${threadId}`, patch);
+      if (!okOf(r)) return failure(r, "스레드 수정");
+      const label = a.name ?? currentName;
+      return { ok: true, summary: `스레드 수정: ${label}`, link: `/threads/${threadId}`, refs: [{ type: "thread", id: threadId, label, action: a.deadline !== undefined || a.startDate !== undefined ? "기간 변경" : "수정" }] };
     }
   }),
   tool({

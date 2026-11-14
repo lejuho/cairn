@@ -1,4 +1,4 @@
-import { createContext, useContext, useRef, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { createContext, useContext, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 
 // A state board: three coloured columns (할 일 / 진행 중 / 완료) that fill the screen width, with
 // anything set aside folded underneath. Used for the items of one thread and for the list of threads.
@@ -131,7 +131,28 @@ type BoardProps = {
   notice?: string | null | undefined;
 };
 
+// Finished work can be put away: the 완료 column shrinks to a narrow strip that still shows its
+// count and still takes dropped cards. The choice is remembered for every board.
+const DONE_COLLAPSED_KEY = "cairn.board.doneCollapsed";
+
+function readDoneCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(DONE_COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function Board({ label, testId, columns, folded, onMove, notice }: BoardProps) {
+  const [doneCollapsed, setDoneCollapsed] = useState(readDoneCollapsed);
+  const toggleDone = () => setDoneCollapsed((prev) => {
+    try {
+      window.localStorage.setItem(DONE_COLLAPSED_KEY, prev ? "0" : "1");
+    } catch {
+      // Storage unavailable: the choice still holds for this screen.
+    }
+    return !prev;
+  });
   const within = (column: BoardPlace, children: ReactNode) =>
     onMove ? <BoardContext.Provider value={{ column, onMove }}>{children}</BoardContext.Provider> : children;
 
@@ -141,14 +162,20 @@ export function Board({ label, testId, columns, folded, onMove, notice }: BoardP
       <div className="kanban-cols">
         {BOARD_COLUMNS.map((col) => {
           const { count, cards } = columns[col.id];
+          const collapsed = col.id === "done" && doneCollapsed;
           return (
-            <section key={col.id} className="kanban-col" data-tone={col.id} data-column={col.id} aria-label={`${col.label} 열`}>
+            <section key={col.id} className="kanban-col" data-tone={col.id} data-column={col.id} data-collapsed={collapsed ? "true" : undefined} aria-label={`${col.label} 열`}>
               <h2 className="kanban-col-head">
                 <span className="kanban-dot" aria-hidden="true" />
-                {col.label}
+                <span className="kanban-col-label">{col.label}</span>
                 <span className="kanban-count" aria-label={`${count}개`}>{count}</span>
+                {col.id === "done" && (
+                  <button type="button" className="kanban-col-toggle" aria-expanded={!collapsed} aria-label={collapsed ? "완료 열 펼치기" : "완료 열 접기"} onClick={toggleDone}>
+                    <span aria-hidden="true">{collapsed ? "‹" : "›"}</span>
+                  </button>
+                )}
               </h2>
-              {count > 0 ? (
+              {collapsed ? null : count > 0 ? (
                 <ul className="kanban-cards" role="list">{within(col.id, cards)}</ul>
               ) : (
                 <div className="kanban-empty" aria-hidden="true" />

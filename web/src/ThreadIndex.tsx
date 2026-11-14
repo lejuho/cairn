@@ -2,6 +2,7 @@ import { Board, BoardGrip, type BoardColumnId } from "./Board.js";
 import { useEffect, useState } from "react";
 import type { DomainFilter, ThreadSummary } from "@cairn/shared";
 import { apiJson, type AccessSessionError, openAccessLogin, DATA_CHANGED_EVENT } from "./api.js";
+import { todayLocal } from "./Notes.js";
 import { DomainFilterControl, domainLabel } from "./DomainFilter.js";
 
 type ViewState =
@@ -18,7 +19,13 @@ async function loadThreads(domain: DomainFilter): Promise<ThreadSummary[]> {
 }
 
 // A thread's column is its real state: done → 완료; otherwise 진행 중 once it was started — moved
-// there on the board, or something inside it is under way or finished — and 할 일 until then.
+// there on the board, something inside it is under way or finished, or its start date has come —
+// and 할 일 until then.
+// The planned start day has come (or passed).
+export function startDateReached(startDate: string | null | undefined, today: string = todayLocal()): boolean {
+  return typeof startDate === "string" && startDate.slice(0, 10) <= today;
+}
+
 function hasInnerProgress(summary: ThreadSummary): boolean {
   return summary.doneCount > 0 || (summary.doingCount ?? 0) > 0;
 }
@@ -27,7 +34,7 @@ export function placeThread(summary: ThreadSummary): BoardColumnId | "folded" {
   const status = summary.thread.status;
   if (status === "done") return "done";
   if (status === "paused" || status === "dropped") return "folded";
-  return summary.thread.startedAt || hasInnerProgress(summary) ? "doing" : "todo";
+  return summary.thread.startedAt || hasInnerProgress(summary) || startDateReached(summary.thread.startDate) ? "doing" : "todo";
 }
 
 export function ThreadIndex() {
@@ -43,6 +50,10 @@ export function ThreadIndex() {
     setNotice(null);
     if (to === "todo" && summary && hasInnerProgress(summary)) {
       setNotice("진행된 항목이 있는 스레드는 할 일로 되돌릴 수 없습니다.");
+      return;
+    }
+    if (to === "todo" && summary && startDateReached(summary.thread.startDate)) {
+      setNotice("시작일이 된 스레드입니다. 할 일로 되돌리려면 스레드에서 시작일을 바꾸세요.");
       return;
     }
     try {
@@ -147,7 +158,7 @@ export function ThreadIndex() {
               <span className="card-chip" data-testid={`thread-domain-${s.thread.id}`}>{domainLabel(s.thread.domain)}</span>
               <p className="card-title">{s.thread.name}</p>
               <p className="card-meta">
-                {[s.thread.goal, s.totalCount > 0 ? `${s.doneCount}/${s.totalCount} 완료` : null, s.thread.deadline ? `마감 ${s.thread.deadline}` : null].filter(Boolean).join(" · ")}
+                {[s.thread.goal, s.totalCount > 0 ? `${s.doneCount}/${s.totalCount} 완료` : null, s.thread.startDate && !startDateReached(s.thread.startDate) ? `시작 ${s.thread.startDate}` : null, s.thread.deadline ? `마감 ${s.thread.deadline}` : null].filter(Boolean).join(" · ")}
               </p>
               {(s.relationCounts.incoming > 0 || s.relationCounts.outgoing > 0) && (
                 <p className="card-meta thread-relation-chips" aria-label="관계">

@@ -325,8 +325,8 @@ describe("POST /api/threads/:id/links", () => {
 
     const detail = (await app.inject({ method: "GET", url: `/api/threads/${parent}` })).json().data;
     expect(detail.childThreads).toEqual([
-      { id: quiet, name: "빈 갈래", status: "paused", deadline: null, period: null, startedAt: null, doingCount: 0 },
-      { id: child, name: "실험 설계", status: "active", deadline: null, period: { from: "2026-11-03", to: "2026-12-15" }, startedAt: null, doingCount: 0 }
+      { id: quiet, name: "빈 갈래", status: "paused", deadline: null, period: null, startedAt: null, startDate: null, doingCount: 0 },
+      { id: child, name: "실험 설계", status: "active", deadline: null, period: { from: "2026-11-03", to: "2026-12-15" }, startedAt: null, startDate: null, doingCount: 0 }
     ]);
     // 손자는 바로 아래가 아니라서 부모의 카드에는 없다.
     expect((await app.inject({ method: "GET", url: `/api/threads/${child}` })).json().data.childThreads.map((c: { id: number }) => c.id)).toEqual([grandchild]);

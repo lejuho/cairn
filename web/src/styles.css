@@ -7117,3 +7117,89 @@ details.agent-settings[open] {
 .agent-approve-all {
   align-self: flex-end;
 }
+
+/* Thread header: edit name, goal, deadline, domain */
+.thread-edit-btn {
+  margin-bottom: 6px;
+}
+
+.thread-edit-form {
+  margin: 8px 0 12px;
+}
+
+.thread-edit-form textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  resize: vertical;
+}
+
+.thread-edit-deadline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* A thread name shown with an event opens that thread */
+.event-thread-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.event-thread-link:hover,
+.event-thread-link:focus-visible {
+  text-decoration: underline;
+}
+
+/* Kanban: the 완료 column folds into a narrow strip (still a drop target) */
+.kanban-col-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid color-mix(in srgb, var(--tone) 30%, var(--border));
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--tone);
+  font: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.kanban-col[data-collapsed="true"] {
+  flex: 0 0 56px;
+  min-height: 0;
+  padding: 12px 6px;
+  align-items: center;
+}
+
+.kanban-col[data-collapsed="true"] .kanban-col-head {
+  flex-direction: column-reverse;
+  gap: 10px;
+}
+
+.kanban-col[data-collapsed="true"] .kanban-col-label {
+  writing-mode: vertical-rl;
+  letter-spacing: 0.1em;
+}
+
+.kanban-col[data-collapsed="true"] .kanban-count {
+  margin-left: 0;
+}
+
+.kanban-col[data-collapsed="true"] .kanban-dot {
+  display: none;
+}

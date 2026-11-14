@@ -1,0 +1,1 @@
+ALTER TABLE `threads` ADD `start_date` text;

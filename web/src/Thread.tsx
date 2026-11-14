@@ -5,6 +5,7 @@ import { localDateString, localNowRfc3339 } from "./dateUtils.js";
 import { Board, BoardGrip, type BoardColumnId } from "./Board.js";
 import { EgoSheet, loadEgoGraph } from "./EgoSheet.js";
 import { AttachedNotes } from "./Notes.js";
+import { startDateReached } from "./ThreadIndex.js";
 import { SlotCandidatePicker } from "./SlotCandidatePicker.js";
 
 // Thread node edit/confirm endpoints (cycle-50 FR-THR-05/06). Return ok+optional
@@ -181,6 +182,7 @@ export function Thread({ id }: { id: number }) {
   const [approveError, setApproveError] = useState<string | null>(null);
   const [threadStatusSaving, setThreadStatusSaving] = useState<ThreadStatus | null>(null);
   const [threadStatusError, setThreadStatusError] = useState<string | null>(null);
+  const [editingThread, setEditingThread] = useState(false);
   const addBtnRef = useRef<HTMLButtonElement>(null);
   const sheetCloseRef = useRef<HTMLButtonElement>(null);
   const sheetBackdropRef = useRef<HTMLDivElement>(null);
@@ -458,13 +460,19 @@ export function Thread({ id }: { id: number }) {
         >
           <p className="eyebrow">Thread</p>
           <h1 id="thread-title" className="thread-name">{detail.thread.name}</h1>
-          {detail.thread.goal && (
+          {detail.thread.goal && !editingThread && (
             <p className="thread-goal">{detail.thread.goal}</p>
+          )}
+          {editingThread && (
+            <ThreadEditForm thread={detail.thread} onCancel={() => setEditingThread(false)} onSaved={() => { setEditingThread(false); refresh(); }} />
           )}
           <div className="thread-meta-row">
             <span className="card-chip" data-testid="thread-domain-chip">{detail.thread.domain === "work" ? "업무" : "개인"}</span>
             {detail.thread.status && (
               <span className="card-chip" data-testid="thread-status-chip">{THREAD_STATUS_LABEL[detail.thread.status]}</span>
+            )}
+            {detail.thread.startDate && (
+              <span className="card-chip">시작 {detail.thread.startDate}</span>
             )}
             {detail.thread.deadline && (
               <span className="card-chip">마감 {detail.thread.deadline}</span>
@@ -476,6 +484,11 @@ export function Thread({ id }: { id: number }) {
               <span className="card-chip" aria-label={`진행 ${progress.done}/${progress.total}`}>
                 {progress.done}/{progress.total}
               </span>
+            )}
+            {!editingThread && (
+              <button type="button" className="note-text-btn thread-edit-btn" onClick={() => setEditingThread(true)} aria-label="스레드 이름·목표·마감 고치기">
+                {detail.thread.deadline ? "고치기" : "고치기 · 기간 정하기"}
+              </button>
             )}
           </div>
           <div className="thread-status-actions" role="group" aria-label="스레드 상태">
@@ -848,7 +861,7 @@ function placeEvent(event: EventRow, nowMs: number): BoardPlace {
 function placeChild(child: ChildCard, progress: { done: number; total: number } | undefined): BoardColumnId | "folded" {
   if (child.status === "done") return "done";
   if (child.status === "paused" || child.status === "dropped") return "folded";
-  return child.startedAt || (progress?.done ?? 0) > 0 || (child.doingCount ?? 0) > 0 ? "doing" : "todo";
+  return child.startedAt || (progress?.done ?? 0) > 0 || (child.doingCount ?? 0) > 0 || startDateReached(child.startDate) ? "doing" : "todo";
 }
 
 function shortDay(value: string): string {
@@ -901,6 +914,10 @@ function ThreadBoard({ detail, nodeClass, highlightedTaskIds, highlightedEventId
       const progress = progressById.get(id);
       if (to === "todo" && entry && ((progress?.done ?? 0) > 0 || (entry.child.doingCount ?? 0) > 0)) {
         setNotice("진행된 항목이 있는 스레드는 할 일로 되돌릴 수 없습니다.");
+        return;
+      }
+      if (to === "todo" && entry && startDateReached(entry.child.startDate)) {
+        setNotice("시작일이 된 스레드입니다. 할 일로 되돌리려면 그 스레드에서 시작일을 바꾸세요.");
         return;
       }
     }
@@ -1253,6 +1270,74 @@ function ThreadTaskSlotControls({
     );
   }
   return <button type="button" className="today-slot-btn" onClick={onLoad}>시간 추천</button>;
+}
+
+// Name, goal, deadline and domain of the thread itself. Status and board position are changed
+// with their own buttons.
+function ThreadEditForm({ thread, onCancel, onSaved }: { thread: ThreadDetail["thread"]; onCancel: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(thread.name);
+  const [goal, setGoal] = useState(thread.goal ?? "");
+  const [deadline, setDeadline] = useState(thread.deadline?.slice(0, 10) ?? "");
+  const [startDate, setStartDate] = useState(thread.startDate?.slice(0, 10) ?? "");
+  const [domain, setDomain] = useState<"personal" | "work">(thread.domain === "work" ? "work" : "personal");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await apiJson<{ ok: boolean; error?: { message?: string } }>(`/api/threads/${thread.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), goal: goal.trim() === "" ? null : goal.trim(), startDate: startDate === "" ? null : startDate, deadline: deadline === "" ? null : deadline, domain })
+      });
+      if (!res?.ok) {
+        setError(res?.error?.message ?? "저장하지 못했습니다");
+        setSaving(false);
+        return;
+      }
+      onSaved();
+    } catch {
+      setError("저장하지 못했습니다");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form className="thread-node-form thread-edit-form" data-testid="thread-edit-form" onSubmit={(e) => { e.preventDefault(); void save(); }}>
+      <label className="thread-node-field"><span>이름</span>
+        <input value={name} onChange={(e) => setName(e.target.value)} aria-label="스레드 이름" maxLength={200} />
+      </label>
+      <label className="thread-node-field"><span>목표</span>
+        <textarea value={goal} rows={2} onChange={(e) => setGoal(e.target.value)} aria-label="스레드 목표" maxLength={1000} />
+      </label>
+      <label className="thread-node-field"><span>시작일</span>
+        <span className="thread-edit-deadline">
+          <input type="date" value={startDate} max={deadline || undefined} onChange={(e) => setStartDate(e.target.value)} aria-label="스레드 시작일" />
+          {startDate !== "" && <button type="button" className="note-text-btn" onClick={() => setStartDate("")}>시작일 없음</button>}
+        </span>
+        <span className="note-hint">이 날이 되면 보드에서 진행 중으로 넘어갑니다.</span>
+      </label>
+      <label className="thread-node-field"><span>마감</span>
+        <span className="thread-edit-deadline">
+          <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} aria-label="스레드 마감일" />
+          {deadline !== "" && <button type="button" className="note-text-btn" onClick={() => setDeadline("")}>마감 없음</button>}
+        </span>
+      </label>
+      <div className="thread-node-field"><span>영역</span>
+        <span className="notes-filter-row" role="group" aria-label="스레드 영역">
+          <button type="button" className="notes-filter-chip" aria-pressed={domain === "personal"} onClick={() => setDomain("personal")}>개인</button>
+          <button type="button" className="notes-filter-chip" aria-pressed={domain === "work"} onClick={() => setDomain("work")}>업무</button>
+        </span>
+      </div>
+      {error && <p className="card-meta" role="alert" style={{ color: "var(--moved)" }}>{error}</p>}
+      <div className="thread-node-form-actions">
+        <button type="submit" className="thread-node-save-btn" disabled={saving || name.trim() === "" || (startDate !== "" && deadline !== "" && startDate > deadline)}>{saving ? "저장 중…" : "저장"}</button>
+        <button type="button" className="thread-node-cancel-btn" onClick={onCancel} disabled={saving}>취소</button>
+      </div>
+    </form>
+  );
 }
 
 function TaskNodeForm({ task, onCancel, onSaved }: { task: TaskRow; onCancel: () => void; onSaved: () => void }) {

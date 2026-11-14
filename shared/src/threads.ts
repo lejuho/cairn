@@ -15,7 +15,9 @@ export const ThreadRowSchema = z.object({
   domain: ThreadDomainSchema,
   createdAt: z.string().nullable(),
   // 보드에서 "진행 중"으로 옮긴 시각. 없으면 안의 항목 상태로만 시작 여부를 본다. 옛 응답 호환을 위해 optional.
-  startedAt: z.string().nullable().optional()
+  startedAt: z.string().nullable().optional(),
+  // 시작하기로 한 날 (YYYY-MM-DD). 이 날이 되면 진행 중으로 읽는다.
+  startDate: z.string().nullable().optional()
 });
 
 // 보드에서 스레드 카드를 다른 열로 옮긴다. 열은 실제 상태로 저장된다 (완료 = status done,
@@ -28,9 +30,23 @@ export const CreateThreadRequestSchema = z.object({
   kind: z.string().optional(),
   goal: z.string().optional(),
   deadline: z.string().optional(),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   // Optional on create; defaults to `personal` server-side when omitted.
   domain: ThreadDomainSchema.optional()
 });
+
+// 스레드의 이름·목표·마감·영역 고치기. 바꿀 것만 보낸다. null 은 비우기.
+export const PatchThreadRequestSchema = z
+  .object({
+    name: z.string().trim().min(1).max(200).optional(),
+    goal: z.string().trim().max(1000).nullable().optional(),
+    deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+    domain: ThreadDomainSchema.optional()
+  })
+  .strict()
+  .refine((v) => Object.values(v).some((x) => x !== undefined), { message: "nothing to change" });
+export type PatchThreadRequest = z.infer<typeof PatchThreadRequestSchema>;
 
 // Operational thread status change. This is a soft state transition, not a hard
 // delete; dropped threads remain historical graph centers.
@@ -429,6 +445,7 @@ export const ThreadChildCardSchema = z.object({
   deadline: z.string().nullable(),
   period: z.object({ from: z.string(), to: z.string() }).nullable(),
   startedAt: z.string().nullable().optional(),
+  startDate: z.string().nullable().optional(),
   doingCount: z.number().optional()
 });
 export type ThreadChildCard = z.infer<typeof ThreadChildCardSchema>;

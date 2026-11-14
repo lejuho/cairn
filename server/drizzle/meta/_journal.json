@@ -169,6 +169,13 @@
       "when": 1794664925178,
       "tag": "0023_common_black_tarantula",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1794667425964,
+      "tag": "0024_abnormal_fenris",
+      "breakpoints": true
     }
   ]
 }

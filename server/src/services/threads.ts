@@ -150,6 +150,7 @@ function buildChildCards(db: CairnDatabase, parentId: number): ThreadChildCard[]
         deadline: row.deadline,
         period: days.length > 0 ? { from: days[0]!, to: days[days.length - 1]! } : null,
         startedAt: row.startedAt,
+        startDate: row.startDate,
         doingCount: taskRows.filter((t) => t.threadId === row.id && t.status === "doing").length
       };
     })

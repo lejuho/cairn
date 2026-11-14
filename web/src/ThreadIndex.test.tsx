@@ -1,6 +1,6 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ThreadIndex } from "./ThreadIndex.js";
+import { ThreadIndex, placeThread, startDateReached } from "./ThreadIndex.js";
 import type { ThreadSummary } from "@cairn/shared";
 
 afterEach(() => {
@@ -214,5 +214,41 @@ describe("ThreadIndex — board", () => {
     render(<ThreadIndex />);
     const doing = await screen.findByRole("region", { name: "진행 중 열" });
     expect(doing).toHaveTextContent("막 시작한 것");
+  });
+});
+
+describe("placeThread — start date", () => {
+  const base = { ...SUMMARY, doneCount: 0, doingCount: 0, thread: { ...SUMMARY.thread, status: "active" as const, startedAt: null } };
+
+  it("stays in 할 일 until the start date, then reads as 진행 중", () => {
+    expect(placeThread({ ...base, thread: { ...base.thread, startDate: null } })).toBe("todo");
+    expect(placeThread({ ...base, thread: { ...base.thread, startDate: "2999-01-01" } })).toBe("todo");
+    expect(placeThread({ ...base, thread: { ...base.thread, startDate: "2000-01-01" } })).toBe("doing");
+    expect(startDateReached("2026-11-16", "2026-11-15")).toBe(false);
+    expect(startDateReached("2026-11-16", "2026-11-16")).toBe(true);
+    // 완료·중지는 시작일보다 우선한다.
+    expect(placeThread({ ...base, thread: { ...base.thread, startDate: "2000-01-01", status: "done" } })).toBe("done");
+    expect(placeThread({ ...base, thread: { ...base.thread, startDate: "2000-01-01", status: "paused" } })).toBe("folded");
+  });
+});
+
+describe("ThreadIndex — folding the done column", () => {
+  it("folds 완료 into a strip that keeps its count, and remembers the choice", async () => {
+    mockFetch([{ ...SUMMARY, thread: { ...SUMMARY.thread, id: 5, name: "끝난 일", status: "done" } }]);
+    const first = render(<ThreadIndex />);
+    expect(await screen.findByText("끝난 일")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "완료 열 접기" }));
+    expect(screen.queryByText("끝난 일")).not.toBeInTheDocument();
+    const column = screen.getByRole("region", { name: "완료 열" });
+    expect(column).toHaveAttribute("data-collapsed", "true");
+    expect(within(column).getByLabelText("1개")).toBeInTheDocument();
+
+    // 다시 열어도 접힌 채로 나온다.
+    first.unmount();
+    render(<ThreadIndex />);
+    fireEvent.click(await screen.findByRole("button", { name: "완료 열 펼치기" }));
+    expect(screen.getByText("끝난 일")).toBeInTheDocument();
+    window.localStorage.clear();
   });
 });

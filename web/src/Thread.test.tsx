@@ -302,7 +302,7 @@ describe("Thread — board", () => {
 
     // 열 머리에는 개수가 붙고, 열마다 색(tone)이 다르다.
     expect([todo, doing, done].map((col) => [col.dataset.tone, within(col).getByRole("heading").textContent])).toEqual([
-      ["todo", "할 일3"], ["doing", "진행 중2"], ["done", "완료2"]
+      ["todo", "할 일3"], ["doing", "진행 중2"], ["done", "완료2›"]
     ]);
   });
 
@@ -1997,5 +1997,29 @@ describe("Thread — task drop soft-remove (cycle-81)", () => {
     fireEvent.click(await screen.findByTestId("task-drop-20"));
     expect(await screen.findByTestId("task-drop-error-20")).toHaveTextContent("드롭에 실패했어");
     expect(screen.getByTestId("task-drop-20")).toBeInTheDocument(); // row still active
+  });
+});
+
+describe("Thread — editing the thread itself", () => {
+  it("sets a deadline and goal from the header and reloads", async () => {
+    mockFetch({ thread: { ...SUMMARY_OTHER.thread, id: 1, name: "서포터즈", goal: "3개월 활동" }, events: [], tasks: [], progress: { done: 0, total: 0 } });
+    render(<Thread id={1} />);
+    fireEvent.click(await screen.findByRole("button", { name: "스레드 이름·목표·마감 고치기" }));
+    expect(screen.getByRole("button", { name: "저장" })).toBeEnabled();
+
+    fireEvent.change(screen.getByLabelText("스레드 마감일"), { target: { value: "2027-02-16" } });
+    fireEvent.change(screen.getByLabelText("스레드 시작일"), { target: { value: "2026-11-16" } });
+    fireEvent.change(screen.getByLabelText("스레드 목표"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "업무" }));
+    const fetchMock = vi.mocked(fetch);
+    const before = fetchMock.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) => url === "/api/threads/1" && (init as RequestInit | undefined)?.method === "PATCH")).toBe(true));
+    const patch = fetchMock.mock.calls.find(([url, init]) => url === "/api/threads/1" && (init as RequestInit | undefined)?.method === "PATCH")!;
+    expect(JSON.parse(String((patch[1] as RequestInit).body))).toEqual({ name: "서포터즈", goal: null, startDate: "2026-11-16", deadline: "2027-02-16", domain: "work" });
+    // 저장하면 폼이 닫히고 스레드를 다시 읽는다.
+    await waitFor(() => expect(screen.queryByTestId("thread-edit-form")).not.toBeInTheDocument());
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(before + 1);
   });
 });

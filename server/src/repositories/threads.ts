@@ -33,7 +33,8 @@ export const THREAD_ROW_COLUMNS = {
   status: threads.status,
   domain: threads.domain,
   createdAt: threads.createdAt,
-  startedAt: threads.startedAt
+  startedAt: threads.startedAt,
+  startDate: threads.startDate
 } as const;
 
 export function createThread(db: CairnDatabase, input: CreateThreadRequest): ThreadRow {
@@ -44,6 +45,7 @@ export function createThread(db: CairnDatabase, input: CreateThreadRequest): Thr
       kind: input.kind ?? null,
       goal: input.goal ?? null,
       deadline: input.deadline ?? null,
+      startDate: input.startDate ?? null,
       status: "active",
       // Domain default (cycle-67 FR-DOM-01): omitted create → `personal`.
       domain: input.domain ?? "personal"
@@ -71,6 +73,12 @@ export function findThreadIdsByDomain(db: CairnDatabase, domain: ThreadDomain): 
 
 export function findThreadById(db: CairnDatabase, id: number): ThreadRow | null {
   const row = db.select(THREAD_ROW_COLUMNS).from(threads).where(eq(threads.id, id)).get();
+  return row ? (row as ThreadRow) : null;
+}
+
+export function updateThreadFields(db: CairnDatabase, id: number, patch: { name?: string | undefined; goal?: string | null | undefined; deadline?: string | null | undefined; startDate?: string | null | undefined; domain?: ThreadDomain | undefined }): ThreadRow | null {
+  const set = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+  const [row] = db.update(threads).set(set).where(eq(threads.id, id)).returning(THREAD_ROW_COLUMNS).all();
   return row ? (row as ThreadRow) : null;
 }
 

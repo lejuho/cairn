@@ -69,6 +69,7 @@ export const API_ROUTE_CATALOG: JsonValue[] = [
   { method: "POST", path: "/api/threads", purpose: "Create thread" },
   { method: "GET", path: "/api/threads", purpose: "List threads" },
   { method: "GET", path: "/api/threads/:id", purpose: "Thread detail" },
+  { method: "PATCH", path: "/api/threads/:id", purpose: "Edit thread name/goal/deadline/domain" },
   { method: "PATCH", path: "/api/threads/:id/status", purpose: "Update thread status" },
   { method: "POST", path: "/api/threads/:id/links", purpose: "Create thread link" },
   { method: "DELETE", path: "/api/threads/:id/links/:linkId", purpose: "Delete thread link" },
@@ -519,7 +520,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_task_create",
-    description: "Create a Cairn task. 반환: 생성된 할 일 {id, threadId, title, estMinutes, due, context, optional, status, …}.",
+    description: "Create a Cairn task. Set due when the user gave a date and threadId when it belongs to a thread. 반환: 생성된 할 일 {id, threadId, title, estMinutes, due, context, optional, status, …}.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -617,7 +618,7 @@ export const TOOLS: McpTool[] = [
   },
   {
     name: "cairn_thread_create",
-    description: "Create a thread. 반환: 생성된 thread {id, name, kind, goal, deadline, status, domain, createdAt}.",
+    description: "Create a thread (a purpose or project). Fill it in at creation: goal = one sentence on what it achieves; startDate = the day it begins and deadline = the end date whenever they are known or can be computed (a period like 'three months from Nov 16' → startDate Nov 16 and the computed end date). The board shows the thread as in progress from startDate on. Do not leave a known date only inside goal. Tell the user which dates you set. 반환: 생성된 thread {id, name, kind, goal, deadline, status, domain, createdAt}.",
     inputSchema: {
       type: "object",
       additionalProperties: true,
@@ -625,8 +626,28 @@ export const TOOLS: McpTool[] = [
       properties: {
         name: { type: "string" },
         kind: { type: "string" },
+        goal: { type: "string", description: "One sentence: what this thread is for." },
+        startDate: { type: "string", description: "Day the thread begins, YYYY-MM-DD." },
+        deadline: { type: "string", description: "End date, YYYY-MM-DD. Set it whenever the user gave an end date or a period." },
         domain: { type: "string", enum: ["personal", "work"] },
         why: { type: "string" }
+      }
+    }
+  },
+  {
+    name: "cairn_thread_update",
+    description: "Change a thread's name, goal, startDate, deadline or domain. Send only what changes; a null date clears it. Confirm the change with the user first. 반환: {thread}.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["id"],
+      properties: {
+        id: { type: "number" },
+        name: { type: "string" },
+        goal: { type: ["string", "null"] },
+        startDate: { type: ["string", "null"], description: "YYYY-MM-DD, or null to clear." },
+        deadline: { type: ["string", "null"], description: "YYYY-MM-DD, or null to clear." },
+        domain: { type: "string", enum: ["personal", "work"] }
       }
     }
   },
@@ -812,6 +833,8 @@ async function dispatchTool(config: CairnApiClientConfig, name: string, args: Js
       return request(config, { method: "GET", path: `/api/threads/${idArg(args)}` });
     case "cairn_thread_create":
       return request(config, { method: "POST", path: "/api/threads", body: withoutId(args) });
+    case "cairn_thread_update":
+      return request(config, { method: "PATCH", path: `/api/threads/${idArg(args)}`, body: pickBody(args, ["name", "goal", "startDate", "deadline", "domain"]) });
     case "cairn_thread_status":
       return request(config, { method: "PATCH", path: `/api/threads/${idArg(args)}/status`, body: pickBody(args, ["status"]) });
     case "cairn_place_search":

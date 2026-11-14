@@ -278,6 +278,30 @@ describe("agent panel", () => {
     expect(failed.body).toContain('"type":"error","message":"응답 시간이 초과됐습니다"');
   });
 
+  it("is told to set dates at creation, and fixes a thread's deadline after approval", async () => {
+    const model = scripted([{ say: "마감을 2027-02-16 으로 고치겠습니다. 승인해 주세요.", actions: [{ tool: "update_thread", args: { id: a, currentName: "졸업 프로젝트", deadline: "2027-02-16" } }], done: true }]);
+    const app = buildServer(conn.db, undefined, undefined, undefined, { agent: { complete: model.complete } });
+    const data = (await chat(app, "졸업 프로젝트 마감을 2월 16일로 해줘")).json().data;
+
+    expect(model.seen[0]!.system).toContain("날짜를 goal 에만 적고 startDate·deadline 을 비워 두지 않습니다");
+    expect(data.message.pending).toEqual([expect.objectContaining({ tool: "update_thread", summary: "스레드 수정: 졸업 프로젝트", detail: "마감 → 2027-02-16" })]);
+    expect(conn.db.select().from(threads).all().find((t) => t.id === a)!.deadline).toBeNull();
+
+    const confirm = await app.inject({ method: "POST", url: "/api/agent/confirm", payload: { id: data.message.pending[0].id, approve: true } });
+    expect(confirm.json().data.step).toEqual({ tool: "update_thread", ok: true, summary: "스레드 수정: 졸업 프로젝트", link: `/threads/${a}` });
+    expect(conn.db.select().from(threads).all().find((t) => t.id === a)).toEqual(expect.objectContaining({ name: "졸업 프로젝트", deadline: "2027-02-16", status: "active" }));
+
+    // 화면과 MCP 가 쓰는 같은 API: 바꿀 것만 받고, null 은 비운다.
+    expect((await app.inject({ method: "PATCH", url: `/api/threads/${a}`, payload: { goal: "논문 통과", deadline: null } })).json().data.thread).toEqual(expect.objectContaining({ goal: "논문 통과", deadline: null }));
+    // 시작일도 같은 길로 정하고, 새 스레드는 만들 때부터 넣을 수 있다.
+    expect((await app.inject({ method: "PATCH", url: `/api/threads/${a}`, payload: { startDate: "2026-11-16" } })).json().data.thread).toEqual(expect.objectContaining({ startDate: "2026-11-16", goal: "논문 통과" }));
+    expect((await app.inject({ method: "POST", url: "/api/threads", payload: { name: "서포터즈", startDate: "2026-11-16", deadline: "2027-02-16" } })).json().data).toEqual(expect.objectContaining({ startDate: "2026-11-16", deadline: "2027-02-16" }));
+    expect((await app.inject({ method: "GET", url: "/api/threads" })).json().data.find((s: { thread: { name: string } }) => s.thread.name === "서포터즈").thread.startDate).toBe("2026-11-16");
+    expect((await app.inject({ method: "PATCH", url: `/api/threads/${a}`, payload: {} })).statusCode).toBe(400);
+    expect((await app.inject({ method: "PATCH", url: `/api/threads/${a}`, payload: { deadline: "2월 16일" } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "PATCH", url: "/api/threads/9999", payload: { name: "없음" } })).statusCode).toBe(404);
+  });
+
   it("lists the three providers with how each is reached", async () => {
     const app = buildServer(conn.db);
     const providers = (await app.inject({ method: "GET", url: "/api/agent/providers" })).json().data.providers;
