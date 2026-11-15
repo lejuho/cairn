@@ -39,6 +39,7 @@ describe("GET /api/calendar", () => {
     conn.db.insert(tasks).values([
       { title: "보고서", due: "2026-03-20" },
       { title: "끝난 일", due: "2026-03-21", status: "done" },
+      { title: "안 하기로 한 일", due: "2026-03-22", status: "dropped" },
       { title: "4월 일", due: "2026-04-02" },
       { title: "마감 없음" }
     ]).run();
@@ -57,7 +58,8 @@ describe("GET /api/calendar", () => {
     const data = res.json().data;
     expect(data.timeZone).toBe("Asia/Seoul");
     expect(data.events.map((e: { title: string }) => e.title)).toEqual(["자정 넘는 모임", "면담", "3월 말 종일"]);
-    expect(data.tasks.map((t: { title: string }) => t.title)).toEqual(["보고서"]);
+    // 끝낸 할 일도 마감일에 남고, 드롭한 것은 빠진다.
+    expect(data.tasks.map((t: { title: string; status: string }) => [t.title, t.status])).toEqual([["보고서", "todo"], ["끝난 일", "done"]]);
     expect(data.noteCounts).toEqual({ "2026-03-01": 1, "2026-03-12": 2 });
   });
 

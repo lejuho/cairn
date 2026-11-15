@@ -197,9 +197,10 @@ function DaySchedule({ day, bucket, onOpenEvent }: { day: string; bucket: DayBuc
           <p className="event-detail-section-label">이 날 마감</p>
           <ul className="day-task-list" role="list">
             {bucket.tasks.map((task) => (
-              <li key={task.id} className="day-task">
+              <li key={task.id} className="day-task" data-status={task.status ?? undefined}>
                 <span className="day-task-title">{task.title}</span>
-                {task.estMinutes != null && <span className="day-event-time">{task.estMinutes}분</span>}
+                {task.status === "done" && <span className="day-event-time">완료</span>}
+                {task.estMinutes != null && task.status !== "done" && <span className="day-event-time">{task.estMinutes}분</span>}
                 {task.threadId != null && <a className="note-meta-link" href={`/threads/${task.threadId}`}>스레드</a>}
               </li>
             ))}
@@ -218,7 +219,7 @@ function DayPanel({ day, today, bucket, candidates, open, onClose, onReload }: D
   const [cardCount, setCardCount] = useState(0);
   const [addSeq, setAddSeq] = useState(0);
   const [openEvent, setOpenEvent] = useState<{ id: number; seq: number } | null>(null);
-  const scheduleCount = bucket.events.length + bucket.tasks.length;
+  const scheduleCount = bucket.events.length + bucket.tasks.filter((t) => t.status !== "done").length;
   const actionCount = bucket.pending.length + cardCount + candidates.length;
   // Tabs follow the order of work: see the day → deal with what needs a decision → notes → headroom.
   const tabs: Array<{ id: PanelTab; label: string; count: number }> = [
@@ -292,6 +293,53 @@ function DayPanel({ day, today, bucket, candidates, open, onClose, onReload }: D
 
 // ── Calendar page ───────────────────────────────────────────────────────────
 
+// How many title lines fit in one day cell. Rows share the height of the screen, so the number
+// changes with the window, the month (5 or 6 weeks) and whether the day panel is out. The cell
+// is laid out as: a fixed top line (date, with the record/note marks in its corner) and below it
+// only as many titles as fit, the rest folded into "+N". Nothing is ever pushed out of the cell.
+const DEFAULT_LINES = 3;
+const CELL_FIXED_PX = 26 + 10 + 3; // date circle + vertical padding + gap
+
+export function linesThatFit(cellHeight: number, lineHeight: number): number {
+  if (!(cellHeight > 0) || !(lineHeight > 0)) return DEFAULT_LINES;
+  return Math.max(0, Math.min(8, Math.floor((cellHeight - CELL_FIXED_PX) / (lineHeight + 2))));
+}
+
+function useCellLines(): { gridRef: (node: HTMLDivElement | null) => void; lines: number } {
+  const [lines, setLines] = useState(DEFAULT_LINES);
+  const observer = useRef<ResizeObserver | null>(null);
+  const gridRef = useCallback((node: HTMLDivElement | null) => {
+    observer.current?.disconnect();
+    observer.current = null;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const measure = () => {
+      const cell = node.querySelector<HTMLElement>(".calendar-cell");
+      if (!cell) return;
+      const line = node.querySelector<HTMLElement>(".calendar-cell-title")?.getBoundingClientRect().height ?? 0;
+      setLines(linesThatFit(cell.getBoundingClientRect().height, line > 0 ? line : 16));
+    };
+    observer.current = new ResizeObserver(measure);
+    observer.current.observe(node);
+    measure();
+  }, []);
+  return { gridRef, lines };
+}
+
+type CellLine = { key: string; title: string; task: boolean; done: boolean; allDay: boolean };
+
+// Events first, then what is due, finished tasks last; what does not fit becomes "+N".
+export function cellLines(bucket: DayBucket, capacity: number): { shown: CellLine[]; hidden: number } {
+  const all: CellLine[] = [
+    ...bucket.events.map((e) => ({ key: `e${e.id}`, title: e.title, task: false, done: false, allDay: isAllDay(e) })),
+    ...bucket.tasks.filter((t) => t.status !== "done").map((t) => ({ key: `t${t.id}`, title: t.title, task: true, done: false, allDay: false })),
+    ...bucket.tasks.filter((t) => t.status === "done").map((t) => ({ key: `t${t.id}`, title: t.title, task: true, done: true, allDay: false }))
+  ];
+  if (all.length <= capacity) return { shown: all, hidden: 0 };
+  // One line is kept for the "+N" itself.
+  const shown = all.slice(0, Math.max(0, capacity - 1));
+  return { shown, hidden: all.length - shown.length };
+}
+
 type LoadState =
   | { tag: "loading" }
   | { tag: "ready" }
@@ -317,6 +365,7 @@ export function CalendarPage() {
   const from = days[0]!;
   const to = days[days.length - 1]!;
   const seq = useRef(0);
+  const { gridRef, lines } = useCellLines();
 
   const load = useCallback(async () => {
     const mine = ++seq.current;
@@ -393,7 +442,7 @@ export function CalendarPage() {
           </div>
         )}
 
-        <div className="calendar-grid" role="grid" aria-label={monthLabel(month)} aria-busy={state.tag === "loading"}>
+        <div className="calendar-grid" ref={gridRef} role="grid" aria-label={monthLabel(month)} aria-busy={state.tag === "loading"}>
           <div className="calendar-weekdays" role="row">
             {WEEKDAYS.map((name, i) => (
               <span key={name} role="columnheader" className="calendar-weekday" data-weekend={i === 0 || i === 6 ? "true" : undefined}>{name}</span>
@@ -403,12 +452,15 @@ export function CalendarPage() {
             <div key={week} className="calendar-week" role="row">
               {days.slice(week * 7, week * 7 + 7).map((day) => {
                 const bucket = buckets.get(day) ?? EMPTY_BUCKET;
-                const count = bucket.events.length + bucket.tasks.length;
+                const openTasks = bucket.tasks.filter((t) => t.status !== "done");
                 const dayNumber = Number(day.slice(8));
+                const { shown, hidden } = cellLines(bucket, lines);
                 const summary = [
                   formatDay(day),
                   day === today ? "오늘" : null,
-                  count > 0 ? `일정 ${count}건` : null,
+                  bucket.events.length > 0 ? `일정 ${bucket.events.length}건` : null,
+                  openTasks.length > 0 ? `마감인 할 일 ${openTasks.length}건` : null,
+                  bucket.tasks.length > openTasks.length ? `끝낸 할 일 ${bucket.tasks.length - openTasks.length}건` : null,
                   bucket.pending.length > 0 ? `결과 기록 ${bucket.pending.length}건` : null,
                   candidateDays.has(day) ? "일정 후보 있음" : null,
                   bucket.notes > 0 ? `메모 ${bucket.notes}건` : null
@@ -428,23 +480,36 @@ export function CalendarPage() {
                       onClick={() => pick(day)}
                     >
                       <span className="calendar-cell-day">{dayNumber}</span>
+                      {(bucket.pending.length > 0 || bucket.notes > 0) && (
+                        <span className="calendar-cell-marks" aria-hidden="true">
+                          {bucket.pending.length > 0 && <span className="calendar-mark calendar-mark--pending" title="결과 기록">{bucket.pending.length}</span>}
+                          {bucket.notes > 0 && <span className="calendar-mark calendar-mark--note" title="메모">{bucket.notes}</span>}
+                        </span>
+                      )}
                       {state.tag === "loading" && !data ? (
                         <span className="calendar-cell-skel" aria-hidden="true" />
                       ) : (
                         <>
                           <span className="calendar-cell-titles" aria-hidden="true">
-                            {bucket.events.slice(0, 2).map((event) => (
-                              <span key={event.id} className="calendar-cell-title" data-allday={isAllDay(event) ? "true" : undefined}>{event.title}</span>
+                            {shown.map((line) => (
+                              <span
+                                key={line.key}
+                                className={line.task ? "calendar-cell-title calendar-cell-task" : "calendar-cell-title"}
+                                data-allday={line.allDay ? "true" : undefined}
+                                data-done={line.done ? "true" : undefined}
+                              >
+                                {line.title}
+                              </span>
                             ))}
-                            {count > 2 && <span className="calendar-cell-more">+{count - Math.min(2, bucket.events.length)}</span>}
+                            {hidden > 0 && <span className="calendar-cell-more">+{hidden}</span>}
                           </span>
                           <span className="calendar-cell-dots" aria-hidden="true">
-                            {Array.from({ length: Math.min(count, 3) }, (_, i) => <span key={i} className="calendar-dot" />)}
+                            {Array.from({ length: Math.min(bucket.events.length, 3) }, (_, i) => <span key={i} className="calendar-dot" />)}
+                            {openTasks.length > 0 && <span className="calendar-dot calendar-dot--task" />}
+                            {bucket.tasks.length > openTasks.length && <span className="calendar-dot calendar-dot--task-done" />}
                             {bucket.pending.length > 0 && <span className="calendar-dot calendar-dot--pending" />}
                             {bucket.notes > 0 && <span className="calendar-dot calendar-dot--note" />}
                           </span>
-                          {bucket.pending.length > 0 && <span className="calendar-cell-note calendar-cell-pending" aria-hidden="true">기록 {bucket.pending.length}</span>}
-                          {bucket.notes > 0 && <span className="calendar-cell-note" aria-hidden="true">메모 {bucket.notes}</span>}
                         </>
                       )}
                     </button>
@@ -455,7 +520,7 @@ export function CalendarPage() {
           ))}
         </div>
         <p className="calendar-legend" aria-hidden="true">
-          <span className="calendar-dot" /> 일정·마감 <span className="calendar-dot calendar-dot--pending" /> 결과 기록 <span className="calendar-dot calendar-dot--note" /> 메모
+          <span className="calendar-dot" /> 일정 <span className="calendar-dot calendar-dot--task" /> 할 일 마감 <span className="calendar-dot calendar-dot--task-done" /> 끝낸 할 일 <span className="calendar-dot calendar-dot--pending" /> 결과 기록 <span className="calendar-dot calendar-dot--note" /> 메모
         </p>
       </section>
 

@@ -63,10 +63,12 @@ function formatWhen(value: string | null): string {
   return `${Number(m)}/${Number(d)}`;
 }
 
-const TARGET_LABEL: Record<NoteTargetType, string> = { event: "일정", task: "할 일", thread: "스레드" };
+const TARGET_LABEL: Record<NoteTargetType, string> = { event: "일정", task: "할 일", thread: "스레드", person: "사람" };
 
 function targetHref(t: { targetType: NoteTargetType; targetId: number }): string {
-  return t.targetType === "thread" ? `/threads/${t.targetId}` : `/notes?targetType=${t.targetType}&targetId=${t.targetId}`;
+  if (t.targetType === "thread") return `/threads/${t.targetId}`;
+  if (t.targetType === "person") return `/people/${t.targetId}`;
+  return `/notes?targetType=${t.targetType}&targetId=${t.targetId}`;
 }
 
 function sameTarget(a: { targetType: string; targetId: number }, b: { targetType: string; targetId: number }): boolean {
@@ -108,7 +110,7 @@ function TargetPicker({ selected, onAdd, only }: { selected: NoteTargetView[]; o
         type="search"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder={only === "thread" ? "스레드 이름으로 찾기" : "일정·할 일·스레드 이름으로 찾기"}
+        placeholder={only === "thread" ? "스레드 이름으로 찾기" : "일정·할 일·스레드·사람 이름으로 찾기"}
         aria-label={only === "thread" ? "스레드 찾기" : "붙일 대상 찾기"}
       />
       {state === "loading" && <p className="note-hint">찾는 중…</p>}

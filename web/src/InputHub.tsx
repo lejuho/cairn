@@ -402,7 +402,7 @@ export function InputHub() {
           title={r.label}
           status={`${watcherSubtypeLabel(r.subtype)} Watcher 생성됨`}
           primary={{ label: "지켜볼 것에서 보기", href: "/watch" }}
-          secondary="여백(/watch)에서 방금 만든 Watcher를 확인할 수 있습니다."
+          secondary="Watcher 탭에서 방금 만든 Watcher를 확인할 수 있습니다."
           testId="watcher-result"
         />
       );
@@ -413,7 +413,7 @@ export function InputHub() {
         title={r.eventTitle}
         status={r.parseStatus === "parsed" ? "기록됨" : "원문 저장됨 (분석 대기)"}
         primary={{ label: "달력에서 보기", href: "/calendar" }}
-        secondary="이벤트에 연결된 기록입니다 — 이벤트 상세와 거울에서 볼 수 있습니다."
+        secondary="이벤트에 연결된 기록입니다 — 이벤트 상세와 통계에서 볼 수 있습니다."
         testId="record-result"
       />
     );

@@ -7,7 +7,7 @@ export const NOTE_KINDS = ["note", "checklist"] as const;
 export const NoteKindSchema = z.enum(NOTE_KINDS);
 export type NoteKind = z.infer<typeof NoteKindSchema>;
 
-export const NOTE_TARGET_TYPES = ["event", "task", "thread"] as const;
+export const NOTE_TARGET_TYPES = ["event", "task", "thread", "person"] as const;
 export const NoteTargetTypeSchema = z.enum(NOTE_TARGET_TYPES);
 export type NoteTargetType = z.infer<typeof NoteTargetTypeSchema>;
 

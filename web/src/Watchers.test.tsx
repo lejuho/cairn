@@ -250,9 +250,9 @@ describe("Watchers — access-session state", () => {
 });
 
 describe("AppNav — /watch active state", () => {
-  it("'여백' link is marked active when path is /watch", () => {
+  it("'Watcher' link is marked active when path is /watch", () => {
     render(<AppNav path="/watch" />);
-    const link = screen.getByText("여백").closest("a");
+    const link = screen.getByRole("link", { name: "Watcher" });
     expect(link?.getAttribute("aria-current")).toBe("page");
   });
 });

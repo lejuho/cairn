@@ -14,7 +14,7 @@ import type {
   PatchNoteRequest
 } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
-import { events, noteItems, noteLinks, notes, tasks, threads } from "../db/schema.js";
+import { events, noteItems, noteLinks, notes, people, tasks, threads } from "../db/schema.js";
 import { attachmentsByNote, detachAllFromNote } from "./files.js";
 
 type NoteRow = typeof notes.$inferSelect;
@@ -53,12 +53,18 @@ function threadTarget(row: { id: number; name: string; deadline: string | null; 
   return { targetType: "thread", targetId: row.id, label: row.name, when: row.deadline, status: row.status, exists: true };
 }
 
+// 사람은 날짜가 없다. 상태 자리에는 아무것도 두지 않는다.
+function personTarget(row: { id: number; name: string }): NoteTargetView {
+  return { targetType: "person", targetId: row.id, label: row.name, when: null, status: null, exists: true };
+}
+
+const PERSON_COLS = { id: people.id, name: people.name };
 const EVENT_COLS = { id: events.id, title: events.title, start: events.start, status: events.status, location: events.location };
 const TASK_COLS = { id: tasks.id, title: tasks.title, due: tasks.due, status: tasks.status };
 const THREAD_COLS = { id: threads.id, name: threads.name, deadline: threads.deadline, status: threads.status };
 
 export function resolveTargets(db: CairnDatabase, refs: Array<{ targetType: string; targetId: number }>): Map<string, NoteTargetView> {
-  const ids: Record<NoteTargetType, number[]> = { event: [], task: [], thread: [] };
+  const ids: Record<NoteTargetType, number[]> = { event: [], task: [], thread: [], person: [] };
   for (const ref of refs) {
     const list = ids[ref.targetType as NoteTargetType];
     if (list && !list.includes(ref.targetId)) list.push(ref.targetId);
@@ -72,6 +78,9 @@ export function resolveTargets(db: CairnDatabase, refs: Array<{ targetType: stri
   }
   if (ids.thread.length > 0) {
     for (const row of db.select(THREAD_COLS).from(threads).where(inArray(threads.id, ids.thread)).all()) out.set(targetKey("thread", row.id), threadTarget(row));
+  }
+  if (ids.person.length > 0) {
+    for (const row of db.select(PERSON_COLS).from(people).where(inArray(people.id, ids.person)).all()) out.set(targetKey("person", row.id), personTarget(row));
   }
   return out;
 }
@@ -355,7 +364,9 @@ function findRelated(db: CairnDatabase, words: string[], limit: number): NoteRel
   const eventRows = db.select(EVENT_COLS).from(events).where(likeAll(events.title, words)).orderBy(desc(events.start)).limit(limit).all();
   const taskRows = db.select(TASK_COLS).from(tasks).where(likeAll(tasks.title, words)).orderBy(desc(tasks.id)).limit(limit).all();
   const threadRows = db.select(THREAD_COLS).from(threads).where(likeAll(threads.name, words)).orderBy(desc(threads.id)).limit(limit).all();
+  const personRows = db.select(PERSON_COLS).from(people).where(likeAll(people.name, words)).orderBy(asc(people.name)).limit(limit).all();
   return [
+    ...personRows.map((r) => withCount(personTarget(r), null)),
     ...threadRows.map((r) => withCount(threadTarget(r), null)),
     ...eventRows.map((r) => withCount(eventTarget(r), r.location)),
     ...taskRows.map((r) => withCount(taskTarget(r), null))

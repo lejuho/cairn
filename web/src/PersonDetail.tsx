@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import type { AuthoredPreferredWindows, EgoGraphData, EventRow, PersonDirectoryRow, PersonRow, PreferredPeriod, Weekday } from "@cairn/shared";
+import type { AuthoredPreferredWindows, EgoGraphData, EventRow, NoteView, PersonDirectoryRow, PersonRow, PreferredPeriod, Weekday } from "@cairn/shared";
 import { apiJson, openAccessLogin } from "./api.js";
 import type { AccessSessionError } from "./api.js";
 import { EgoSheet, loadEgoGraph } from "./EgoSheet.js";
 import { formatLastMet } from "./lastMet.js";
+import { GENDER_LABEL, GenderPicker, GroupPicker, loadGroupNames, type Gender } from "./PeopleDirectory.js";
+import { AttachedNotes } from "./Notes.js";
 
 type ViewState =
   | { tag: "loading" }
-  | { tag: "live"; person: PersonDirectoryRow; recentMeetings: EventRow[] }
+  | { tag: "live"; person: PersonDirectoryRow; recentMeetings: EventRow[]; notes: NoteView[] }
   | { tag: "not_found" }
   | { tag: "error"; message: string }
   | { tag: "access_error" };
@@ -87,9 +89,119 @@ type PersonEgoState =
   | { tag: "open"; graph: EgoGraphData }
   | { tag: "error" };
 
+// Name, how you know them, groups and channel — the things written when the person was added.
+function PersonBasicsForm({ person, onCancel, onSaved }: { person: PersonRow; onCancel: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(person.name);
+  const [relation, setRelation] = useState(person.relation ?? "");
+  const [channel, setChannel] = useState<string>(person.channel ?? "none");
+  const [groups, setGroups] = useState<string[]>(person.groups ?? []);
+  const [gender, setGender] = useState<Gender>(person.gender ?? null);
+  const [known, setKnown] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Deleting: asked twice, and once more with what would be unhooked when the person is still in use.
+  const [removing, setRemoving] = useState<"idle" | "ask" | { events: number; notes: number; resources: number }>("idle");
+
+  const remove = async (force: boolean) => {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/people/${person.id}${force ? "?force=1" : ""}`, { method: "DELETE" });
+      const body = (await res.json()) as { ok: boolean; data?: { usage?: { events: number; notes: number; resources: number } }; error?: { code?: string; message?: string } };
+      if (body.ok) {
+        window.location.assign("/people");
+        return;
+      }
+      if (body.error?.code === "IN_USE" && body.data?.usage) setRemoving(body.data.usage);
+      else setError(body.error?.message ?? "지우지 못했습니다");
+    } catch {
+      setError("지우지 못했습니다");
+    }
+    setSaving(false);
+  };
+
+  useEffect(() => {
+    let alive = true;
+    void loadGroupNames().then((names) => alive && setKnown(names));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const save = async () => {
+    if (!name.trim() || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const body = await apiJson<{ ok: boolean; error?: { message?: string } }>(`/api/people/${person.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), relation: relation.trim() === "" ? null : relation.trim(), channel, groups, gender })
+      });
+      if (!body?.ok) throw new Error(body?.error?.message ?? "저장하지 못했습니다");
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "저장하지 못했습니다");
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form className="people-add person-basics-form" aria-label="사람 고치기" onSubmit={(e) => { e.preventDefault(); void save(); }}>
+      <label className="thread-node-field"><span>이름</span>
+        <input className="note-input" value={name} onChange={(e) => setName(e.target.value)} aria-label="이름" maxLength={100} disabled={saving} />
+      </label>
+      <label className="thread-node-field"><span>설명</span>
+        <textarea className="note-input person-basics-text" rows={2} value={relation} onChange={(e) => setRelation(e.target.value)} aria-label="설명" maxLength={500} disabled={saving} placeholder="어떻게 아는 사이인지, 기억해 둘 것" />
+      </label>
+      <div className="thread-node-field"><span>성별</span>
+        <GenderPicker value={gender} onChange={setGender} disabled={saving} />
+      </div>
+      <div className="thread-node-field"><span>묶음</span>
+        <GroupPicker value={groups} onChange={setGroups} known={known} disabled={saving} />
+      </div>
+      <label className="thread-node-field"><span>연락 채널</span>
+        <select className="note-input" value={channel} onChange={(e) => setChannel(e.target.value)} aria-label="연락 채널 고르기" disabled={saving}>
+          <option value="none">채널 없음</option>
+          <option value="kakao">카카오</option>
+          <option value="sms">문자</option>
+          <option value="email">이메일</option>
+          <option value="telegram">텔레그램</option>
+        </select>
+      </label>
+      {error && <p className="sheet-error" role="alert">{error}</p>}
+      <div className="people-add-actions">
+        <button type="button" className="note-btn" onClick={onCancel} disabled={saving}>취소</button>
+        <button type="submit" className="note-btn note-btn--primary" disabled={!name.trim() || saving}>{saving ? "저장 중…" : "저장"}</button>
+      </div>
+      <div className="person-remove">
+        {removing === "idle" && <button type="button" className="note-text-btn" onClick={() => setRemoving("ask")} disabled={saving}>이 사람 지우기</button>}
+        {removing === "ask" && (
+          <>
+            <button type="button" className="note-text-btn note-text-btn--danger" onClick={() => void remove(false)} disabled={saving}>정말 지우기</button>
+            <button type="button" className="note-text-btn" onClick={() => setRemoving("idle")} disabled={saving}>그만두기</button>
+          </>
+        )}
+        {typeof removing === "object" && (
+          <div role="alert" className="person-remove-warn">
+            <p>
+              {[removing.events > 0 ? `일정 ${removing.events}건` : null, removing.notes > 0 ? `메모 ${removing.notes}건` : null, removing.resources > 0 ? `자원 ${removing.resources}건` : null].filter(Boolean).join(", ")}에 연결돼 있습니다.
+              지우면 연결만 끊기고 일정과 메모는 남습니다.
+            </p>
+            <button type="button" className="note-text-btn note-text-btn--danger" onClick={() => void remove(true)} disabled={saving}>연결 끊고 지우기</button>
+            <button type="button" className="note-text-btn" onClick={() => setRemoving("idle")} disabled={saving}>그만두기</button>
+          </div>
+        )}
+      </div>
+    </form>
+  );
+}
+
 export function PersonDetail({ id }: { id: number }) {
   const [view, setView] = useState<ViewState>({ tag: "loading" });
   const [egoState, setEgoState] = useState<PersonEgoState>({ tag: "closed" });
+  const [editingBasics, setEditingBasics] = useState(false);
+  const reloadPerson = () => void load();
   const [sheet, setSheet] = useState<SheetState>({
     open: false,
     preferredWeekdays: [],
@@ -110,7 +222,7 @@ export function PersonDetail({ id }: { id: number }) {
     setView({ tag: "loading" });
     const now = new Date().toISOString();
     try {
-      const body = await apiJson<{ ok: boolean; data?: { person: PersonDirectoryRow; recentMeetings: EventRow[] }; error?: { code?: string; message: string } }>(
+      const body = await apiJson<{ ok: boolean; data?: { person: PersonDirectoryRow; recentMeetings: EventRow[]; notes?: NoteView[] }; error?: { code?: string; message: string } }>(
         `/api/people/${id}/detail?now=${encodeURIComponent(now)}`
       );
       if (!body.ok) {
@@ -121,7 +233,7 @@ export function PersonDetail({ id }: { id: number }) {
         }
         return;
       }
-      setView({ tag: "live", person: body.data!.person, recentMeetings: body.data!.recentMeetings });
+      setView({ tag: "live", person: body.data!.person, recentMeetings: body.data!.recentMeetings, notes: Array.isArray(body.data!.notes) ? body.data!.notes : [] });
     } catch (e) {
       if ((e as AccessSessionError).kind === "access_session_required") {
         setView({ tag: "access_error" });
@@ -297,11 +409,17 @@ export function PersonDetail({ id }: { id: number }) {
       <div inert={sheet.open || egoState.tag === "open" || undefined} data-testid="page-content">
       <a className="back-link" href="/people">← 사람 목록</a>
       <header className="person-detail-header">
-        <h1 className="person-detail-name">{person.name}</h1>
-        {person.relation && <p className="person-detail-relation">{person.relation}</p>}
-        {person.channel && person.channel !== "none" && (
+        <h1 className="person-detail-name">{person.name}{person.gender && <span className="person-gender">{GENDER_LABEL[person.gender]}</span>}</h1>
+        {!editingBasics && (person.groups ?? []).length > 0 && (
+          <p className="person-card-groups" aria-label="묶음">{(person.groups ?? []).map((g) => <span key={g} className="card-chip">{g}</span>)}</p>
+        )}
+        {!editingBasics && person.relation && <p className="person-detail-relation">{person.relation}</p>}
+        {!editingBasics && person.channel && person.channel !== "none" && (
           <p className="person-detail-channel" aria-label="연락 채널">{person.channel}</p>
         )}
+        {editingBasics
+          ? <PersonBasicsForm person={person} onCancel={() => setEditingBasics(false)} onSaved={() => { setEditingBasics(false); reloadPerson(); }} />
+          : <button type="button" className="note-text-btn" onClick={() => setEditingBasics(true)} aria-label="이름·설명·묶음 고치기">고치기</button>}
       </header>
 
       <section className="person-detail-memory" aria-label="관계 기억">
@@ -375,6 +493,13 @@ export function PersonDetail({ id }: { id: number }) {
           </ul>
         </section>
       )}
+
+      <AttachedNotes
+        key={person.id}
+        title="이 사람 메모"
+        initial={view.notes}
+        target={{ targetType: "person", targetId: person.id, label: person.name, when: null, status: null, exists: true }}
+      />
 
       <section className="person-detail-meetings" aria-label="최근 만남">
         <h2>최근 만남</h2>

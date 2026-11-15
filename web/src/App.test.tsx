@@ -119,25 +119,27 @@ describe("App navigation", () => {
     render(<App />);
     expect(screen.getByRole("navigation", { name: "주요 메뉴" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "달력" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "입력" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "항목" })).toBeInTheDocument();
+    // 입력 화면은 메뉴에서 뺐다 (빠른 기록·에이전트가 대신한다). 주소로는 여전히 열린다.
+    expect(screen.queryByRole("link", { name: "입력" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "미정" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "파라미터" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "스레드" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "사람" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "거울" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "통계" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Watcher" })).toBeInTheDocument();
   });
 
   it("sets aria-current=page on 달력 link on the home screen", async () => {
     window.history.replaceState(null, "", "/today");
     render(<App />);
     expect(screen.getByRole("link", { name: "달력" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "입력" })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("link", { name: "스레드" })).not.toHaveAttribute("aria-current");
   });
 
-  it("sets aria-current=page on 입력 link when on /input", async () => {
+  it("still opens the input screen by address, with nothing in the menu marked", async () => {
     window.history.replaceState(null, "", "/input");
     render(<App />);
-    expect(screen.getByRole("link", { name: "입력" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("navigation", { name: "주요 메뉴" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "달력" })).not.toHaveAttribute("aria-current");
   });
 
@@ -147,7 +149,7 @@ describe("App navigation", () => {
     await waitFor(() => {
       expect(screen.getByTestId("items-quiet")).toBeInTheDocument();
     });
-    expect(screen.getByRole("link", { name: "항목" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "미정" })).toHaveAttribute("aria-current", "page");
   });
 
   it("renders /params and marks the parameter tab current", async () => {
@@ -211,11 +213,11 @@ describe("App navigation", () => {
     });
   });
 
-  it("sets aria-current=page on 거울 link when on /mirror", async () => {
+  it("sets aria-current=page on 통계 link when on /mirror", async () => {
     window.history.replaceState(null, "", "/mirror");
     render(<App />);
     await waitFor(() => {
-      expect(screen.getByRole("link", { name: "거울" })).toHaveAttribute("aria-current", "page");
+      expect(screen.getByRole("link", { name: "통계" })).toHaveAttribute("aria-current", "page");
     });
     expect(screen.getByRole("link", { name: "달력" })).not.toHaveAttribute("aria-current");
   });

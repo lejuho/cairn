@@ -183,6 +183,34 @@
       "when": 1794742029730,
       "tag": "0025_abnormal_red_wolf",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1794752629701,
+      "tag": "0026_fearless_catseye",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1794753367395,
+      "tag": "0027_previous_lake",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1794754579757,
+      "tag": "0028_last_true_believers",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1794755277214,
+      "tag": "0029_serious_photon",
+      "breakpoints": true
     }
   ]
 }

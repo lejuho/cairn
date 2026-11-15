@@ -79,7 +79,7 @@ describe("ItemIndex", () => {
   it("loads active events and tasks", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(response({ ok: true, data: { scope: "active", events: [EVENT], tasks: [TASK] } }))));
 
-    render(<ItemIndex />);
+    render(<ItemIndex initialView="active" />);
 
     expect(screen.getByTestId("items-loading")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("items-live")).toBeInTheDocument());
@@ -98,7 +98,7 @@ describe("ItemIndex", () => {
       }
     }))));
 
-    render(<ItemIndex />);
+    render(<ItemIndex initialView="active" />);
 
     await waitFor(() => expect(screen.getByTestId("items-live")).toBeInTheDocument());
     expect(screen.getByText("1일 1시간 30분 남음")).toBeInTheDocument();
@@ -112,7 +112,7 @@ describe("ItemIndex", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<ItemIndex />);
+    render(<ItemIndex initialView="active" />);
     await waitFor(() => expect(screen.getByTestId("items-quiet")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "전체" }));
@@ -126,7 +126,7 @@ describe("ItemIndex", () => {
   it("shows a retryable error state", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(response({ ok: false, error: { message: "서버 오류" } }))));
 
-    render(<ItemIndex />);
+    render(<ItemIndex initialView="active" />);
 
     await waitFor(() => expect(screen.getByTestId("items-error")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "다시 시도" })).toBeInTheDocument();
@@ -144,7 +144,7 @@ describe("ItemIndex", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<ItemIndex />);
+    render(<ItemIndex initialView="active" />);
     await waitFor(() => expect(screen.getByTestId("items-live")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: EVENT.title }));
@@ -174,7 +174,7 @@ describe("ItemIndex", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<ItemIndex />);
+    render(<ItemIndex initialView="active" />);
     await waitFor(() => expect(screen.getByTestId("items-live")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: EVENT.title }));
@@ -196,7 +196,7 @@ describe("ItemIndex", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<ItemIndex />);
+    render(<ItemIndex initialView="active" />);
     await waitFor(() => expect(screen.getByTestId("items-live")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: TASK.title }));
@@ -218,7 +218,7 @@ describe("ItemIndex", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<ItemIndex />);
+    render(<ItemIndex initialView="active" />);
     await waitFor(() => expect(screen.getByTestId("items-live")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: TASK.title }));
@@ -249,7 +249,7 @@ describe("ItemIndex", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<ItemIndex />);
+    render(<ItemIndex initialView="active" />);
     await waitFor(() => expect(screen.getByTestId("items-live")).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: TASK.title }));
@@ -260,5 +260,41 @@ describe("ItemIndex", () => {
     await waitFor(() => expect(fetchMock.mock.calls.some(([url, opts]) => url === "/api/tasks/2/schedule-block" && opts?.method === "POST")).toBe(true));
     const postCall = fetchMock.mock.calls.find(([url, opts]) => url === "/api/tasks/2/schedule-block" && opts?.method === "POST");
     expect(JSON.parse(postCall![1]!.body as string)).toMatchObject({ start: SLOT_CANDIDATE.start, end: SLOT_CANDIDATE.end, days: 7 });
+  });
+
+  it("opens on what is on neither the calendar nor a board, and lets a due date take a task off the list", async () => {
+    const dated = { ...EVENT, id: 1, title: "날짜 있는 일정", start: "2026-07-02T10:00:00+09:00", end: "2026-07-02T11:00:00+09:00" };
+    const undated = { ...EVENT, id: 2, title: "날짜 미정 모임", start: null, end: null };
+    const floating = { ...TASK, id: 3, title: "떠다니는 할 일", due: null, threadId: null };
+    const onBoard = { ...TASK, id: 4, title: "스레드에 있는 할 일", due: null, threadId: 7 };
+    const onCalendar = { ...TASK, id: 5, title: "마감 있는 할 일", due: "2026-07-01", threadId: null };
+    const urls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      urls.push(String(url));
+      return Promise.resolve(response({ ok: true, data: { scope: "active", events: [dated, undated], tasks: [floating, onBoard, onCalendar] } }));
+    }));
+
+    render(<ItemIndex />);
+
+    expect(await screen.findByRole("heading", { name: "미정" })).toBeInTheDocument();
+    expect(await screen.findByText("날짜 미정 모임")).toBeInTheDocument();
+    expect(screen.getByText("떠다니는 할 일")).toBeInTheDocument();
+    expect(screen.queryByText("날짜 있는 일정")).not.toBeInTheDocument();
+    expect(screen.queryByText("스레드에 있는 할 일")).not.toBeInTheDocument();
+    expect(screen.queryByText("마감 있는 할 일")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "날짜 없는 일정" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "마감도 스레드도 없는 할 일" })).toBeInTheDocument();
+    expect(urls[0]).toBe("/api/items?scope=active&limit=200");
+
+    // 전체 목록은 그대로 볼 수 있다.
+    fireEvent.click(screen.getByRole("button", { name: "진행 중" }));
+    expect(await screen.findByText("날짜 있는 일정")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "항목" })).toBeInTheDocument();
+  });
+
+  it("says so in one line when nothing is left over", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(response({ ok: true, data: { scope: "active", events: [{ ...EVENT, start: "2026-07-02T10:00:00+09:00", end: "2026-07-02T11:00:00+09:00" }], tasks: [{ ...TASK, due: "2026-07-01" }] } }))));
+    render(<ItemIndex />);
+    expect(await screen.findByRole("heading", { name: "미정인 항목이 없습니다" })).toBeInTheDocument();
   });
 });

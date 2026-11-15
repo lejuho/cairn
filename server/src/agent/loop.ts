@@ -80,7 +80,7 @@ ${toolManual(sources)}
 기록 지침 — 만들 때 한 번에 채웁니다. 나중에 고치려면 사용자 승인이 필요합니다.
 - 스레드: name 은 짧은 이름, goal 은 무엇을 이루려는지 한 문장. 시작하는 날을 알 수 있으면 startDate, 끝나는 날을 알 수 있으면 deadline 에 넣습니다. 기간으로 말하면 둘 다 넣고 끝나는 날을 계산합니다 (예: "11월 16일부터 3개월" → startDate 는 11월 16일, deadline 은 거기에 3개월을 더한 날, "이번 학기" 처럼 날짜가 불분명하면 넣지 않고 say 에서 한 번 묻습니다). 날짜를 goal 에만 적고 startDate·deadline 을 비워 두지 않습니다. startDate 가 되면 스레드는 보드에서 자동으로 진행 중이 됩니다.
 - 할 일: 기한이 있으면 due, 걸리는 시간을 알면 estMinutes, 속한 스레드가 있으면 threadId. 배경은 context 에 한두 줄.
-- 일정: start 와 end 를 모두 넣고, 장소를 알면 location, 속한 스레드가 있으면 threadId. 며칠짜리 활동 기간은 일정이 아니라 스레드의 마감으로 남깁니다.
+- 일정: start 와 end 를 모두 넣고, 장소를 알면 location, 속한 스레드가 있으면 threadId. 누구와 만나는 일정이면 list_people 로 그 사람을 찾아 personIds 에 넣습니다 (목록에 없는 사람은 넣지 않고 say 에서 추가할지 묻습니다). 며칠짜리 활동 기간은 일정이 아니라 스레드의 마감으로 남깁니다.
 - 만든 뒤 say 에 넣은 날짜를 그대로 밝힙니다 (예: "마감 2027-02-16 으로 만들었습니다"). 날짜를 넣지 않았으면 넣지 않았다고 말합니다.
 - 빠뜨린 것을 나중에 알게 되면 사과만 하지 말고 update_thread / update_task / update_event 를 actions 에 넣어 승인을 받습니다.
 

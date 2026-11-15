@@ -342,7 +342,7 @@ export const TOOLS: McpTool[] = [
             type: "object",
             additionalProperties: false,
             required: ["targetType", "targetId"],
-            properties: { targetType: { type: "string", enum: ["event", "task", "thread"] }, targetId: { type: "number" } }
+            properties: { targetType: { type: "string", enum: ["event", "task", "thread", "person"] }, targetId: { type: "number" } }
           }
         },
         pinned: { type: "boolean" },
@@ -362,7 +362,7 @@ export const TOOLS: McpTool[] = [
         date: { type: "string", description: "YYYY-MM-DD" },
         from: { type: "string", description: "YYYY-MM-DD" },
         to: { type: "string", description: "YYYY-MM-DD" },
-        targetType: { type: "string", enum: ["event", "task", "thread"] },
+        targetType: { type: "string", enum: ["event", "task", "thread", "person"] },
         targetId: { type: "number" },
         kind: { type: "string", enum: ["note", "checklist"] },
         open: { type: "boolean", description: "안 끝난 항목이 남은 체크리스트만" },

@@ -7411,3 +7411,649 @@ a.attachment-open:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Agent panel: a file being dragged over it */
+.agent-drop {
+  position: absolute;
+  inset: 8px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  border: 2px dashed var(--accent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--accent);
+  font-weight: 650;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* Calendar: tasks due that day, told apart from events by a check box and no fill */
+.calendar-cell-task {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--done) 45%, var(--border));
+  color: var(--text);
+}
+
+.calendar-cell-task::before {
+  content: "☐ ";
+  color: var(--done);
+}
+
+.calendar-cell-task[data-done="true"] {
+  box-shadow: none;
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.calendar-cell-task[data-done="true"]::before {
+  content: "☑ ";
+}
+
+.day-task[data-status="done"] .day-task-title {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+/* Calendar dots: a due task is a ring, a finished one a faded ring */
+.calendar-dot.calendar-dot--task {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--done);
+}
+
+.calendar-dot.calendar-dot--task-done {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--border-strong, var(--muted));
+}
+
+.calendar-legend {
+  flex-wrap: wrap;
+}
+
+/* Calendar cell structure: nothing leaves its cell.
+   Top line = date, with record/note marks in the corner; below it only the titles that fit. */
+.calendar-cell-wrap {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.calendar-cell {
+  position: relative;
+}
+
+.calendar-cell-titles {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.calendar-cell-title,
+.calendar-cell-more {
+  flex: 0 0 auto;
+}
+
+.calendar-cell-marks {
+  position: absolute;
+  top: 4px;
+  right: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  align-items: flex-end;
+}
+
+.calendar-mark {
+  min-width: 13px;
+  padding: 0 3px;
+  border-radius: 999px;
+  color: var(--on-accent, #fff);
+  font-size: 0.56rem;
+  font-weight: 700;
+  line-height: 13px;
+  text-align: center;
+}
+
+.calendar-mark--pending { background: var(--cancelled); }
+.calendar-mark--note { background: var(--moved); }
+
+/* With the panel out the cells show dots, which already carry these two. */
+.calendar-page[data-panel="open"] .calendar-cell-marks {
+  display: none;
+}
+
+@media (min-width: 900px) and (pointer: fine) {
+  .calendar-page[data-panel="open"] .calendar-cell-marks {
+    display: flex;
+  }
+
+  .calendar-cell-marks {
+    top: 6px;
+    right: 6px;
+    flex-direction: row;
+    gap: 3px;
+  }
+
+  .calendar-mark {
+    min-width: 16px;
+    font-size: 0.66rem;
+    line-height: 16px;
+  }
+}
+
+/* People: add by hand */
+.people-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  width: min(100%, var(--content-w));
+}
+
+.people-add-btn {
+  margin: 0;
+}
+
+.people-add {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(100%, 420px);
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.people-add-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ═══ Charts (statistics screen) ═════════════════════════════════════════════
+   Fills are chart steps checked for colour-vision separation in each mode; text stays in text tokens. */
+:root {
+  --chart-main: #2457e6;
+  --chart-change: #d03b3b;
+  --chart-over: #b25e09;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --chart-main: #5b8df5;
+    --chart-change: #e86060;
+    --chart-over: #c98020;
+  }
+}
+
+:root[data-theme="dark"] {
+  --chart-main: #5b8df5;
+  --chart-change: #e86060;
+  --chart-over: #c98020;
+}
+
+.stat-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.stat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  text-align: left;
+}
+
+.stat-tile-label {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.stat-tile-value {
+  margin: 0;
+  color: var(--text);
+  white-space: nowrap;
+  font-size: clamp(1rem, 5vw, 1.3rem);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.stat-tile-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.chart {
+  position: relative;
+  margin: 0 0 14px;
+  text-align: left;
+}
+
+.chart-title {
+  margin: 0 0 6px;
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.chart-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.chart-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.chart-swatch[data-tone="main"], .chart-seg[data-tone="main"], .chart-col-bar[data-tone="main"] { background: var(--chart-main); }
+.chart-swatch[data-tone="change"], .chart-seg[data-tone="change"] { background: var(--chart-change); }
+.chart-swatch[data-tone="over"], .chart-col-bar[data-tone="over"] { background: var(--chart-over); }
+
+/* Rows: name | bar | figure, bars on one baseline */
+.chart-row-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chart-row {
+  display: grid;
+  grid-template-columns: minmax(44px, 30%) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+}
+
+.chart-row-name {
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-row-track {
+  display: block;
+  min-width: 0;
+}
+
+.chart-row-fill {
+  display: flex;
+  gap: 2px;
+  min-width: 6px;
+  height: 14px;
+}
+
+.chart-seg {
+  min-width: 4px;
+  flex-basis: 0;
+  cursor: default;
+}
+
+.chart-seg:last-child {
+  border-radius: 0 4px 4px 0;
+}
+
+.chart-row-figure {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.chart-row-sub {
+  color: var(--muted);
+}
+
+/* Columns: one per day, growing from one baseline */
+.chart-plot {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  border-bottom: 1px solid var(--border-strong, var(--border));
+}
+
+.chart-col {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  height: 100%;
+  cursor: default;
+}
+
+.chart-col-bar {
+  width: min(24px, 70%);
+  border-radius: 4px 4px 0 0;
+}
+
+.chart-col-bar[data-empty="true"] {
+  background: var(--border);
+}
+
+/* Taller than the scale: a notch near the top says the column is cut short. */
+.chart-col-bar[data-clipped="true"] {
+  background-image: linear-gradient(170deg, transparent 0 8px, var(--surface) 8px 11px, transparent 11px);
+}
+
+.chart-col-value {
+  margin-bottom: 2px;
+  color: var(--text);
+  font-size: 0.68rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-ref {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 0;
+  border-top: 1px solid var(--muted);
+}
+
+.chart-ref-label {
+  position: absolute;
+  left: 0;
+  bottom: 2px;
+  padding: 0 3px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.chart-axis {
+  display: flex;
+  gap: 2px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-axis span {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.chart-col:hover .chart-col-bar,
+.chart-col:focus-visible .chart-col-bar,
+.chart-seg:hover,
+.chart-seg:focus-visible {
+  filter: brightness(1.15);
+  outline: none;
+}
+
+.chart-col:focus-visible,
+.chart-seg:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}
+
+.chart-tip {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(-50%, calc(-100% - 6px));
+}
+
+.chart-tip strong {
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.chart-table {
+  margin-top: 4px;
+  text-align: left;
+}
+
+.chart-table > summary {
+  min-height: 32px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.mirror-list-heading {
+  width: min(100%, var(--content-w));
+  margin: 8px 0 8px;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.items-lead {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+/* People: find, filter by group, edit basics */
+.people-find {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(100%, var(--content-w));
+  margin-bottom: 12px;
+}
+
+.person-card-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0 0;
+}
+
+.person-card-groups .card-chip {
+  margin-bottom: 0;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.group-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.group-picker-new {
+  display: flex;
+  gap: 6px;
+}
+
+.group-picker-new .note-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.person-basics-form {
+  width: min(100%, 520px);
+  margin-top: 8px;
+  text-align: left;
+}
+
+.person-basics-text {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  resize: vertical;
+}
+
+/* Event detail: who it is with */
+.event-people {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.event-people-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.event-people-list .note-chip-label {
+  color: inherit;
+  text-decoration: none;
+}
+
+.event-people-add {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.card-people .note-meta-link {
+  color: inherit;
+}
+
+/* People list: which view, pinning, and the event that puts someone in "요즘" */
+.people-scope {
+  width: min(100%, var(--content-w));
+  margin-bottom: 10px;
+}
+
+.person-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.person-pin {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--faint);
+  font-size: 1.25rem;
+  cursor: pointer;
+}
+
+.person-pin[aria-pressed="true"] {
+  color: var(--moved);
+}
+
+.person-near {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  margin: 0 46px 4px 2px;
+  color: var(--text);
+  font-size: 0.82rem;
+  text-decoration: none;
+}
+
+.person-near-tag {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.person-near[data-when="recent"] .person-near-tag {
+  background: var(--raised);
+  color: var(--muted);
+}
+
+.person-near-when {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.person-near-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.person-near:hover .person-near-title,
+.person-near:focus-visible .person-near-title {
+  text-decoration: underline;
+}
+
+.person-gender {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+  vertical-align: middle;
+}
+
+.person-remove {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.person-remove-warn p {
+  margin: 0 0 6px;
+  color: var(--text);
+  font-size: 0.85rem;
+}

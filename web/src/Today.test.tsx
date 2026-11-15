@@ -1767,8 +1767,12 @@ describe("Today — event detail sheet", () => {
     render(<Today />);
     await waitFor(() => expect(screen.getByLabelText("팀 스프린트 상세 보기")).toBeInTheDocument());
     fireEvent.click(screen.getByLabelText("팀 스프린트 상세 보기"));
-    await waitFor(() => expect(screen.getByText("지수 (팀원)")).toBeInTheDocument());
-    expect(screen.getByText("민준")).toBeInTheDocument();
+    // 참석자는 그 사람 상세로 가는 이름으로 나오고, 여기서 바로 빼거나 더할 수 있다.
+    const people = await screen.findByRole("region", { name: "참석자" });
+    expect(within(people).getByRole("link", { name: "지수" })).toHaveAttribute("href", "/people/1");
+    expect(within(people).getByRole("link", { name: "민준" })).toBeInTheDocument();
+    expect(within(people).getByRole("button", { name: "지수 참석자에서 빼기" })).toBeInTheDocument();
+    expect(within(people).getByRole("button", { name: "+ 참석자" })).toBeInTheDocument();
   });
 
   it("detail sheet shows annotations newest first", async () => {

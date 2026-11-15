@@ -283,7 +283,12 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
   const modelListed = provider?.models.some((m) => m.id === model) ?? true;
   const canSend = (draft.trim().length > 0 || picked.length > 0) && !busy && provider?.available === true;
 
-  const pickFiles = (list: FileList | null) => {
+  // Files can also be dropped anywhere on the panel, or pasted into the message box.
+  const [dropping, setDropping] = useState(false);
+  const dragDepth = useRef(0);
+  const carriesFiles = (e: { dataTransfer: DataTransfer | null }) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+
+  const pickFiles = (list: FileList | File[] | null) => {
     const files = Array.from(list ?? []);
     const fits = files.filter((f) => f.size <= NOTE_FILE_MAX_BYTES);
     setNotice(fits.length < files.length ? "50MB를 넘는 파일은 올릴 수 없습니다. 구글 드라이브 등에 올린 뒤 링크를 말해 주세요." : null);
@@ -401,7 +406,39 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
   return createPortal(
     <>
       <div className="sheet-backdrop agent-backdrop" onClick={onClose} aria-hidden="true" />
-      <aside className="agent-panel" role="dialog" aria-modal="true" aria-label="에이전트">
+      <aside
+        className="agent-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="에이전트"
+        data-dropping={dropping ? "true" : undefined}
+        onDragEnter={(e) => {
+          if (!carriesFiles(e)) return;
+          e.preventDefault();
+          dragDepth.current += 1;
+          setDropping(true);
+        }}
+        onDragOver={(e) => {
+          if (!carriesFiles(e)) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = busy ? "none" : "copy";
+        }}
+        onDragLeave={(e) => {
+          if (!carriesFiles(e)) return;
+          dragDepth.current = Math.max(0, dragDepth.current - 1);
+          if (dragDepth.current === 0) setDropping(false);
+        }}
+        onDrop={(e) => {
+          if (!carriesFiles(e)) return;
+          e.preventDefault();
+          dragDepth.current = 0;
+          setDropping(false);
+          if (busy) return;
+          setTab("chat");
+          pickFiles(e.dataTransfer.files);
+        }}
+      >
+        {dropping && <div className="agent-drop" aria-hidden="true">{busy ? "답을 만드는 중에는 올릴 수 없습니다" : "여기에 놓으면 다음 메시지에 붙습니다"}</div>}
         <header className="agent-head">
           <h2 className="agent-title">에이전트</h2>
           <button type="button" className="note-text-btn" onClick={startNew} disabled={busy}>새 대화</button>
@@ -626,6 +663,12 @@ export function AgentPanel({ onClose }: { onClose: () => void }) {
                     e.preventDefault();
                     void send();
                   }
+                }}
+                onPaste={(e) => {
+                  const files = Array.from(e.clipboardData?.files ?? []);
+                  if (files.length === 0) return;
+                  e.preventDefault();
+                  pickFiles(files);
                 }}
                 placeholder="예: 실험 설계는 졸업 프로젝트의 일부로 연결"
                 aria-label="에이전트에게 할 말"

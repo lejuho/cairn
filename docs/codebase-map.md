@@ -147,6 +147,15 @@ Use this file to narrow read scope. Do not treat it as full spec. Product rules 
     folded, otherwise 진행 중 once started (`startedAt`, or inner progress: `doneCount`/`doingCount` > 0) and
     할 일 until then. A thread with inner progress cannot be dragged back to 할 일 (the board says why).
     Contained-thread cards on a thread's own board follow the same rule (`placeChild`).
+- People (user decisions 2026-11-15): `people.groups` (JSON array, migration 0026) holds group names picked
+  from the ones in use or typed new; `relation` stays the free description. `PATCH /api/people/:id` edits
+  name/relation/channel/groups; `GET /api/people/groups` lists names with counts. `/people` has search and
+  group chips, the detail page a 고치기 form (`PersonBasicsForm`).
+  - Notes can hang on a person: `person` is a note target type (migration 0027 rebuilds `note_links` for the
+    CHECK). Person detail carries its notes (`notes` in `/api/people/:id/detail`) and shows `AttachedNotes`.
+  - Attendees: `web/src/EventPeople.tsx` in the event detail sheet (GET/PUT `/api/events/:id/people`).
+  - In-app agent: `list_people`, `create_person`, `update_person` (approval), `get_event_people`,
+    `set_event_people`, `create_event` {personIds}, `create_note` links to `person`.
 - Note attachments (user decisions 2026-11-15): files and links hang on notes, and reach events/tasks/threads
   through the note's links.
   - Tables `files` (sha256-deduplicated, bytes on disk under `CAIRN_FILES_DIR`, production `/mnt/data/cairn-files`)

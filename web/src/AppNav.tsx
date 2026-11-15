@@ -30,15 +30,14 @@ function Icon({ children }: { children: ReactNode }) {
 const PRIMARY_LINKS: NavLink[] = [
   { href: "/calendar", label: "달력", icon: <Icon><rect x="3.5" y="5" width="17" height="15" rx="2" /><path d="M3.5 10h17M8 3v4M16 3v4" /></Icon> },
   { href: "/notes", label: "메모", icon: <Icon><path d="M6 3h9l4 4v14H6z" /><path d="M15 3v4h4M9 12h7M9 16h5" /></Icon> },
-  { href: "/input", label: "입력", icon: <Icon><path d="M4 6h16M4 12h10M4 18h7" /><path d="M18 14v6M15 17h6" /></Icon> },
   { href: "/threads", label: "스레드", icon: <Icon><circle cx="6" cy="6" r="2.2" /><circle cx="6" cy="18" r="2.2" /><circle cx="18" cy="12" r="2.2" /><path d="M6 8.2v7.6M8 6.8l8 4M8 17.2l8-4" /></Icon> }
 ];
 
 const SECONDARY_LINKS: NavLink[] = [
-  { href: "/items", label: "항목", icon: <Icon><path d="M8 6h12M8 12h12M8 18h12" /><path d="M4 6h.01M4 12h.01M4 18h.01" /></Icon> },
+  { href: "/items", label: "미정", icon: <Icon><path d="M8 6h12M8 12h12M8 18h12" /><path d="M4 6h.01M4 12h.01M4 18h.01" /></Icon> },
   { href: "/people", label: "사람", icon: <Icon><circle cx="12" cy="8" r="3.5" /><path d="M5 20c.8-3.6 3.5-5.5 7-5.5s6.2 1.9 7 5.5" /></Icon> },
-  { href: "/mirror", label: "거울", icon: <Icon><path d="M4 19V5M4 19h16" /><path d="M8 15l3.5-4 3 2.500L19 8" /></Icon> },
-  { href: "/watch", label: "여백", icon: <Icon><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" /><circle cx="12" cy="12" r="2.8" /></Icon> },
+  { href: "/mirror", label: "통계", icon: <Icon><path d="M4 19V5M4 19h16" /><path d="M8 15l3.5-4 3 2.500L19 8" /></Icon> },
+  { href: "/watch", label: "Watcher", icon: <Icon><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" /><circle cx="12" cy="12" r="2.8" /></Icon> },
   { href: "/params", label: "파라미터", icon: <Icon><path d="M4 7h9M17 7h3M4 17h3M11 17h9" /><circle cx="15" cy="7" r="2" /><circle cx="9" cy="17" r="2" /></Icon> }
 ];
 

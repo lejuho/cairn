@@ -332,6 +332,28 @@ describe("AgentPanel", () => {
     expect(screen.queryByRole("list", { name: "보낼 파일" })).not.toBeInTheDocument();
   });
 
+  it("takes files dropped on the panel or pasted into the message box", async () => {
+    stub(() => json(chatData()));
+    render(<AgentPanel onClose={() => undefined} />);
+    await screen.findByRole("button", { name: "Anthropic" });
+    const panel = screen.getByRole("dialog", { name: "에이전트" });
+    const dropped = new File(["a"], "끌어온 자료.pdf", { type: "application/pdf" });
+    const transfer = { types: ["Files"], files: [dropped], dropEffect: "none" };
+
+    fireEvent.dragEnter(panel, { dataTransfer: transfer });
+    expect(screen.getByText("여기에 놓으면 다음 메시지에 붙습니다")).toBeInTheDocument();
+    fireEvent.drop(panel, { dataTransfer: transfer });
+    expect(screen.queryByText("여기에 놓으면 다음 메시지에 붙습니다")).not.toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "보낼 파일" })).toHaveTextContent("끌어온 자료.pdf");
+
+    // 글을 끌어다 놓는 것은 건드리지 않는다.
+    fireEvent.dragEnter(panel, { dataTransfer: { types: ["text/plain"], files: [] } });
+    expect(screen.queryByText("여기에 놓으면 다음 메시지에 붙습니다")).not.toBeInTheDocument();
+
+    fireEvent.paste(screen.getByLabelText("에이전트에게 할 말"), { clipboardData: { files: [new File(["b"], "캡처.png", { type: "image/png" })] } });
+    expect(screen.getByRole("list", { name: "보낼 파일" })).toHaveTextContent("캡처.png");
+  });
+
   it("lists found events as candidates and puts one on the calendar only when chosen", async () => {
     let list: EventCandidate[] = [{
       id: 31, title: "3월 독서 모임", start: "2027-03-12T19:00:00+09:00", end: null, location: "합정역", online: false, url: null,

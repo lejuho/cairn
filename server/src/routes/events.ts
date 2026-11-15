@@ -27,7 +27,8 @@ export function registerEventRoutes(app: FastifyInstance, db: CairnDatabase): vo
     }
 
     const { start, end } = parsed.data;
-    if (end <= start) {
+    // Compared as instants: the two may be written with different offsets (+09:00 and Z).
+    if (Date.parse(end) <= Date.parse(start)) {
       return reply.code(400).send({
         ok: false,
         error: { code: "INVALID_TIME_RANGE", message: "end must be after start" }

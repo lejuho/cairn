@@ -3,6 +3,7 @@ import type { EventDetailData, EventRow, EventStatus, ItemListData, ItemListScop
 import { apiJson } from "./api.js";
 import { localDateString, localNowRfc3339 } from "./dateUtils.js";
 import { AttachedNotes } from "./Notes.js";
+import { EventPeople } from "./EventPeople.js";
 import { SlotCandidatePicker } from "./SlotCandidatePicker.js";
 
 const EVENT_STATUS_LABEL: Record<string, string> = {
@@ -254,8 +255,23 @@ function parseList(raw: unknown): ItemListData {
   return { scope, events, tasks };
 }
 
-export function ItemIndex() {
-  const [scope, setScope] = useState<ItemListScope>("active");
+// "미정": what shows up neither on the calendar nor on a thread board, so it would otherwise be
+// forgotten — events without a date, and tasks with neither a due date nor a thread.
+// Giving one a date (or a thread) takes it off this list.
+type ItemView = "loose" | ItemListScope;
+
+export function isLooseEvent(event: EventRow): boolean {
+  return !event.start;
+}
+
+export function isLooseTask(task: TaskRow): boolean {
+  return !task.due && task.threadId == null;
+}
+
+export function ItemIndex({ initialView = "loose" }: { initialView?: ItemView } = {}) {
+  const [view, setView] = useState<ItemView>(initialView);
+  const loose = view === "loose";
+  const scope: ItemListScope = view === "all" ? "all" : "active";
   const [state, setState] = useState<"loading" | "live" | "error">("loading");
   const [data, setData] = useState<ItemListData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -269,14 +285,15 @@ export function ItemIndex() {
     setState("loading");
     setError(null);
     try {
-      const raw = await apiJson<unknown>(`/api/items?scope=${nextScope}&limit=100`);
-      setData(parseList(raw));
+      const raw = await apiJson<unknown>(`/api/items?scope=${nextScope}&limit=${loose ? 200 : 100}`);
+      const list = parseList(raw);
+      setData(loose ? { ...list, events: list.events.filter(isLooseEvent), tasks: list.tasks.filter(isLooseTask) } : list);
       setState("live");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "항목을 불러오지 못했습니다");
       setState("error");
     }
-  }, []);
+  }, [loose]);
 
   useEffect(() => {
     void load(scope);
@@ -287,8 +304,8 @@ export function ItemIndex() {
     return () => window.clearInterval(tick);
   }, []);
 
-  const switchScope = (nextScope: ItemListScope) => {
-    if (nextScope !== scope) setScope(nextScope);
+  const switchScope = (next: ItemView) => {
+    if (next !== view) setView(next);
   };
 
   const isQuiet = state === "live" && data != null && data.events.length === 0 && data.tasks.length === 0;
@@ -413,12 +430,13 @@ export function ItemIndex() {
     <main className="items-page" aria-labelledby="items-title">
       <header className="items-header">
         <div>
-          <p className="eyebrow">inventory</p>
-          <h1 id="items-title">항목</h1>
+          <h1 id="items-title">{loose ? "미정" : "항목"}</h1>
+          {loose && <p className="items-lead">달력에도 스레드 보드에도 나오지 않는 것입니다. 날짜나 마감을 정하면 여기서 빠집니다.</p>}
         </div>
         <div className="items-scope" role="group" aria-label="항목 범위">
-          <button type="button" aria-pressed={scope === "active"} onClick={() => switchScope("active")}>진행 중</button>
-          <button type="button" aria-pressed={scope === "all"} onClick={() => switchScope("all")}>전체</button>
+          <button type="button" aria-pressed={view === "loose"} onClick={() => switchScope("loose")}>미정</button>
+          <button type="button" aria-pressed={view === "active"} onClick={() => switchScope("active")}>진행 중</button>
+          <button type="button" aria-pressed={view === "all"} onClick={() => switchScope("all")}>전체</button>
         </div>
       </header>
 
@@ -441,9 +459,7 @@ export function ItemIndex() {
       {isQuiet && (
         <section className="quiet-card warm" data-testid="items-quiet">
           <span className="quiet-dot" aria-hidden="true" />
-          <h2>{scope === "active" ? "진행 중인 항목이 없습니다" : "항목이 없습니다"}</h2>
-          <p>새 일정이나 할 일을 추가하면 여기에 표시됩니다.</p>
-          <a className="items-create-link" href="/input">입력하기</a>
+          <h2>{loose ? "미정인 항목이 없습니다" : scope === "active" ? "진행 중인 항목이 없습니다" : "항목이 없습니다"}</h2>
         </section>
       )}
 
@@ -451,11 +467,11 @@ export function ItemIndex() {
         <div className="items-grid" data-testid="items-live">
           <section className="items-section" aria-labelledby="items-events-title">
             <div className="items-section-head">
-              <h2 id="items-events-title">일정</h2>
+              <h2 id="items-events-title">{loose ? "날짜 없는 일정" : "일정"}</h2>
               <span>{data.events.length}</span>
             </div>
             {data.events.length === 0 ? (
-              <p className="items-empty-line">표시할 일정이 없습니다.</p>
+              <p className="items-empty-line">없음</p>
             ) : (
               <ul className="items-list" role="list">
                 {data.events.map((event) => {
@@ -485,11 +501,11 @@ export function ItemIndex() {
 
           <section className="items-section" aria-labelledby="items-tasks-title">
             <div className="items-section-head">
-              <h2 id="items-tasks-title">할 일</h2>
+              <h2 id="items-tasks-title">{loose ? "마감도 스레드도 없는 할 일" : "할 일"}</h2>
               <span>{data.tasks.length}</span>
             </div>
             {data.tasks.length === 0 ? (
-              <p className="items-empty-line">표시할 할 일이 없습니다.</p>
+              <p className="items-empty-line">없음</p>
             ) : (
               <ul className="items-list" role="list">
                 {data.tasks.map((task) => {
@@ -582,14 +598,7 @@ export function ItemIndex() {
                   </div>
                   {eventSheet.error && <p className="sheet-error" role="alert">{eventSheet.error}</p>}
                 </section>
-                {eventSheet.data.people.length > 0 && (
-                  <section className="item-detail-section" aria-labelledby="event-people-title">
-                    <p id="event-people-title" className="event-detail-section-label">참석자</p>
-                    <ul className="item-detail-list" role="list">
-                      {eventSheet.data.people.map((p) => <li key={p.id}>{p.name}{p.relation ? ` (${p.relation})` : ""}</li>)}
-                    </ul>
-                  </section>
-                )}
+                <EventPeople key={`people-${eventSheet.data.event.id}`} eventId={eventSheet.data.event.id} initial={eventSheet.data.people} announce={false} />
                 {eventSheet.data.annotations.length > 0 && (
                   <section className="item-detail-section" aria-labelledby="event-notes-title">
                     <p id="event-notes-title" className="event-detail-section-label">메모</p>

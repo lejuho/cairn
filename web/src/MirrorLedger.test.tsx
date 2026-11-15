@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MirrorAutomationNeedsData, MirrorDiaryData, MirrorEnergyTrendData, MirrorLedgerData, MirrorPatternsData, MirrorTransitionFrictionData } from "@cairn/shared";
 import { MirrorLedger } from "./MirrorLedger.js";
@@ -276,7 +276,7 @@ describe("MirrorLedger — automation-needs reasons and /watch link", () => {
     stubFetch(ledger({ entries: [] }), EMPTY_PATTERNS, EMPTY_ENERGY, WATCH_AUTOMATION);
     render(<MirrorLedger />);
     await waitFor(() => expect(screen.getByTestId("mirror-automation-needs")).toBeInTheDocument());
-    const watchLink = screen.getByRole("link", { name: "여백 →" });
+    const watchLink = screen.getByRole("link", { name: "Watcher →" });
     expect(watchLink).toBeInTheDocument();
     expect(watchLink).toHaveAttribute("href", "/watch");
   });
@@ -396,7 +396,13 @@ describe("MirrorLedger — live state", () => {
       expect(screen.getByTestId("mirror-energy-trend")).toBeInTheDocument();
     });
     expect(screen.getByText(/예산 초과 1일/)).toBeInTheDocument();
-    expect(screen.getByText(/예산 8시간/)).toBeInTheDocument();
+    // 표의 칩과 차트의 기준선 표시, 두 군데에 나온다.
+    expect(screen.getAllByText(/예산 8시간/).length).toBeGreaterThanOrEqual(1);
+    // 차트: 요약 타일과 날짜별 막대. 막대마다 값이 접근성 이름으로 붙는다.
+    const energy = screen.getByTestId("mirror-energy-trend");
+    expect(within(energy).getByRole("figure", { name: "날짜별 부하와 예산" })).toBeInTheDocument();
+    expect(within(energy).getByLabelText("에너지 요약")).toHaveTextContent("예산 초과");
+    expect(within(energy).getAllByLabelText(/부하 .*시간/).length).toBeGreaterThan(0);
     expect(screen.getByText(/일정 있는 날 3일/)).toBeInTheDocument();
   });
 
@@ -585,5 +591,37 @@ describe("MirrorLedger — transition friction section (FR-MIR-09)", () => {
     render(<MirrorLedger />);
     await waitFor(() => expect(screen.getByTestId("mirror-energy-trend")).toBeInTheDocument());
     expect(screen.queryByTestId("mirror-transition-friction")).not.toBeInTheDocument();
+  });
+});
+
+describe("statistics charts", () => {
+  it("draws one row per weekday split into kept and changed, with the figures beside it", async () => {
+    const { OutcomeBars, EnergyColumns } = await import("./MirrorCharts.js");
+    const buckets = [
+      { key: "monday", label: "월요일", total: 4, slipCount: 1, sampleStatus: "ok" },
+      { key: "sunday", label: "일요일", total: 2, slipCount: 0, sampleStatus: "low_sample" }
+    ] as Parameters<typeof OutcomeBars>[0]["buckets"];
+    render(<OutcomeBars title="요일별" buckets={buckets} />);
+    const chart = screen.getByRole("figure", { name: "요일별 결과" });
+    expect(within(chart).getByLabelText("월요일 그대로 진행 3건")).toBeInTheDocument();
+    expect(within(chart).getByLabelText("월요일 이동·취소·지각 1건")).toBeInTheDocument();
+    expect(within(chart).queryByLabelText(/일요일 이동/)).not.toBeInTheDocument();
+    expect(chart).toHaveTextContent("4건 · 바뀜 1");
+
+    // 가리키거나 포커스하면 값이 뜬다.
+    fireEvent.focus(within(chart).getByLabelText("월요일 이동·취소·지각 1건"));
+    expect(within(chart).getByRole("status")).toHaveTextContent("1건월요일 · 이동·취소·지각");
+    cleanup();
+
+    // 예산을 크게 넘는 날은 눈금 끝까지만 그리고 실제 값을 위에 적는다.
+    const days = [
+      { date: "2026-10-30", loadUnits: 72, deficit: true, continuousExceeded: true },
+      { date: "2026-11-01", loadUnits: 1, deficit: false, continuousExceeded: false }
+    ] as Parameters<typeof EnergyColumns>[0]["days"];
+    render(<EnergyColumns days={days} budget={12} />);
+    const over = screen.getByLabelText("2026-10-30 부하 72시간, 예산 초과");
+    expect(over).toHaveTextContent("72");
+    expect(over.querySelector(".chart-col-bar")).toHaveAttribute("data-clipped", "true");
+    expect(screen.getByLabelText("2026-11-01 부하 1시간").querySelector(".chart-col-bar")).toHaveAttribute("data-tone", "main");
   });
 });

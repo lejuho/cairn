@@ -32,7 +32,8 @@ export function registerCalendarRoutes(app: FastifyInstance, db: CairnDatabase):
     const zone = timeZone();
     const events = findEventsInRange(db, localMidnight(from, zone), localMidnight(addDays(to, 1), zone))
       .sort((a, b) => Date.parse(a.start!) - Date.parse(b.start!));
-    const dueTasks = (db.select().from(tasks).where(inArray(tasks.status, ["todo", "doing"])).all() as TaskRow[]).filter((task) => {
+    // Finished tasks stay on the day they were due (shown struck through); dropped ones do not.
+    const dueTasks = (db.select().from(tasks).where(inArray(tasks.status, ["todo", "doing", "done"])).all() as TaskRow[]).filter((task) => {
       const day = localDateOf(task.due);
       return day !== null && day >= from && day <= to;
     });

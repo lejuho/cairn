@@ -526,3 +526,35 @@ describe("PersonDetail — profile editor", () => {
     expect(document.activeElement).toBe(opener);
   });
 });
+
+describe("PersonDetail — deleting", () => {
+  it("asks twice, and once more with what is still attached, before removing a person", async () => {
+    const deletes: string[] = [];
+    const assign = vi.fn();
+    vi.stubGlobal("location", { href: "http://localhost/people/1", pathname: "/people/1", search: "", assign });
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (init?.method === "DELETE") {
+        deletes.push(u);
+        const forced = u.includes("force=1");
+        const body = forced ? { ok: true, data: { deleted: 1 } } : { ok: false, error: { code: "IN_USE", message: "아직 연결된 것이 있습니다" }, data: { usage: { events: 2, notes: 1, resources: 0 } } };
+        return Promise.resolve({ ok: forced, status: forced ? 200 : 409, json: () => Promise.resolve(body) });
+      }
+      if (u.includes("/api/people/groups")) return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { groups: [] } }) });
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { person: ALICE_DIR, recentMeetings: [], notes: [] } }) });
+    }));
+    render(<PersonDetail id={1} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "이름·설명·묶음 고치기" }));
+    fireEvent.click(screen.getByRole("button", { name: "이 사람 지우기" }));
+    expect(deletes).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "정말 지우기" }));
+
+    // 일정과 메모에 걸려 있으면 무엇이 끊기는지 알려주고 한 번 더 묻는다.
+    expect(await screen.findByRole("alert")).toHaveTextContent("일정 2건, 메모 1건에 연결돼 있습니다. 지우면 연결만 끊기고 일정과 메모는 남습니다.");
+    expect(assign).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "연결 끊고 지우기" }));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("/people"));
+    expect(deletes).toEqual(["/api/people/1", "/api/people/1?force=1"]);
+  });
+});

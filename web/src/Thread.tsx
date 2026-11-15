@@ -6,6 +6,7 @@ import { Board, BoardGrip, type BoardColumnId } from "./Board.js";
 import { EgoSheet, loadEgoGraph } from "./EgoSheet.js";
 import { AttachedNotes } from "./Notes.js";
 import { startDateReached } from "./ThreadIndex.js";
+import { EventPeople } from "./EventPeople.js";
 import { SlotCandidatePicker } from "./SlotCandidatePicker.js";
 
 // Thread node edit/confirm endpoints (cycle-50 FR-THR-05/06). Return ok+optional
@@ -959,6 +960,7 @@ function ThreadBoard({ detail, nodeClass, highlightedTaskIds, highlightedEventId
           liClassName={nodeClass(`today-card today-card--event${column === "done" || column === "folded" ? " thread-node--past" : ""}`, highlightedEventIds.has(event.id), personEventIds.has(event.id))}
           chip={place.chip}
           onSaved={onSaved}
+          people={detail.personFocus.people.filter((p) => p.eventIds.includes(event.id)).map((p) => ({ id: p.person.id, name: p.person.name }))}
         />
       ))}
     </>
@@ -978,8 +980,12 @@ function ThreadBoard({ detail, nodeClass, highlightedTaskIds, highlightedEventId
   );
 }
 
-function EventNodeCard({ event, liClassName, chip, onSaved }: { event: EventRow; liClassName: string; chip: string; onSaved: () => void }) {
+type CardPerson = { id: number; name: string };
+
+function EventNodeCard({ event, liClassName, chip, onSaved, people: initialPeople = [] }: { event: EventRow; liClassName: string; chip: string; onSaved: () => void; people?: CardPerson[] }) {
   const [editing, setEditing] = useState(false);
+  // Who the event is with. Changed from the edit view; kept here so the card shows it at once.
+  const [people, setPeople] = useState<CardPerson[]>(initialPeople);
   const [slotState, setSlotState] = useState<EventSlotState>({ tag: "idle" });
   const editable = event.source !== "gcal";
   const canSuggestTime = editable && event.start == null;
@@ -1025,9 +1031,15 @@ function EventNodeCard({ event, liClassName, chip, onSaved }: { event: EventRow;
               {event.location ? ` · ${event.location}` : ""}
             </p>
           )}
-          {editable && (
-            <button className="thread-node-edit-btn" data-testid={`event-edit-${event.id}`} onClick={() => setEditing(true)}>수정</button>
+          {people.length > 0 && (
+            <p className="card-meta card-people" aria-label="참석자">
+              함께{" "}
+              {people.map((p, i) => (
+                <span key={p.id}>{i > 0 && ", "}<a className="note-meta-link" href={`/people/${p.id}`}>{p.name}</a></span>
+              ))}
+            </p>
           )}
+          <button className="thread-node-edit-btn" data-testid={`event-edit-${event.id}`} onClick={() => setEditing(true)}>{editable ? "수정" : "참석자"}</button>
           {canSuggestTime && (
             <ThreadEventSlotControls
               state={slotState}
@@ -1038,8 +1050,14 @@ function EventNodeCard({ event, liClassName, chip, onSaved }: { event: EventRow;
           )}
         </>
       )}
-      {editing && (
+      {editing && editable && (
         <EventNodeForm event={event} onCancel={() => setEditing(false)} onSaved={() => { setEditing(false); onSaved(); }} />
+      )}
+      {editing && (
+        <>
+          <EventPeople eventId={event.id} initial={people} announce={false} onChanged={(next) => setPeople(next.map((p) => ({ id: p.id, name: p.name })))} />
+          {!editable && <button type="button" className="thread-node-cancel-btn" onClick={() => setEditing(false)}>닫기</button>}
+        </>
       )}
     </li>
   );

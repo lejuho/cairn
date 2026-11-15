@@ -1001,3 +1001,149 @@ describe("PUT /api/people/:id/hard-constraints — profile invariant", () => {
   });
 });
 
+
+describe("people — groups and editing basics", () => {
+  it("stores groups apart from the description, lists them by use, and edits what was written at first", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cairn-people-groups-"));
+    const conn = createSqliteConnection(join(dir, "test.sqlite3"));
+    runMigrations(conn);
+    const app = buildServer(conn.db);
+    try {
+      const add = (payload: Record<string, unknown>) => app.inject({ method: "POST", url: "/api/people", payload });
+      const a = (await add({ displayName: "구예모", relation: "학회장", channel: "kakao", groups: ["BAY", " BAY ", "운영진"] })).json().data.person;
+      await add({ displayName: "이재근", channel: "kakao", groups: ["BAY"] });
+      await add({ displayName: "왕지우", relation: "10년지기 친구", channel: "none" });
+      expect(a.groups).toEqual(["BAY", "운영진"]);
+
+      expect((await app.inject({ method: "GET", url: "/api/people/groups" })).json().data.groups).toEqual([{ name: "BAY", count: 2 }, { name: "운영진", count: 1 }]);
+
+      const patched = await app.inject({ method: "PATCH", url: `/api/people/${a.id}`, payload: { name: "구예모 형", relation: "BAY 학회장, 25년에 처음 만남", groups: ["BAY"] } });
+      expect(patched.json().data.person).toEqual(expect.objectContaining({ name: "구예모 형", relation: "BAY 학회장, 25년에 처음 만남", groups: ["BAY"], channel: "kakao" }));
+      // 바꾸지 않은 것은 그대로 두고, 설명은 비울 수 있다.
+      expect((await app.inject({ method: "PATCH", url: `/api/people/${a.id}`, payload: { relation: null } })).json().data.person).toEqual(expect.objectContaining({ name: "구예모 형", relation: null, groups: ["BAY"] }));
+      // 성별은 정하지 않은 채로 시작하고, 정하거나 다시 비울 수 있다.
+      expect(a.gender).toBeNull();
+      expect((await app.inject({ method: "PATCH", url: `/api/people/${a.id}`, payload: { gender: "male" } })).json().data.person.gender).toBe("male");
+      expect((await app.inject({ method: "PATCH", url: `/api/people/${a.id}`, payload: { gender: null } })).json().data.person.gender).toBeNull();
+      expect((await app.inject({ method: "PATCH", url: `/api/people/${a.id}`, payload: { gender: "other" } })).statusCode).toBe(400);
+      expect((await add({ displayName: "배예림", channel: "kakao", gender: "female" })).json().data.person.gender).toBe("female");
+      expect((await app.inject({ method: "PATCH", url: `/api/people/${a.id}`, payload: {} })).statusCode).toBe(400);
+      expect((await app.inject({ method: "PATCH", url: "/api/people/9999", payload: { name: "없음" } })).statusCode).toBe(404);
+
+      const directory = (await app.inject({ method: "GET", url: `/api/people/directory?now=${encodeURIComponent("2026-11-15T00:00:00.000Z")}` })).json().data.people;
+      expect(directory.find((p: { name: string }) => p.name === "이재근").groups).toEqual(["BAY"]);
+      expect(directory.find((p: { name: string }) => p.name === "왕지우").groups).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("people — notes and event attendees", () => {
+  it("keeps notes on a person, finds people as note targets, and lets the agent set who an event is with", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cairn-people-notes-"));
+    const conn = createSqliteConnection(join(dir, "test.sqlite3"));
+    runMigrations(conn);
+    const replies: object[] = [
+      { say: "사람을 찾아볼게요.", actions: [{ tool: "list_people", args: { q: "구예모" } }], done: false },
+      {
+        say: "구예모 님과의 회의를 만들고 메모를 남겼습니다.",
+        actions: [
+          { tool: "create_event", args: { title: "BAY 운영 회의", start: "2099-03-12T19:00:00+09:00", end: "2099-03-12T20:00:00+09:00", personIds: [1] } },
+          { tool: "create_note", args: { body: "회의 때 예산안 가져오기로 함", links: [{ targetType: "person", targetId: 1 }] } },
+          { tool: "set_event_people", args: { eventId: 1, personIds: [1, 2] } }
+        ],
+        done: true
+      }
+    ];
+    const app = buildServer(conn.db, undefined, undefined, undefined, { agent: { complete: async () => JSON.stringify(replies.shift()), mail: null, sheets: null, reason: null } });
+    try {
+      await app.inject({ method: "POST", url: "/api/people", payload: { displayName: "구예모", channel: "kakao", groups: ["BAY"] } });
+      await app.inject({ method: "POST", url: "/api/people", payload: { displayName: "이재근", channel: "kakao", groups: ["BAY"] } });
+
+      const data = (await app.inject({ method: "POST", url: "/api/agent/chat", payload: { provider: "anthropic", text: "구예모랑 3월 12일 7시에 BAY 운영 회의 잡고, 예산안 가져오기로 한 거 적어줘", includePrivate: true } })).json().data;
+      expect(data.message.steps.map((s: { tool: string; ok: boolean; summary: string }) => [s.tool, s.ok, s.summary])).toEqual([
+        ["create_event", true, "일정 생성: BAY 운영 회의 (2099-03-12 19:00)"],
+        ["create_note", true, "메모 저장: 회의 때 예산안 가져오기로 함"],
+        ["set_event_people", true, "참석자 지정: BAY 운영 회의 — 구예모, 이재근"]
+      ]);
+      expect((await app.inject({ method: "GET", url: "/api/events/1/people" })).json().data.people.map((p: { name: string }) => p.name).sort()).toEqual(["구예모", "이재근"]);
+
+      // 그 사람에게 붙은 메모만 모아 볼 수 있고, 메모에는 사람 이름이 대상으로 실린다.
+      const notes = (await app.inject({ method: "GET", url: "/api/notes?targetType=person&targetId=1" })).json().data.notes;
+      expect(notes).toEqual([expect.objectContaining({ body: "회의 때 예산안 가져오기로 함", links: [{ targetType: "person", targetId: 1, label: "구예모", when: null, status: null, exists: true }] })]);
+      expect((await app.inject({ method: "GET", url: "/api/notes?targetType=person&targetId=2" })).json().data.notes).toEqual([]);
+      // 붙일 곳을 찾을 때 사람도 나온다. 없는 사람에게는 붙일 수 없다.
+      expect((await app.inject({ method: "GET", url: `/api/notes/targets?q=${encodeURIComponent("이재근")}` })).json().data.targets).toEqual([expect.objectContaining({ targetType: "person", targetId: 2, label: "이재근" })]);
+      expect((await app.inject({ method: "POST", url: "/api/notes", payload: { body: "x", links: [{ targetType: "person", targetId: 99 }] } })).statusCode).toBeGreaterThanOrEqual(400);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("people — who is near, and pinning", () => {
+  it("attaches the nearest upcoming and latest recent event to each person, and remembers pins", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cairn-people-near-"));
+    const conn = createSqliteConnection(join(dir, "test.sqlite3"));
+    runMigrations(conn);
+    const app = buildServer(conn.db);
+    try {
+      const NOW = "2026-11-15T03:00:00.000Z";
+      for (const name of ["가", "나", "다"]) await app.inject({ method: "POST", url: "/api/people", payload: { displayName: name, channel: "none" } });
+      const event = async (title: string, start: string, personIds: number[], status?: string) => {
+        const end = new Date(Date.parse(start) + 3_600_000).toISOString();
+        const made = await app.inject({ method: "POST", url: "/api/events", payload: { title, start, end, personIds } });
+        if (made.statusCode !== 201) throw new Error(made.body);
+        const id = made.json().data.id as number;
+        if (status) await app.inject({ method: "PATCH", url: `/api/events/${id}/status`, payload: { status } });
+      };
+      await event("곧 있을 회의", "2026-11-19T20:30:00+09:00", [1]);
+      await event("더 나중 회의", "2026-11-28T10:00:00+09:00", [1]);
+      await event("지난 모임", "2026-11-10T19:00:00+09:00", [1, 2]);
+      await event("오래전 모임", "2026-09-01T19:00:00+09:00", [3]);
+      await event("취소된 약속", "2026-11-20T19:00:00+09:00", [3], "cancelled");
+
+      await app.inject({ method: "PATCH", url: "/api/people/3", payload: { pinned: true } });
+      const people = (await app.inject({ method: "GET", url: `/api/people/directory?now=${encodeURIComponent(NOW)}` })).json().data.people as Array<Record<string, unknown>>;
+      const of = (name: string) => people.find((p) => p.name === name)!;
+      expect(of("가")).toEqual(expect.objectContaining({ upcoming: expect.objectContaining({ title: "곧 있을 회의" }), recent: expect.objectContaining({ title: "지난 모임" }), pinned: false }));
+      expect(of("나")).toEqual(expect.objectContaining({ upcoming: null, recent: expect.objectContaining({ title: "지난 모임" }) }));
+      // 30일 밖의 일정과 취소된 일정은 치지 않는다.
+      expect(of("다")).toEqual(expect.objectContaining({ upcoming: null, recent: null, pinned: true }));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("people — deleting", () => {
+  it("deletes a person nothing points at, and asks first when events or notes still do", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cairn-people-delete-"));
+    const conn = createSqliteConnection(join(dir, "test.sqlite3"));
+    runMigrations(conn);
+    const app = buildServer(conn.db);
+    try {
+      for (const name of ["중복", "쓰는 사람"]) await app.inject({ method: "POST", url: "/api/people", payload: { displayName: name, channel: "none" } });
+      await app.inject({ method: "POST", url: "/api/events", payload: { title: "회의", start: "2099-03-12T19:00:00+09:00", end: "2099-03-12T20:00:00+09:00", personIds: [2] } });
+      await app.inject({ method: "POST", url: "/api/notes", payload: { body: "기억할 것", links: [{ targetType: "person", targetId: 2 }] } });
+
+      expect((await app.inject({ method: "DELETE", url: "/api/people/1" })).json()).toEqual({ ok: true, data: { deleted: 1, usage: { events: 0, notes: 0, resources: 0 } } });
+      expect((await app.inject({ method: "DELETE", url: "/api/people/1" })).statusCode).toBe(404);
+
+      const blocked = await app.inject({ method: "DELETE", url: "/api/people/2" });
+      expect(blocked.statusCode).toBe(409);
+      expect(blocked.json().data.usage).toEqual({ events: 1, notes: 1, resources: 0 });
+      expect((await app.inject({ method: "DELETE", url: "/api/people/2", headers: { "x-cairn-audience": "remote" } })).statusCode).toBe(403);
+
+      // 확인하고 지우면 연결만 끊기고 일정과 메모는 남는다.
+      expect((await app.inject({ method: "DELETE", url: "/api/people/2?force=1" })).statusCode).toBe(200);
+      expect((await app.inject({ method: "GET", url: "/api/people" })).json().data).toEqual([]);
+      expect((await app.inject({ method: "GET", url: "/api/events/1/people" })).json().data.people).toEqual([]);
+      const note = (await app.inject({ method: "GET", url: "/api/notes/1" })).json().data.note;
+      expect(note).toEqual(expect.objectContaining({ body: "기억할 것", links: [] }));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});

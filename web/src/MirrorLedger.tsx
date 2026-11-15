@@ -16,6 +16,7 @@ import type {
   MirrorTransitionFrictionDay
 } from "@cairn/shared";
 import { apiJson, type AccessSessionError, openAccessLogin } from "./api.js";
+import { EnergyColumns, OutcomeBars, OutcomeLegend, StatTiles, TransitionColumns } from "./MirrorCharts.js";
 
 type MirrorData = {
   ledger: MirrorLedgerData;
@@ -111,7 +112,7 @@ export function MirrorLedger() {
 
   if (view.tag === "loading") {
     return (
-      <main className="app-shell" aria-label="거울 원장 불러오는 중">
+      <main className="app-shell" aria-label="통계 불러오는 중">
         <div className="today-stack" aria-hidden="true">
           <div className="today-skel" />
           <div className="today-skel today-skel--delay" />
@@ -170,18 +171,17 @@ export function MirrorLedger() {
   return (
     <main className="app-shell today-live" aria-labelledby="mirror-title">
       <header style={{ width: "min(100%, var(--content-w))", marginBottom: "12px" }}>
-        <p className="eyebrow" style={{ margin: 0 }}>Mirror</p>
-        <h1 id="mirror-title" style={{ margin: "4px 0 0" }}>이동·취소 원장</h1>
+        <h1 id="mirror-title" style={{ margin: 0 }}>통계</h1>
         <p className="card-meta" style={{ margin: "4px 0 0", opacity: 0.7 }}>
-          {ledger.range.from} ~ {ledger.range.to} · 기록된 주석만 표시합니다
+          {ledger.range.from} ~ {ledger.range.to} · 결과를 기록한 일정 기준
         </p>
       </header>
 
+      <MirrorPatterns patterns={patterns} ledger={ledger} />
       <MirrorEnergyTrend energy={energy} />
       {transitionFriction && transitionFriction.summary.activeDays > 0 && (
         <MirrorTransitionFriction data={transitionFriction} />
       )}
-      <MirrorPatterns patterns={patterns} />
       {automationNeeds && automationNeeds.items.length > 0 && (
         <MirrorAutomationNeeds data={automationNeeds} />
       )}
@@ -189,6 +189,7 @@ export function MirrorLedger() {
         <MirrorDiary data={diary} />
       )}
 
+      <h2 className="mirror-list-heading">바뀐 일정</h2>
       <MirrorSummary data={ledger} />
 
       {ledger.sampleStatus === "low_sample" && (
@@ -232,6 +233,17 @@ function MirrorEnergyTrend({ energy }: { energy: MirrorEnergyTrendData }) {
         </p>
       )}
 
+      <StatTiles
+        label="에너지 요약"
+        items={[
+          { label: "예산 초과", value: `${s.deficitDays}일`, note: `일정 있는 ${s.scheduledDays}일 중` },
+          { label: "하루 예산", value: `${s.budgetUnits}시간` },
+          { label: "평균 부하", value: `${Math.round(s.averageScheduledLoadUnits * 10) / 10}시간` }
+        ]}
+      />
+      <EnergyColumns days={energy.days} budget={s.budgetUnits} />
+      <details className="chart-table">
+      <summary>표로 보기</summary>
       <p className="card-meta" style={{ display: "flex", flexWrap: "wrap", gap: "6px", margin: "0 0 8px" }}>
         <span className="card-chip">예산 초과 {s.deficitDays}일</span>
         <span className="card-chip">예산 {s.budgetUnits}시간</span>
@@ -247,6 +259,7 @@ function MirrorEnergyTrend({ energy }: { energy: MirrorEnergyTrendData }) {
           ))}
         </ul>
       )}
+      </details>
     </section>
   );
 }
@@ -283,6 +296,17 @@ function MirrorTransitionFriction({ data }: { data: MirrorTransitionFrictionData
         </p>
       )}
 
+      <StatTiles
+        label="전환 요약"
+        items={[
+          { label: "스레드 전환", value: `${s.totalTransitionPairs}회`, note: `기록된 ${s.activeDays}일 동안` },
+          { label: "부담 큰 전환", value: `${s.highTransitionPairs}회` },
+          { label: "판단 불가", value: `${s.unknownTransitionPairs}회` }
+        ]}
+      />
+      <TransitionColumns days={data.days} />
+      <details className="chart-table">
+      <summary>표로 보기</summary>
       <p className="card-meta" style={{ display: "flex", flexWrap: "wrap", gap: "6px", margin: "0 0 8px" }}>
         <span className="card-chip">전환 {s.totalTransitionPairs}회</span>
         <span className="card-chip">높은 전환 {s.highTransitionPairs}회</span>
@@ -295,6 +319,7 @@ function MirrorTransitionFriction({ data }: { data: MirrorTransitionFrictionData
           <MirrorFrictionDayRow key={d.date} day={d} />
         ))}
       </ul>
+      </details>
     </section>
   );
 }
@@ -319,7 +344,10 @@ function MirrorFrictionDayRow({ day }: { day: MirrorTransitionFrictionDay }) {
   );
 }
 
-function MirrorPatterns({ patterns }: { patterns: MirrorPatternsData }) {
+function MirrorPatterns({ patterns, ledger }: { patterns: MirrorPatternsData; ledger?: MirrorLedgerData }) {
+  const total = patterns.weekday.reduce((sum, b) => sum + b.total, 0);
+  const changed = patterns.weekday.reduce((sum, b) => sum + b.slipCount, 0);
+  const named = (b: MirrorPatternBucket | MirrorPatternThreadBucket) => (b.label.toLowerCase() === "unknown" ? "유형 없음" : b.label);
   return (
     <section
       className="quiet-card warm"
@@ -335,9 +363,28 @@ function MirrorPatterns({ patterns }: { patterns: MirrorPatternsData }) {
         </p>
       )}
 
-      <PatternGroup label="요일별" buckets={patterns.weekday} />
-      <PatternGroup label="유형별" buckets={patterns.type} />
-      <PatternGroup label="스레드별" buckets={patterns.thread} />
+      {total > 0 && (
+        <>
+          <StatTiles
+            label="결과 요약"
+            items={[
+              { label: "기록한 일정", value: `${total}건` },
+              { label: "그대로 진행", value: `${total - changed}건`, note: `${Math.round(((total - changed) / total) * 100)}%` },
+              { label: "바뀜", value: `${changed}건`, ...(ledger ? { note: `취소 ${ledger.summary.cancelledCount} · 이동 ${ledger.summary.movedCount}` } : {}) }
+            ]}
+          />
+          <OutcomeLegend />
+          <OutcomeBars title="요일별" buckets={patterns.weekday} />
+          <OutcomeBars title="유형별" buckets={patterns.type} nameOf={named} />
+          <OutcomeBars title="스레드별" buckets={patterns.thread} />
+        </>
+      )}
+      <details className="chart-table">
+        <summary>표로 보기</summary>
+        <PatternGroup label="요일별" buckets={patterns.weekday} />
+        <PatternGroup label="유형별" buckets={patterns.type} />
+        <PatternGroup label="스레드별" buckets={patterns.thread} />
+      </details>
     </section>
   );
 }
@@ -409,7 +456,7 @@ function MirrorAutomationNeeds({ data }: { data: MirrorAutomationNeedsData }) {
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "8px" }}>
         <h2 id="automation-needs-heading" className="watcher-section-heading" style={{ margin: 0 }}>자동화 필요 신호</h2>
-        <a href="/watch" className="thread-index-link" style={{ fontSize: "0.85rem" }}>여백 →</a>
+        <a href="/watch" className="thread-index-link" style={{ fontSize: "0.85rem" }}>Watcher →</a>
       </div>
       <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "8px" }}>
         {watchOrConsider.map((item) => (

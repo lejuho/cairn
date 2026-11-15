@@ -586,7 +586,7 @@ export function Watchers() {
 
   if (screen.tag === "loading") {
     return (
-      <main className="app-shell watchers-shell" aria-label="여백 — 로딩 중">
+      <main className="app-shell watchers-shell" aria-label="Watcher — 로딩 중">
         <div className="skeleton-card" aria-hidden="true" />
         <div className="skeleton-card" aria-hidden="true" />
       </main>
@@ -642,7 +642,7 @@ export function Watchers() {
   return (
     <main className="app-shell watchers-shell">
       <div className="watchers-header">
-        <h1 className="watchers-title">여백</h1>
+        <h1 className="watchers-title">Watcher</h1>
         <button className="btn-primary" onClick={openCreate} aria-label="Watcher 추가">
           + 추가
         </button>

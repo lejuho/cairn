@@ -10,6 +10,7 @@ import { DomainFilterControl } from "./DomainFilter.js";
 import { ResultCard } from "./ResultCard.js";
 import { CreationComposer, type ComposerMode, type ComposerModeConfig } from "./CreationComposer.js";
 import { WatcherFieldsPanel, RecordTargetSelect, createWatcher, createRecord, dedupeTargets, watcherSubtypeValid, watcherSubtypeLabel, EMPTY_WATCHER_FIELDS, type WatcherSubtype, type WatcherFields } from "./composerModes.js";
+import { EventPeople } from "./EventPeople.js";
 
 type ReplyState = { text: string; error: string | null; submitting: boolean };
 type EventDetailState =
@@ -1347,7 +1348,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
           title={r.label}
           status={`${watcherSubtypeLabel(r.subtype)} Watcher 생성됨`}
           primary={{ label: "지켜볼 것에서 보기", href: "/watch" }}
-          secondary="여백(/watch)에서 방금 만든 Watcher를 확인할 수 있습니다."
+          secondary="Watcher 탭에서 방금 만든 Watcher를 확인할 수 있습니다."
           testId="watcher-result"
         />
       );
@@ -1358,7 +1359,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
         title={r.eventTitle}
         status={r.parseStatus === "parsed" ? "기록됨" : "원문 저장됨 (분석 대기)"}
         primary={{ label: "오늘 새로고침", onClick: () => { setComposer((c) => ({ ...c, result: null })); void refresh(); } }}
-        secondary="이벤트에 연결된 기록입니다 — 이벤트 상세와 거울에서 볼 수 있습니다."
+        secondary="이벤트에 연결된 기록입니다 — 이벤트 상세와 통계에서 볼 수 있습니다."
         testId="record-result"
       />
     );
@@ -1968,6 +1969,7 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
                 </p>
               )}
             </div>
+            <EventPeople key={`people-${eventDetail.data.event.id}`} eventId={eventDetail.data.event.id} initial={eventDetail.data.people} announce={false} />
             {geocodePreview.tag !== "idle" && geocodePreview.eventId === selectedEventId && (
               <section className="event-geo" data-testid="event-geo" aria-label="위치">
                 <h3 className="event-geo-title">위치</h3>
@@ -2125,18 +2127,6 @@ export function Today({ date, embed, onCount, onChanged, addRequest, openEvent }
               )}
               {prepForm.error && <p className="sheet-error" role="alert">{prepForm.error}</p>}
             </div>
-            {eventDetail.data.people.length > 0 && (
-              <div className="event-detail-people">
-                <p className="event-detail-section-label">참석자</p>
-                <ul className="event-detail-people-list" role="list">
-                  {eventDetail.data.people.map((p) => (
-                    <li key={p.id} className="event-detail-person">
-                      {p.name}{p.relation ? ` (${p.relation})` : ""}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
             <div className="event-detail-actions">
               <p className="event-detail-section-label">결과</p>
               <div className="event-detail-status-btns">

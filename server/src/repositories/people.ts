@@ -1,7 +1,8 @@
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import type { PatchPersonRequest, PersonEventRef, PersonGroupCount } from "@cairn/shared";
 import type { AuthoredLeadTime, AuthoredPreferredWindows, CreatePersonRequest, EventPeopleResponse, EventRow, FrequencyBand, HardConstraint, PersonDirectoryRow, PersonRow, ThreadPersonFocusRow, UpdatePersonProfileRequest, Weekday } from "@cairn/shared";
 import type { CairnDatabase, CairnDbExecutor } from "../db/index.js";
-import { eventPeople, events, people } from "../db/schema.js";
+import { eventPeople, events, noteLinks, people, resources } from "../db/schema.js";
 import { parseHardConstraints, parseLeadTime, parsePreferredWindows, toFrequencyBand } from "../services/people-impact.js";
 
 // Full person column projection — used by all single-table reads.
@@ -10,6 +11,8 @@ const PERSON_COLS = {
   name: people.name,
   relation: people.relation,
   channel: people.channel,
+  groupsJson: people.groups,
+  gender: people.gender,
   hardConstraintsJson: people.hardConstraints,
   preferredWindowsJson: people.preferredWindows,
   leadTimeJson: people.leadTime
@@ -20,16 +23,35 @@ type PersonFullRow = {
   name: string;
   relation: string | null;
   channel: string | null;
+  groupsJson: string | null;
+  gender: string | null;
   hardConstraintsJson: string | null;
   preferredWindowsJson: string | null;
   leadTimeJson: string | null;
 };
+
+function parseGroups(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const value = JSON.parse(raw) as unknown;
+    return Array.isArray(value) ? value.filter((g): g is string => typeof g === "string" && g.trim() !== "") : [];
+  } catch {
+    return [];
+  }
+}
+
+function cleanGroups(groups: string[] | undefined): string | null {
+  const seen = [...new Set((groups ?? []).map((g) => g.trim()).filter(Boolean))];
+  return seen.length > 0 ? JSON.stringify(seen) : null;
+}
 
 function mapPersonRow(r: PersonFullRow): PersonRow {
   return {
     id: r.id,
     name: r.name,
     relation: r.relation ?? null,
+    groups: parseGroups(r.groupsJson),
+    gender: r.gender === "male" || r.gender === "female" ? r.gender : null,
     channel: r.channel as PersonRow["channel"] ?? null,
     hardConstraints: parseHardConstraints(r.hardConstraintsJson ?? null),
     preferredWindows: parsePreferredWindows(r.preferredWindowsJson ?? null),
@@ -203,10 +225,57 @@ export function createPerson(db: CairnDatabase, input: CreatePersonRequest): Per
   const trimmedRelation = input.relation?.trim();
   const rows = db
     .insert(people)
-    .values({ name: input.displayName.trim(), relation: trimmedRelation || null, channel: input.channel })
+    .values({ name: input.displayName.trim(), relation: trimmedRelation || null, channel: input.channel, groups: cleanGroups(input.groups), gender: input.gender ?? null })
     .returning(PERSON_COLS)
     .all();
   return mapPersonRow(rows[0]!);
+}
+
+export function updatePersonBasics(db: CairnDatabase, id: number, patch: PatchPersonRequest): PersonRow | null {
+  const set = {
+    ...(patch.name !== undefined ? { name: patch.name } : {}),
+    ...(patch.relation !== undefined ? { relation: patch.relation || null } : {}),
+    ...(patch.channel !== undefined ? { channel: patch.channel } : {}),
+    ...(patch.groups !== undefined ? { groups: cleanGroups(patch.groups) } : {}),
+    ...(patch.gender !== undefined ? { gender: patch.gender } : {}),
+    ...(patch.pinned !== undefined ? { pinned: patch.pinned ? 1 : 0 } : {})
+  };
+  const rows = db.update(people).set(set).where(eq(people.id, id)).returning(PERSON_COLS).all();
+  return rows[0] ? mapPersonRow(rows[0]) : null;
+}
+
+export type PersonUsage = { events: number; notes: number; resources: number };
+
+// What still points at a person: events they attend, notes kept on them, resources they gave.
+export function personUsage(db: CairnDatabase, id: number): PersonUsage {
+  const count = (n: { n: number } | undefined) => Number(n?.n ?? 0);
+  return {
+    events: count(db.select({ n: sql<number>`count(*)` }).from(eventPeople).where(eq(eventPeople.personId, id)).get()),
+    notes: count(db.select({ n: sql<number>`count(*)` }).from(noteLinks).where(and(eq(noteLinks.targetType, "person"), eq(noteLinks.targetId, id))).get()),
+    resources: count(db.select({ n: sql<number>`count(*)` }).from(resources).where(eq(resources.sourcePersonId, id)).get())
+  };
+}
+
+// Removes the person and unhooks them from events, notes and resources. The events, notes and
+// resources themselves stay.
+export function deletePerson(db: CairnDatabase, id: number): boolean {
+  if (!db.select({ id: people.id }).from(people).where(eq(people.id, id)).get()) return false;
+  db.transaction((tx) => {
+    tx.delete(eventPeople).where(eq(eventPeople.personId, id)).run();
+    tx.delete(noteLinks).where(and(eq(noteLinks.targetType, "person"), eq(noteLinks.targetId, id))).run();
+    tx.update(resources).set({ sourcePersonId: null }).where(eq(resources.sourcePersonId, id)).run();
+    tx.delete(people).where(eq(people.id, id)).run();
+  });
+  return true;
+}
+
+// Every group name in use, most used first.
+export function listPersonGroups(db: CairnDatabase): PersonGroupCount[] {
+  const counts = new Map<string, number>();
+  for (const row of db.select({ groups: people.groups }).from(people).all()) {
+    for (const g of parseGroups(row.groups)) counts.set(g, (counts.get(g) ?? 0) + 1);
+  }
+  return [...counts.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 }
 
 // Canonical weekday ordering for normalization.
@@ -330,8 +399,38 @@ export function findPeopleByIds(db: CairnDatabase, ids: number[]): PersonRow[] {
     .map(mapPersonRow);
 }
 
+const NEAR_MS = 30 * 86_400_000;
+
+// For each person: the nearest event still ahead and the latest one behind, within 30 days.
+// Cancelled events do not count either way.
+function nearEvents(db: CairnDatabase, nowMs: number): Map<number, { upcoming: PersonEventRef | null; recent: PersonEventRef | null }> {
+  const rows = db
+    .select({ personId: eventPeople.personId, eventId: events.id, title: events.title, start: events.start, end: events.end, status: events.status })
+    .from(eventPeople)
+    .innerJoin(events, eq(eventPeople.eventId, events.id))
+    .all();
+  const out = new Map<number, { upcoming: PersonEventRef | null; recent: PersonEventRef | null }>();
+  for (const r of rows) {
+    if (!r.start || r.status === "cancelled") continue;
+    const startMs = Date.parse(r.start);
+    const endMs = r.end ? Date.parse(r.end) : startMs;
+    if (!Number.isFinite(startMs)) continue;
+    const entry = out.get(r.personId) ?? { upcoming: null, recent: null };
+    const ref = { eventId: r.eventId, title: r.title, start: r.start };
+    if (endMs >= nowMs && startMs <= nowMs + NEAR_MS) {
+      if (!entry.upcoming || startMs < Date.parse(entry.upcoming.start)) entry.upcoming = ref;
+    } else if (endMs < nowMs && startMs >= nowMs - NEAR_MS) {
+      if (!entry.recent || startMs > Date.parse(entry.recent.start)) entry.recent = ref;
+    }
+    out.set(r.personId, entry);
+  }
+  return out;
+}
+
 export function findPeopleDirectoryRows(db: CairnDatabase, nowIso: string): PersonDirectoryRow[] {
   const allPeople = db.select(PERSON_COLS).from(people).all();
+  const near = nearEvents(db, Date.parse(nowIso));
+  const pinnedIds = new Set(db.select({ id: people.id }).from(people).where(eq(people.pinned, 1)).all().map((r) => r.id));
 
   const personIds = allPeople.map((p) => p.id);
   const statsMap = personIds.length > 0 ? queryMeetingStats(db, personIds, nowIso) : new Map<number, MeetingStats>();
@@ -341,6 +440,9 @@ export function findPeopleDirectoryRows(db: CairnDatabase, nowIso: string): Pers
     const { band } = toFrequencyBand(stats.totalMeets);
     return {
       ...mapPersonRow(p),
+      upcoming: near.get(p.id)?.upcoming ?? null,
+      recent: near.get(p.id)?.recent ?? null,
+      pinned: pinnedIds.has(p.id),
       totalMeets: stats.totalMeets,
       lastMet: stats.lastMet,
       frequencyBand: band as FrequencyBand

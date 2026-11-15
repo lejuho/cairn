@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { CalendarData, EventRow, TaskRow } from "@cairn/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CalendarPage } from "./Calendar.js";
+import { CalendarPage, cellLines, linesThatFit } from "./Calendar.js";
 
 afterEach(() => {
   cleanup();
@@ -91,7 +91,7 @@ describe("CalendarPage", () => {
   it("highlights today and summarises each day", async () => {
     calendarOnly();
     render(<CalendarPage />);
-    const today = await screen.findByRole("button", { name: "2026년 11월 12일 (목), 오늘, 일정 2건, 메모 2건" });
+    const today = await screen.findByRole("button", { name: "2026년 11월 12일 (목), 오늘, 일정 1건, 마감인 할 일 1건, 메모 2건" });
     expect(today).toHaveAttribute("aria-current", "date");
     expect(today).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "2026년 11월 2일 (월), 일정 1건" })).not.toHaveAttribute("aria-current");
@@ -326,6 +326,31 @@ describe("CalendarPage", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "일정 후보" })).not.toBeInTheDocument());
   });
 
+  it("writes due tasks in the day cell, and keeps finished ones struck through", async () => {
+    calendarOnly({
+      ...DATA,
+      tasks: [
+        { id: 9, threadId: null, title: "과제 3 제출", estMinutes: null, due: "2026-11-21", context: null, status: "todo", optional: 0 } as TaskRow,
+        { id: 8, threadId: null, title: "과제 2 제출", estMinutes: null, due: "2026-11-14", context: null, status: "done", optional: 0 } as TaskRow
+      ]
+    });
+    render(<CalendarPage />);
+
+    const due = await screen.findByRole("button", { name: "2026년 11월 21일 (토), 일정 1건, 마감인 할 일 1건" });
+    expect(within(due).getByText("과제 3 제출")).toHaveClass("calendar-cell-task");
+    expect(within(due).getByText("과제 3 제출")).not.toHaveAttribute("data-done");
+    // 끝낸 과제도 마감일 칸에 남는다.
+    const finished = screen.getByRole("button", { name: "2026년 11월 14일 (토), 끝낸 할 일 1건" });
+    expect(within(finished).getByText("과제 2 제출")).toHaveAttribute("data-done", "true");
+
+    fireEvent.click(finished);
+    const list = await screen.findByRole("region", { name: "마감인 할 일" });
+    expect(within(list).getByText("과제 2 제출").closest("li")).toHaveAttribute("data-status", "done");
+    expect(within(list).getByText("완료")).toBeInTheDocument();
+    // 끝낸 것은 일정 탭의 숫자에 세지 않는다.
+    expect(screen.getByRole("tab", { name: "일정" })).toBeInTheDocument();
+  });
+
   it("moves between months, follows a tapped day outside the month, and comes back to today", async () => {
     const fetchMock = calendarOnly();
     render(<CalendarPage />);
@@ -367,7 +392,7 @@ describe("CalendarPage", () => {
     expect(screen.queryByRole("button", { name: "다시 로그인" })).not.toBeInTheDocument();
     fail = false;
     fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
-    expect(await screen.findByRole("button", { name: /11월 12일 \(목\), 오늘, 일정 2건/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /11월 12일 \(목\), 오늘, 일정 1건, 마감인 할 일 1건/ })).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -375,5 +400,34 @@ describe("CalendarPage", () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({ ok: false, status: 401, redirected: false, url: "", json: () => Promise.resolve({}) })));
     render(<CalendarPage />);
     expect(await screen.findByRole("button", { name: "다시 로그인" })).toBeInTheDocument();
+  });
+});
+
+describe("calendar cell lines", () => {
+  const bucket = {
+    events: [event({ id: 1, title: "회의" }), event({ id: 2, title: "세미나" })],
+    tasks: [
+      { id: 8, title: "끝낸 과제", status: "done" } as TaskRow,
+      { id: 9, title: "남은 과제", status: "todo" } as TaskRow
+    ],
+    notes: 0, pending: []
+  };
+
+  it("shows events, then open tasks, then finished ones, and folds the rest into +N", () => {
+    expect(cellLines(bucket, 4).shown.map((l) => l.title)).toEqual(["회의", "세미나", "남은 과제", "끝낸 과제"]);
+    expect(cellLines(bucket, 4).hidden).toBe(0);
+    // 다 못 넣으면 한 줄은 "+N" 이 쓴다.
+    expect(cellLines(bucket, 3)).toMatchObject({ hidden: 2 });
+    expect(cellLines(bucket, 3).shown.map((l) => l.title)).toEqual(["회의", "세미나"]);
+    expect(cellLines(bucket, 1)).toMatchObject({ shown: [], hidden: 4 });
+    expect(cellLines(bucket, 0)).toMatchObject({ shown: [], hidden: 4 });
+  });
+
+  it("fits as many lines as the cell is tall", () => {
+    expect(linesThatFit(130, 15)).toBe(5);
+    expect(linesThatFit(92, 15)).toBe(3);
+    expect(linesThatFit(44, 15)).toBe(0);
+    // 아직 잴 수 없으면 세 줄로 둔다.
+    expect(linesThatFit(0, 15)).toBe(3);
   });
 });

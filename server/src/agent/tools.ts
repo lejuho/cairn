@@ -35,7 +35,7 @@ export type ToolOutcome = { ok: boolean; summary: string; data?: unknown; link?:
 
 type ApiResult = { status: number; body: { ok?: boolean; data?: unknown; error?: { message?: string } } };
 
-async function api(ctx: ToolContext, method: "GET" | "POST" | "PATCH" | "DELETE", url: string, payload?: unknown): Promise<ApiResult> {
+async function api(ctx: ToolContext, method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE", url: string, payload?: unknown): Promise<ApiResult> {
   const res = await ctx.app.inject({
     method,
     url,
@@ -173,14 +173,66 @@ export const AGENT_TOOLS: AgentTool[] = [
     }
   }),
 
+  tool({
+    name: "list_people", description: "사람 목록을 본다. q 는 이름·설명에서 찾을 말, group 은 묶음 이름 (예: 'BAY'). 묶음 이름 전체는 groups 에 온다.",
+    args: "{q?: string, group?: string}", schema: z.object({ q: z.string().max(100).optional(), group: z.string().max(40).optional() }).strict(),
+    run: async (ctx, a) => {
+      const [list, groups] = await Promise.all([api(ctx, "GET", `/api/people/directory?now=${encodeURIComponent(new Date().toISOString())}`), api(ctx, "GET", "/api/people/groups")]);
+      if (!okOf(list)) return failure(list, "사람 조회");
+      const q = a.q?.trim().toLowerCase();
+      const people = (((list.body.data as Row).people as Row[]) ?? [])
+        .filter((p) => !a.group || (Array.isArray(p.groups) && (p.groups as string[]).includes(a.group)))
+        .filter((p) => !q || `${String(p.name)} ${String(p.relation ?? "")} ${((p.groups as string[]) ?? []).join(" ")}`.toLowerCase().includes(q))
+        .slice(0, 80)
+        .map((p) => pick(p, ["id", "name", "relation", "groups", "gender", "channel", "totalMeets", "lastMet"]));
+      return { ok: true, summary: `사람 ${people.length}명`, data: { people, groups: (groups.body.data as Row | undefined)?.groups ?? [] } };
+    }
+  }),
+
+  tool({
+    name: "get_event_people", description: "일정의 참석자를 본다.",
+    args: "{eventId: number}", schema: z.object({ eventId: id }).strict(),
+    run: async (ctx, a) => {
+      const r = await api(ctx, "GET", `/api/events/${a.eventId}/people`);
+      if (!okOf(r)) return failure(r, "참석자 조회");
+      const d = r.body.data as Row;
+      return { ok: true, summary: `일정 #${a.eventId} 참석자 조회`, data: { event: pick(d.event, ["id", "title", "start"]), people: rows(d.people, ["id", "name", "groups"]) } };
+    }
+  }),
+
   // ── add / connect / change: applied at once ──
   tool({
-    name: "create_note", writes: true, describe: (a) => `메모 저장: ${String(a.title ?? a.body ?? "체크리스트").split("\n")[0]!.slice(0, 60)}`, description: "메모나 체크리스트를 남긴다. links 로 일정·할 일·스레드에 붙인다.",
-    args: "{body?: string, title?: string, kind?: 'note'|'checklist', items?: [{text}], noteDate?: YYYY-MM-DD, links?: [{targetType: 'event'|'task'|'thread', targetId}], fileIds?: [number] (이번에 올라온 파일을 이 메모에 붙임)}",
+    name: "set_event_people", writes: true, describe: (a) => `일정 #${a.eventId} 참석자 지정 (${a.personIds.length}명)`,
+    description: "일정의 참석자를 정한다. personIds 가 참석자 전체가 된다 (이미 있는 사람을 남기려면 get_event_people 로 보고 함께 넣는다). 사람의 id 는 list_people 로 찾는다. 누구와 만나는 일정이면 참석자를 넣어야 그 사람의 만남 기록에 남는다.",
+    args: "{eventId: number, personIds: [number]}", schema: z.object({ eventId: id, personIds: z.array(id).max(30) }).strict(),
+    run: async (ctx, a) => {
+      const r = await api(ctx, "PUT", `/api/events/${a.eventId}/people`, { personIds: a.personIds });
+      if (!okOf(r)) return failure(r, "참석자 지정");
+      const d = r.body.data as Row;
+      const names = (Array.isArray(d.people) ? (d.people as Row[]) : []).map((p) => String(p.name));
+      const title = String(((d.event ?? {}) as Row).title ?? `일정 #${a.eventId}`);
+      return { ok: true, summary: `참석자 지정: ${title.slice(0, 30)} — ${names.join(", ").slice(0, 60) || "없음"}`, refs: [{ type: "event", id: a.eventId, label: title, action: "참석자 변경" }] };
+    }
+  }),
+  tool({
+    name: "create_person", writes: true, describe: (a) => `사람 추가: ${a.name}`,
+    description: "사람을 추가한다. groups 는 이미 쓰는 묶음 이름을 먼저 쓰고 (list_people 의 groups), 맞는 것이 없을 때만 새로 짓는다. relation 은 어떻게 아는 사이인지 자유롭게 적는 설명.",
+    args: "{name: string, relation?: string, groups?: [string], gender?: 'male'|'female' (사용자가 말했을 때만), channel?: 'none'|'kakao'|'sms'|'email'|'telegram'}",
+    schema: z.object({ name: z.string().min(1).max(100), relation: z.string().max(500).optional(), groups: z.array(z.string().min(1).max(40)).max(12).optional(), gender: z.enum(["male", "female"]).optional(), channel: z.enum(["none", "kakao", "sms", "email", "telegram"]).optional() }).strict(),
+    run: async (ctx, a) => {
+      const r = await api(ctx, "POST", "/api/people", { displayName: a.name, channel: a.channel ?? "none", ...(a.relation ? { relation: a.relation } : {}), ...(a.groups ? { groups: a.groups } : {}), ...(a.gender ? { gender: a.gender } : {}) });
+      if (!okOf(r)) return failure(r, "사람 추가");
+      const person = (r.body.data as Row).person as Row;
+      return { ok: true, summary: `사람 추가: ${a.name}`, link: `/people/${Number(person.id)}`, data: pick(person, ["id"]) };
+    }
+  }),
+  tool({
+    name: "create_note", writes: true, describe: (a) => `메모 저장: ${String(a.title ?? a.body ?? "체크리스트").split("\n")[0]!.slice(0, 60)}`, description: "메모나 체크리스트를 남긴다. links 로 일정·할 일·스레드·사람에 붙인다 (사람에 대해 기억해 둘 것은 그 사람에게 붙인다).",
+    args: "{body?: string, title?: string, kind?: 'note'|'checklist', items?: [{text}], noteDate?: YYYY-MM-DD, links?: [{targetType: 'event'|'task'|'thread'|'person', targetId}], fileIds?: [number] (이번에 올라온 파일을 이 메모에 붙임)}",
     schema: z.object({
       body: z.string().max(10_000).optional(), title: z.string().max(200).optional(), kind: z.enum(["note", "checklist"]).optional(),
       items: z.array(z.object({ text: z.string().min(1).max(300) }).strict()).max(100).optional(), noteDate: localDate.optional(),
-      links: z.array(z.object({ targetType: z.enum(["event", "task", "thread"]), targetId: id }).strict()).max(20).optional(),
+      links: z.array(z.object({ targetType: z.enum(["event", "task", "thread", "person"]), targetId: id }).strict()).max(20).optional(),
       fileIds: z.array(id).max(10).optional()
     }).strict(),
     run: async (ctx, a) => {
@@ -209,8 +261,8 @@ export const AGENT_TOOLS: AgentTool[] = [
   }),
   tool({
     name: "create_event", writes: true, describe: (a) => `일정 생성: ${a.title} (${a.start.slice(0, 16).replace("T", " ")})`, description: "일정을 만든다. 시각은 오프셋이 있는 ISO (예: 2026-11-20T15:00:00+09:00).",
-    args: "{title: string, start: ISO, end: ISO, threadId?: number, location?: string}",
-    schema: z.object({ title: z.string().min(1).max(200), start: stamp, end: stamp, threadId: id.optional(), location: z.string().max(300).optional() }).strict(),
+    args: "{title: string, start: ISO, end: ISO, threadId?: number, location?: string, personIds?: [number] (참석자, list_people 의 id)}",
+    schema: z.object({ title: z.string().min(1).max(200), start: stamp, end: stamp, threadId: id.optional(), location: z.string().max(300).optional(), personIds: z.array(id).max(30).optional() }).strict(),
     run: async (ctx, a) => {
       const r = await api(ctx, "POST", "/api/events", a);
       if (!okOf(r)) return failure(r, "일정 생성");
@@ -349,6 +401,26 @@ export const AGENT_TOOLS: AgentTool[] = [
       if (!okOf(r)) return failure(r, "스레드 수정");
       const label = a.name ?? currentName;
       return { ok: true, summary: `스레드 수정: ${label}`, link: `/threads/${threadId}`, refs: [{ type: "thread", id: threadId, label, action: a.deadline !== undefined || a.startDate !== undefined ? "기간 변경" : "수정" }] };
+    }
+  }),
+  tool({
+    name: "update_person", writes: true, confirm: true, description: "사람의 이름·설명·묶음·연락 채널을 고친다. 바꿀 것만 넣는다. groups 를 주면 묶음 전체가 그 목록으로 바뀐다.",
+    args: "{id: number, currentName: string, name?: string, relation?: string|null, groups?: [string], gender?: 'male'|'female'|null, channel?: 'none'|'kakao'|'sms'|'email'|'telegram'}",
+    schema: z.object({ id, currentName: z.string().max(100), name: z.string().min(1).max(100).optional(), relation: z.string().max(500).nullable().optional(), groups: z.array(z.string().min(1).max(40)).max(12).optional(), gender: z.enum(["male", "female"]).nullable().optional(), channel: z.enum(["none", "kakao", "sms", "email", "telegram"]).optional() })
+      .strict()
+      .refine((a) => a.name !== undefined || a.relation !== undefined || a.groups !== undefined || a.gender !== undefined || a.channel !== undefined, { message: "nothing to change" }),
+    describe: (a) => `사람 수정: ${a.currentName}`,
+    detail: (a) => [
+      a.name !== undefined ? `이름 → ${a.name}` : null,
+      a.groups !== undefined ? `묶음 → ${a.groups.join(", ") || "없음"}` : null,
+      a.gender !== undefined ? `성별 → ${a.gender === "male" ? "남성" : a.gender === "female" ? "여성" : "정하지 않음"}` : null,
+      a.relation !== undefined ? `설명 → ${a.relation ?? "없음"}` : null,
+      a.channel !== undefined ? `연락 채널 → ${a.channel}` : null
+    ].filter(Boolean).join("\n"),
+    run: async (ctx, a) => {
+      const { id: personId, currentName, ...patch } = a;
+      const r = await api(ctx, "PATCH", `/api/people/${personId}`, patch);
+      return okOf(r) ? { ok: true, summary: `사람 수정: ${a.name ?? currentName}`, link: `/people/${personId}` } : failure(r, "사람 수정");
     }
   }),
   tool({

@@ -42,6 +42,10 @@ export const PersonRowSchema = z.object({
   id: z.number(),
   name: z.string(),
   relation: z.string().nullable(),
+  // 묶음(소속·모임) 이름들. 목록에서 고르고 걸러 보는 데 쓴다. relation 은 자유롭게 쓰는 설명이다.
+  groups: z.array(z.string()).optional(),
+  // 정하지 않았으면 null.
+  gender: z.enum(["male", "female"]).nullable().optional(),
   channel: PersonChannelSchema.nullable(),
   hardConstraints: z.array(HardConstraintSchema).optional(),
   preferredWindows: AuthoredPreferredWindowsSchema.nullable().optional(),
@@ -73,11 +77,34 @@ export const UpdatePersonProfileRequestSchema = z.object({
   );
 export type UpdatePersonProfileRequest = z.infer<typeof UpdatePersonProfileRequestSchema>;
 
+export const PersonGenderSchema = z.enum(["male", "female"]);
+export type PersonGender = z.infer<typeof PersonGenderSchema>;
+
+const personGroups = z.array(z.string().trim().min(1).max(40)).max(12);
+
 export const CreatePersonRequestSchema = z.object({
   displayName: z.string().min(1),
   relation: z.string().optional(),
-  channel: PersonChannelSchema
+  channel: PersonChannelSchema,
+  groups: personGroups.optional(),
+  gender: PersonGenderSchema.nullable().optional()
 });
+
+// 이름·설명·연락 채널·묶음 고치기. 바꿀 것만 보낸다.
+export const PatchPersonRequestSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100).optional(),
+    relation: z.string().trim().max(500).nullable().optional(),
+    channel: PersonChannelSchema.optional(),
+    groups: personGroups.optional(),
+    gender: PersonGenderSchema.nullable().optional(),
+    pinned: z.boolean().optional()
+  })
+  .strict()
+  .refine((v) => Object.values(v).some((x) => x !== undefined), { message: "nothing to change" });
+export type PatchPersonRequest = z.infer<typeof PatchPersonRequestSchema>;
+
+export type PersonGroupCount = { name: string; count: number };
 export type CreatePersonRequest = z.infer<typeof CreatePersonRequestSchema>;
 
 export const EventPeopleResponseSchema = z.object({

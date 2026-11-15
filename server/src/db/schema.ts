@@ -34,7 +34,7 @@ const RESOURCE_FIRMNESSES = ["hard", "soft", "tentative"] as const;
 const MATERIAL_KINDS = ["slides", "video", "recording", "notes", "photo", "link", "file"] as const;
 const MATERIAL_STATUSES = ["expected", "available", "missing"] as const;
 const NOTE_KINDS = ["note", "checklist"] as const;
-const NOTE_TARGET_TYPES = ["event", "task", "thread"] as const;
+const NOTE_TARGET_TYPES = ["event", "task", "thread", "person"] as const;
 
 const enumSqlList = (values: readonly string[]) =>
   sql.raw(values.map((value) => `'${value}'`).join(", "));
@@ -206,7 +206,13 @@ export const people = sqliteTable("people", {
   channel: text("channel"),
   sensitivities: text("sensitivities"),
   totalMeets: integer("total_meets").default(0),
-  lastMet: text("last_met")
+  lastMet: text("last_met"),
+  // 이 사람이 속한 묶음 이름들 (JSON 문자열 배열, migration 0026). 예: ["BAY", "대학교 친구"].
+  groups: text("groups"),
+  // 사용자가 따로 모아둔 사람 (migration 0028).
+  pinned: integer("pinned").notNull().default(0),
+  // 'male' | 'female' | null(정하지 않음). migration 0029.
+  gender: text("gender")
 });
 
 export const eventPeople = sqliteTable(
