@@ -630,3 +630,37 @@ export const agentSheets = sqliteTable(
   },
   (table) => [uniqueIndex("agent_sheets_spreadsheet_idx").on(table.spreadsheetId)]
 );
+
+// Uploaded files (migration 0025). The bytes live on disk under CAIRN_FILES_DIR; this table only
+// records where. The same content uploaded twice is stored once (sha256).
+export const files = sqliteTable(
+  "files",
+  {
+    id: integer("id").primaryKey(),
+    sha256: text("sha256").notNull(),
+    path: text("path").notNull(),
+    size: integer("size").notNull(),
+    mime: text("mime").notNull(),
+    createdAt: text("created_at").notNull()
+  },
+  (table) => [uniqueIndex("files_sha256_idx").on(table.sha256)]
+);
+
+// What is attached to a note: an uploaded file, or a link (for anything too big to upload).
+export const noteAttachments = sqliteTable(
+  "note_attachments",
+  {
+    id: integer("id").primaryKey(),
+    noteId: integer("note_id").notNull().references(() => notes.id),
+    kind: text("kind").notNull(),
+    fileId: integer("file_id").references(() => files.id),
+    url: text("url"),
+    name: text("name").notNull(),
+    createdAt: text("created_at").notNull()
+  },
+  (table) => [
+    check("note_attachments_kind_check", sql`${table.kind} in ('file', 'link')`),
+    index("note_attachments_note_idx").on(table.noteId),
+    index("note_attachments_file_idx").on(table.fileId)
+  ]
+);

@@ -4,6 +4,7 @@ import type { CairnDatabase } from "../db/index.js";
 import { asc, eq } from "drizzle-orm";
 import { agentSheets } from "../db/schema.js";
 import type { MailAccess, SheetsAccess } from "./mail.js";
+import { attachStaged, findFile, readFileText, type StagedFile } from "../services/files.js";
 import { listUnread, markRead, storeIncoming, type ReasonClient } from "./reason.js";
 
 // The closed set of things the in-app agent can do. Each tool maps onto an existing API route,
@@ -20,6 +21,10 @@ export type ToolContext = {
   mail?: MailAccess | undefined;
   // Present when Google is connected with sheet reading and the user registered at least one sheet.
   sheets?: SheetsAccess | undefined;
+  // Files the user sent with this message; they are not on any note yet.
+  uploads?: StagedFile[] | undefined;
+  // true when the user let this conversation read the contents of attached files.
+  files?: true | undefined;
   // Present when this server has a seat on Reason Network.
   reason?: ReasonClient | undefined;
 };
@@ -68,7 +73,7 @@ const rows = (value: unknown, keys: string[]): Row[] => (Array.isArray(value) ? 
 
 const EVENT_KEYS = ["id", "title", "start", "end", "status", "location", "threadId", "type"];
 const TASK_KEYS = ["id", "title", "status", "due", "estMinutes", "threadId", "context"];
-const NOTE_KEYS = ["id", "kind", "title", "body", "noteDate", "items", "links", "remoteVisible"];
+const NOTE_KEYS = ["id", "kind", "title", "body", "noteDate", "items", "links", "attachments", "remoteVisible"];
 
 export type AgentTool = {
   name: string;
@@ -81,7 +86,7 @@ export type AgentTool = {
   // Changes data (as opposed to only reading).
   writes?: boolean;
   // Only offered when this source is available in the conversation.
-  needs?: "mail" | "reason" | "sheets";
+  needs?: "mail" | "reason" | "sheets" | "files";
   // Returns text written by someone else (mail, another agent). After such a call the rest of
   // the turn may only read and file candidates on its own; everything else waits for approval.
   untrusted?: boolean;
@@ -171,18 +176,24 @@ export const AGENT_TOOLS: AgentTool[] = [
   // ── add / connect / change: applied at once ──
   tool({
     name: "create_note", writes: true, describe: (a) => `메모 저장: ${String(a.title ?? a.body ?? "체크리스트").split("\n")[0]!.slice(0, 60)}`, description: "메모나 체크리스트를 남긴다. links 로 일정·할 일·스레드에 붙인다.",
-    args: "{body?: string, title?: string, kind?: 'note'|'checklist', items?: [{text}], noteDate?: YYYY-MM-DD, links?: [{targetType: 'event'|'task'|'thread', targetId}]}",
+    args: "{body?: string, title?: string, kind?: 'note'|'checklist', items?: [{text}], noteDate?: YYYY-MM-DD, links?: [{targetType: 'event'|'task'|'thread', targetId}], fileIds?: [number] (이번에 올라온 파일을 이 메모에 붙임)}",
     schema: z.object({
       body: z.string().max(10_000).optional(), title: z.string().max(200).optional(), kind: z.enum(["note", "checklist"]).optional(),
       items: z.array(z.object({ text: z.string().min(1).max(300) }).strict()).max(100).optional(), noteDate: localDate.optional(),
-      links: z.array(z.object({ targetType: z.enum(["event", "task", "thread"]), targetId: id }).strict()).max(20).optional()
+      links: z.array(z.object({ targetType: z.enum(["event", "task", "thread"]), targetId: id }).strict()).max(20).optional(),
+      fileIds: z.array(id).max(10).optional()
     }).strict(),
     run: async (ctx, a) => {
-      const r = await api(ctx, "POST", "/api/notes", { ...a, addedBy: "agent" });
+      const { fileIds, ...fields } = a;
+      const r = await api(ctx, "POST", "/api/notes", { ...fields, addedBy: "agent" });
       if (!okOf(r)) return failure(r, "메모 저장");
       const note = (r.body.data as Row).note as Row;
       const label = String(note.title ?? note.body ?? "체크리스트").split("\n")[0]!.slice(0, 60);
-      return { ok: true, summary: `메모 저장: ${label.slice(0, 40)}`, link: "/notes", data: pick(note, ["id"]), refs: [{ type: "note", id: Number(note.id), label, action: "생성" }] };
+      const attachedNames = (fileIds ?? []).flatMap((fileId) => {
+        const name = (ctx.uploads ?? []).some((u) => u.fileId === fileId) ? attachStaged(ctx.db, Number(note.id), fileId) : null;
+        return name ? [name] : [];
+      });
+      return { ok: true, summary: `메모 저장: ${label.slice(0, 40)}${attachedNames.length > 0 ? ` (파일 ${attachedNames.length}개 붙임)` : ""}`, link: "/notes", data: pick(note, ["id"]), refs: [{ type: "note", id: Number(note.id), label, action: "생성" }] };
     }
   }),
   tool({
@@ -423,6 +434,47 @@ export const AGENT_TOOLS: AgentTool[] = [
     }
   }),
   tool({
+    name: "read_file", needs: "files", untrusted: true,
+    description: "메모에 붙은 파일의 내용을 읽는다 (글 파일과 PDF 만). fileId 는 search_notes 결과의 attachments 에 있다.",
+    args: "{fileId: number}", schema: z.object({ fileId: id }).strict(),
+    run: async (ctx, a) => {
+      const file = findFile(ctx.db, a.fileId, { sharedOnly: !ctx.includePrivate });
+      if (!file) return { ok: false, summary: `파일을 찾을 수 없습니다: #${a.fileId}` };
+      try {
+        const read = await readFileText(file, 5000);
+        return { ok: true, summary: `파일 읽음: ${file.name.slice(0, 60)}`, data: { name: file.name, truncated: read.truncated, text: read.text } };
+      } catch (e) {
+        return { ok: false, summary: `파일 읽기 실패 (${file.name.slice(0, 40)}): ${e instanceof Error ? e.message : "알 수 없는 오류"}` };
+      }
+    }
+  }),
+  tool({
+    name: "attach_file", writes: true, describe: (a) => `메모 #${a.noteId} 에 올린 파일 붙이기`,
+    description: "사용자가 이번에 채팅에 올린 파일을 이미 있는 메모에 붙인다. fileId 는 '이번에 올라온 파일' 목록에 있다.",
+    args: "{noteId: number, fileId: number}", schema: z.object({ noteId: id, fileId: id }).strict(),
+    run: async (ctx, a) => {
+      if (!(ctx.uploads ?? []).some((u) => u.fileId === a.fileId)) return { ok: false, summary: `이번에 올라온 파일이 아닙니다: #${a.fileId}` };
+      // The note must be one this conversation may see.
+      const note = await api(ctx, "GET", `/api/notes/${a.noteId}`);
+      if (!okOf(note)) return failure(note, "파일 붙이기");
+      const name = attachStaged(ctx.db, a.noteId, a.fileId);
+      if (!name) return { ok: false, summary: "파일을 붙이지 못했습니다" };
+      const row = (note.body.data as Row).note as Row;
+      const label = String(row.title ?? row.body ?? "메모").split("\n")[0]!.slice(0, 60);
+      return { ok: true, summary: `파일 붙임: ${name.slice(0, 40)} → ${label.slice(0, 30)}`, link: "/notes", refs: [{ type: "note", id: a.noteId, label, action: "파일 추가" }] };
+    }
+  }),
+  tool({
+    name: "attach_link", writes: true, describe: (a) => `메모 #${a.noteId} 에 링크 붙이기: ${a.name ?? a.url}`,
+    description: "메모에 링크를 붙인다 (구글 드라이브 문서, 녹화본 주소 등). 파일 자체는 사용자가 화면에서 올린다.",
+    args: "{noteId: number, url: string, name?: string}", schema: z.object({ noteId: id, url: z.string().url().max(2000), name: z.string().max(200).optional() }).strict(),
+    run: async (ctx, a) => {
+      const r = await api(ctx, "POST", `/api/notes/${a.noteId}/links`, { url: a.url, ...(a.name ? { name: a.name } : {}) });
+      if (!okOf(r)) return failure(r, "링크 붙이기");
+      return { ok: true, summary: `링크 붙임: ${a.name ?? a.url.slice(0, 60)}`, link: "/notes", refs: [{ type: "note", id: a.noteId, label: `메모 #${a.noteId}`, action: "링크 추가" }] };
+    }
+  }),
+  tool({
     name: "list_sheets", needs: "sheets", description: "사용자가 등록한 스프레드시트와 각 시트의 탭을 본다.",
     args: "{}", schema: z.object({}).strict(),
     run: async (ctx) => {
@@ -533,10 +585,10 @@ export function findTool(name: string): AgentTool | undefined {
   return AGENT_TOOLS.find((t) => t.name === name);
 }
 
-export function toolAvailable(tool: AgentTool, ctx: Pick<ToolContext, "mail" | "reason" | "sheets">): boolean {
+export function toolAvailable(tool: AgentTool, ctx: Pick<ToolContext, "mail" | "reason" | "sheets" | "files">): boolean {
   return tool.needs === undefined || ctx[tool.needs] !== undefined;
 }
 
-export function toolManual(ctx: Pick<ToolContext, "mail" | "reason" | "sheets">): string {
+export function toolManual(ctx: Pick<ToolContext, "mail" | "reason" | "sheets" | "files">): string {
   return AGENT_TOOLS.filter((t) => toolAvailable(t, ctx)).map((t) => `- ${t.name}${t.confirm ? " (사용자 확인 후 실행)" : ""} ${t.args}\n  ${t.description}`).join("\n");
 }

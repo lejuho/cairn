@@ -7203,3 +7203,211 @@ details.agent-settings[open] {
 .kanban-col[data-collapsed="true"] .kanban-dot {
   display: none;
 }
+
+/* Note attachments: files (thumbnail or type badge) and links */
+.attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.attachment {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.attachment-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 4px 10px 4px 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+}
+
+a.attachment-open:hover,
+a.attachment-open:focus-visible {
+  border-color: var(--accent);
+}
+
+.attachment-thumb,
+.attachment-icon {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  border-radius: 7px;
+}
+
+.attachment-thumb {
+  object-fit: cover;
+  background: var(--raised);
+}
+
+.attachment-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--accent);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.attachment[data-kind="link"] .attachment-icon {
+  font-size: 1rem;
+}
+
+.attachment-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-size {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.attachment-add-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.attachment-add-row .note-input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Agent panel: what the agent may read, as one row of on/off chips above the input */
+.agent-scope {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px 0;
+  overflow-x: auto;
+  border-top: 1px solid var(--border);
+}
+
+.agent-scope-label {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.agent-scope-chip {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.82rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.agent-scope-chip[aria-checked="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.agent-scope-chip[aria-checked="true"]::before {
+  content: "✓ ";
+}
+
+.agent-scope-chip[data-setup="true"] {
+  border-style: dashed;
+}
+
+.agent-scope-chip:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.agent-scope-note {
+  margin: 0;
+  padding: 4px 12px 6px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+/* Agent panel: files picked for the next message */
+.agent-attach-btn {
+  display: inline-flex;
+  flex: 0 0 44px;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  align-self: flex-end;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.agent-attach-btn:hover,
+.agent-attach-btn:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.agent-picked {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 4px 12px 0;
+  list-style: none;
+}
+
+.agent-picked-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 2px 4px 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 0.85rem;
+}
+
+.agent-picked-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

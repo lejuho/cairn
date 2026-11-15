@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from "react-dom";
 import type { NoteEventDraftData, NoteKind, NoteListData, NoteRelatedTarget, NoteTargetType, NoteTargetView, NoteView } from "@cairn/shared";
 import { apiJson, openAccessLogin } from "./api.js";
+import { AttachmentList, NoteAttachments, PendingAttachments, sendPending, type PendingAttachment } from "./Attachments.js";
 
 type ApiResponse<T> = { ok: true; data: T } | { ok: false; error: { message: string } };
 
@@ -431,6 +432,9 @@ export function NoteFlow({ note, defaultDate, defaultTargets, onClose, onSaved }
   const [date, setDate] = useState<string>(note ? note.noteDate ?? "" : defaultDate ?? "");
   const [targets, setTargets] = useState<NoteTargetView[]>(note ? note.links.filter((l) => l.exists) : defaultTargets ?? []);
   const [remoteVisible, setRemoteVisible] = useState(note?.remoteVisible ?? false);
+  // Files and links: picked now and sent once a new note exists; applied at once on a saved note.
+  const [pending, setPending] = useState<PendingAttachment[]>([]);
+  const [attached, setAttached] = useState(note);
   // What the writing becomes. Chosen in step 2, after the writing is done; editing a saved note keeps it a note.
   const [what, setWhat] = useState<"note" | "task" | "event">("note");
   const [thread, setThread] = useState<NoteTargetView | null>(() => (defaultTargets ?? []).find((t) => t.targetType === "thread") ?? null);
@@ -514,7 +518,22 @@ export function NoteFlow({ note, defaultDate, defaultTargets, onClose, onSaved }
     try {
       if (kind === "note") {
         const saved = await saveDraft(draft, { date, targets, remoteVisible }, note);
-        onSaved?.(saved);
+        // The note is kept even if an upload fails; what did not go up is reported.
+        let latest = saved;
+        let failed: string | null = null;
+        try {
+          latest = await sendPending(saved, pending);
+        } catch (e) {
+          failed = errorText(e, "첨부를 올리지 못했습니다");
+        }
+        onSaved?.(latest);
+        if (failed) {
+          announceChange();
+          setSaving(false);
+          setPending([]);
+          setError(`메모는 저장됐습니다. ${failed}`);
+          return;
+        }
       } else if (kind === "task") {
         if (draft.kind === "checklist") {
           // The checklist stays as a note; each item becomes a task that follows its checkbox.
@@ -564,6 +583,7 @@ export function NoteFlow({ note, defaultDate, defaultTargets, onClose, onSaved }
   const placeSummary = [
     date ? formatWhen(date) : "날짜 없음",
     targets.length > 0 ? `${targets.length}곳에 붙임` : null,
+    pending.length > 0 ? `첨부 ${pending.length}` : null,
     remoteVisible ? "AI 공개" : null
   ].filter(Boolean).join(" · ");
 
@@ -748,6 +768,14 @@ export function NoteFlow({ note, defaultDate, defaultTargets, onClose, onSaved }
                     </ul>
                   )}
                   {convertError && <p className="sheet-error" role="alert">{convertError}</p>}
+                </div>
+              )}
+              {what === "note" && (
+                <div className="note-flow-field">
+                  <span className="note-field-label">첨부</span>
+                  {attached
+                    ? <NoteAttachments note={attached} onChanged={(next) => { setAttached(next); onSaved?.(next); announceChange(); }} />
+                    : <PendingAttachments pending={pending} onChange={setPending} disabled={saving} />}
                 </div>
               )}
               {what === "note" && (
@@ -993,6 +1021,7 @@ export function NoteCard({ note, hideTarget, onChanged, onRemoved }: CardProps) 
           ))}
         </ul>
       )}
+      <AttachmentList attachments={note.attachments ?? []} />
       <div className="note-card-meta">
         {note.items.length > 0 && <span className="note-progress">{doneCount}/{note.items.length}</span>}
         {note.noteDate && <a className="note-meta-link" href={`/notes?date=${note.noteDate}`}>{formatWhen(note.noteDate)}</a>}

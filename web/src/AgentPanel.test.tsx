@@ -94,7 +94,7 @@ describe("AgentPanel", () => {
     expect(within(bubble).getByText("Anthropic · claude-haiku-5-5")).toBeInTheDocument();
     expect(calls[0]).toEqual({
       url: "/api/agent/chat", method: "POST",
-      body: { provider: "anthropic", model: "claude-haiku-5-5", includePrivate: false, includeMail: false, text: "파일럿 계획 쓰기를 20일까지로 넣어줘" }
+      body: { provider: "anthropic", model: "claude-haiku-5-5", includePrivate: false, includeMail: false, includeSheets: false, includeFiles: false, text: "파일럿 계획 쓰기를 20일까지로 넣어줘" }
     });
     expect(changed).toHaveBeenCalledTimes(1); // 열려 있는 화면이 다시 불러오도록 알린다
     window.removeEventListener(DATA_CHANGED_EVENT, changed);
@@ -213,7 +213,7 @@ describe("AgentPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "새 대화" }));
     say("새로 시작");
     await waitFor(() => expect(calls.some((c) => c.url === "/api/agent/chat")).toBe(true));
-    expect(calls.find((c) => c.url === "/api/agent/chat")!.body).toEqual({ provider: "openai", model: "", includePrivate: true, includeMail: false, text: "새로 시작" });
+    expect(calls.find((c) => c.url === "/api/agent/chat")!.body).toEqual({ provider: "openai", model: "", includePrivate: true, includeMail: false, includeSheets: false, includeFiles: false, text: "새로 시작" });
   });
 
   it("connects mail by pasting the address back, then reads mail only while the switch is on", async () => {
@@ -279,6 +279,57 @@ describe("AgentPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "위클리 액션 시트 빼기" }));
     await waitFor(() => expect(screen.queryByRole("link", { name: "위클리 액션" })).not.toBeInTheDocument());
+  });
+
+  it("chooses what the agent may read with one row of chips", async () => {
+    const calls = stub(() => json(chatData()), { sources: { mail: { configured: true, connected: true }, sheets: { connected: true, list: [{ id: 1, name: "위클리", url: "https://docs.google.com/spreadsheets/d/x" }] }, reason: { available: false, session: "", unread: 0 }, candidates: 0 } });
+    render(<AgentPanel onClose={() => undefined} />);
+    await screen.findByRole("button", { name: "Anthropic" });
+    const scope = screen.getByRole("group", { name: "에이전트가 읽을 범위" });
+
+    // 시트는 등록돼 있으면 켜진 채로, 나머지는 꺼진 채로 시작한다.
+    expect(await within(scope).findByRole("switch", { name: "시트 읽기" })).toBeChecked();
+    expect(within(scope).getByRole("switch", { name: "메일 읽기" })).not.toBeChecked();
+    expect(within(scope).getByRole("switch", { name: "파일 내용 읽기" })).not.toBeChecked();
+    expect(screen.getByText("등록한 시트를 읽습니다 (읽기 전용). 읽은 내용은 Anthropic로 전송됩니다.")).toBeInTheDocument();
+
+    fireEvent.click(within(scope).getByRole("switch", { name: "파일 내용 읽기" }));
+    fireEvent.click(within(scope).getByRole("switch", { name: "시트 읽기" }));
+    fireEvent.click(within(scope).getByRole("switch", { name: "비공개 메모까지 읽기" }));
+    say("회의 자료 요약해줘");
+    await waitFor(() => expect(calls.some((c) => c.url === "/api/agent/chat")).toBe(true));
+    expect(calls.find((c) => c.url === "/api/agent/chat")!.body).toMatchObject({ includePrivate: true, includeMail: false, includeSheets: false, includeFiles: true });
+  });
+
+  it("sends picked files with the message so the agent can put them on a note", async () => {
+    const calls: Array<{ url: string; body: unknown; headers: Record<string, string> }> = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u === "/api/agent/providers") return Promise.resolve(json({ providers: PROVIDERS }));
+      if (u === "/api/agent/sources") return Promise.resolve(json(NO_SOURCES));
+      if (u === "/api/inbox/candidates") return Promise.resolve(json({ candidates: [] }));
+      calls.push({ url: u, body: init?.body, headers: (init?.headers ?? {}) as Record<string, string> });
+      if (u === "/api/agent/uploads") return Promise.resolve(json({ fileId: 40 + calls.length, name: "x", mime: "application/pdf", size: 3 }));
+      return Promise.resolve(json(chatData({ message: agentMessage({ text: "온보딩 메모에 붙였습니다.", steps: [{ tool: "attach_file", ok: true, summary: "파일 붙임: 슬라이드.pdf → 온보딩 콜 자료", link: "/notes" }] }), changed: true })));
+    }));
+    render(<AgentPanel onClose={() => undefined} />);
+    await screen.findByRole("button", { name: "Anthropic" });
+
+    const slides = new File(["pdf"], "슬라이드.pdf", { type: "application/pdf" });
+    const huge = new File(["x"], "녹화본.mp4", { type: "video/mp4" });
+    Object.defineProperty(huge, "size", { value: 60 * 1024 * 1024 });
+    fireEvent.change(screen.getByTestId("agent-file-input"), { target: { files: [slides, huge] } });
+    expect(screen.getByRole("alert")).toHaveTextContent("50MB를 넘는 파일은 올릴 수 없습니다");
+    expect(screen.getByRole("list", { name: "보낼 파일" })).toHaveTextContent("슬라이드.pdf");
+    expect(screen.getByRole("list", { name: "보낼 파일" })).not.toHaveTextContent("녹화본.mp4");
+
+    // 글 없이 파일만으로도 보낼 수 있다.
+    fireEvent.click(screen.getByRole("button", { name: "보내기" }));
+    expect(await screen.findByText("파일 붙임: 슬라이드.pdf → 온보딩 콜 자료")).toBeInTheDocument();
+    expect(calls[0]).toMatchObject({ url: "/api/agent/uploads", headers: { "x-file-name": encodeURIComponent("슬라이드.pdf") } });
+    expect(calls[0]!.body).toBe(slides);
+    expect(JSON.parse(String(calls[1]!.body))).toMatchObject({ uploads: [41], text: "올린 파일을 메모에 정리해 주세요.\n[첨부: 슬라이드.pdf]" });
+    expect(screen.queryByRole("list", { name: "보낼 파일" })).not.toBeInTheDocument();
   });
 
   it("lists found events as candidates and puts one on the calendar only when chosen", async () => {

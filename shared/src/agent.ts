@@ -19,7 +19,13 @@ export const AgentChatRequestSchema = z
     // false(기본)면 'AI 공개'를 켠 메모만 읽는다. true 면 비공개 메모까지 읽고 고칠 수 있다.
     includePrivate: z.boolean().default(false),
     // true 면 이 대화에서 Gmail 을 검색하고 읽을 수 있다 (읽기 전용). 메일 내용이 프로바이더로 전송된다.
-    includeMail: z.boolean().default(false)
+    includeMail: z.boolean().default(false),
+    // false 면 등록한 시트가 있어도 이 대화에서는 읽지 않는다.
+    includeSheets: z.boolean().default(true),
+    // true 면 메모에 붙은 파일의 내용(글·PDF)을 읽을 수 있다. 꺼져 있어도 파일 이름은 보인다.
+    includeFiles: z.boolean().default(false),
+    // 이 말과 함께 채팅에 올린 파일 (POST /api/agent/uploads 가 준 fileId). 에이전트가 메모에 붙인다.
+    uploads: z.array(z.number().int().positive()).max(10).default([])
   })
   .strict();
 export type AgentChatRequest = z.infer<typeof AgentChatRequestSchema>;
@@ -119,3 +125,6 @@ export type AgentSheet = { id: number; name: string; url: string };
 export const AgentSheetAddRequestSchema = z.object({ url: z.string().trim().min(1).max(500), name: z.string().trim().max(80).optional() }).strict();
 
 export const AgentMailConnectRequestSchema = z.object({ code: z.string().trim().min(1).max(4000) }).strict();
+
+// 채팅에 올려 아직 어느 메모에도 붙지 않은 파일.
+export type AgentUpload = { fileId: number; name: string; mime: string; size: number };

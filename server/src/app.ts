@@ -31,6 +31,7 @@ import { registerItemRoutes } from "./routes/items.js";
 import { registerInboxRoutes } from "./routes/inbox.js";
 import { registerMaterialRoutes } from "./routes/materials.js";
 import { registerNoteRoutes } from "./routes/notes.js";
+import { registerFileRoutes } from "./routes/files.js";
 import { registerCalendarRoutes } from "./routes/calendar.js";
 import { registerAgentRoutes, type AgentRouteOptions } from "./routes/agent.js";
 import type { GcalSyncControlOptions } from "./services/gcal-sync-control.js";
@@ -111,6 +112,7 @@ export function buildServer(
     registerInboxRoutes(app, db, { ingestToken: opts.ingestToken, mapGateway });
     registerMaterialRoutes(app, db);
     registerNoteRoutes(app, db, gateway);
+    registerFileRoutes(app, db);
     registerCalendarRoutes(app, db);
     registerAgentRoutes(app, db, gateway, opts.agent);
     if (opts.gcalSync) {

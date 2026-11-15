@@ -147,6 +147,23 @@ Use this file to narrow read scope. Do not treat it as full spec. Product rules 
     folded, otherwise 진행 중 once started (`startedAt`, or inner progress: `doneCount`/`doingCount` > 0) and
     할 일 until then. A thread with inner progress cannot be dragged back to 할 일 (the board says why).
     Contained-thread cards on a thread's own board follow the same rule (`placeChild`).
+- Note attachments (user decisions 2026-11-15): files and links hang on notes, and reach events/tasks/threads
+  through the note's links.
+  - Tables `files` (sha256-deduplicated, bytes on disk under `CAIRN_FILES_DIR`, production `/mnt/data/cairn-files`)
+    and `note_attachments` (kind file|link) — migration 0025. `server/src/services/files.ts`.
+  - Routes `server/src/routes/files.ts`: `POST /api/notes/:id/files` (raw bytes, `application/octet-stream`,
+    name in `x-file-name`, 50MB = `NOTE_FILE_MAX_BYTES`), `POST /api/notes/:id/links`, `DELETE
+    /api/notes/:id/attachments/:attachmentId`, `GET /api/files/:id` (inline only for png/jpeg/gif/webp/pdf,
+    everything else as a download; remote connectors get a file only if a shared note carries it).
+  - Bigger than 50MB → attach a link (Google Drive etc.). `web/src/Attachments.tsx`.
+  - In-app agent: file names always appear with notes; `read_file` (text and PDF via `pdftotext`) exists only
+    with `includeFiles: true`; `attach_link` adds a link.
+  - Files sent in the chat: the panel uploads each to `POST /api/agent/uploads` (staged in memory by
+    `stageFile`, not on any note), then sends the message with `uploads: [fileId]`. The turn lists them to the
+    model, which places them with `attach_file` {noteId, fileId} or `create_note` {fileIds}. Whatever is left
+    after the turn is put on a new private note by the server (`runTurn`), so a file is never lost.
+  - Panel: what the agent may read is one row of chips above the input (비공개 메모 / 메일 / 시트 / 파일),
+    each a `role="switch"`; connecting and registering stays in the settings fold.
 - Agent panel (in-app chat that changes Cairn):
   - Contract `shared/src/agent.ts`; routes `server/src/routes/agent.ts` — `GET /api/agent/providers`,
     `POST /api/agent/chat` {provider, model, messages, includePrivate}, `POST /api/agent/confirm` {id, approve}.

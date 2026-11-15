@@ -9,6 +9,8 @@ import { agentSheets } from "../db/schema.js";
 import { createGoogleAccess, spreadsheetIdOf, type MailAccess, type SheetsAccess } from "../agent/mail.js";
 import { createReasonClient, unreadCount, type ReasonClient } from "../agent/reason.js";
 import { deleteConversation, getConversation, listConversations } from "../agent/store.js";
+import { NOTE_FILE_MAX_BYTES } from "@cairn/shared";
+import { stageFile } from "../services/files.js";
 import { listEventCandidates } from "../services/inbox.js";
 import { isRemoteAudience } from "../utils/audience.js";
 
@@ -103,6 +105,23 @@ export function registerAgentRoutes(app: FastifyInstance, db: CairnDatabase, gat
     const id = parseId((req.params as Record<string, string>).id);
     if (id) db.delete(agentSheets).where(eq(agentSheets.id, id)).run();
     return reply.send({ ok: true, data: { sheets: listSheets() } });
+  });
+
+  // A file sent in the chat: kept aside until the message that carries it is handled.
+  app.post("/api/agent/uploads", { bodyLimit: NOTE_FILE_MAX_BYTES }, async (req, reply) => {
+    const bytes = req.body;
+    if (!Buffer.isBuffer(bytes) || bytes.length === 0) {
+      return reply.code(400).send({ ok: false, error: { code: "VALIDATION_ERROR", message: "파일 내용이 없습니다" } });
+    }
+    const text = (value: string | string[] | undefined) => {
+      const raw = (Array.isArray(value) ? value[0] : value) ?? "";
+      try {
+        return decodeURIComponent(raw);
+      } catch {
+        return raw;
+      }
+    };
+    return reply.code(201).send({ ok: true, data: stageFile(db, bytes, text(req.headers["x-file-name"]), text(req.headers["x-file-type"])) });
   });
 
   app.get("/api/agent/conversations", async (_req, reply) => {

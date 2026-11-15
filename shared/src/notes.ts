@@ -129,6 +129,24 @@ export type NoteTargetView = {
   exists: boolean;
 };
 
+// 메모에 붙인 것 하나. 파일이면 url 은 Cairn 이 내주는 주소(/api/files/:id), 링크면 바깥 주소다.
+export type NoteAttachment = {
+  id: number;
+  kind: "file" | "link";
+  name: string;
+  url: string;
+  fileId: number | null;
+  mime: string | null;
+  size: number | null;
+};
+
+// 올릴 수 있는 파일 하나의 최대 크기. 이보다 크면 링크(구글 드라이브 등)로 붙인다.
+export const NOTE_FILE_MAX_BYTES = 50 * 1024 * 1024;
+
+export const AddNoteLinkRequestSchema = z
+  .object({ url: z.string().trim().url().max(2000).regex(/^https?:\/\//i, "http(s) 주소만"), name: z.string().trim().max(200).optional() })
+  .strict();
+
 export type NoteView = {
   id: number;
   kind: NoteKind;
@@ -140,6 +158,8 @@ export type NoteView = {
   remoteVisible: boolean;
   items: NoteItemView[];
   links: NoteTargetView[];
+  // 붙인 파일과 링크. 서버는 항상 채워 보낸다.
+  attachments?: NoteAttachment[];
   addedBy: string | null;
   createdAt: string;
   updatedAt: string;

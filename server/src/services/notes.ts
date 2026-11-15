@@ -15,6 +15,7 @@ import type {
 } from "@cairn/shared";
 import type { CairnDatabase } from "../db/index.js";
 import { events, noteItems, noteLinks, notes, tasks, threads } from "../db/schema.js";
+import { attachmentsByNote, detachAllFromNote } from "./files.js";
 
 type NoteRow = typeof notes.$inferSelect;
 type ItemRow = typeof noteItems.$inferSelect;
@@ -95,6 +96,7 @@ function buildViews(db: CairnDatabase, rows: NoteRow[]): NoteView[] {
     list.push(itemView(item));
     itemsByNote.set(item.noteId, list);
   }
+  const attachments = attachmentsByNote(db, ids);
   const linksByNote = new Map<number, NoteTargetView[]>();
   for (const link of links) {
     const list = linksByNote.get(link.noteId) ?? [];
@@ -111,6 +113,7 @@ function buildViews(db: CairnDatabase, rows: NoteRow[]): NoteView[] {
     remoteVisible: row.remoteVisible === 1,
     items: itemsByNote.get(row.id) ?? [],
     links: linksByNote.get(row.id) ?? [],
+    attachments: attachments.get(row.id) ?? [],
     addedBy: row.addedBy,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -240,6 +243,7 @@ export function updateNote(db: CairnDatabase, id: number, req: PatchNoteRequest,
 
 export function deleteNote(db: CairnDatabase, id: number): boolean {
   if (!db.select({ id: notes.id }).from(notes).where(eq(notes.id, id)).get()) return false;
+  detachAllFromNote(db, id);
   db.transaction((tx) => {
     tx.delete(noteItems).where(eq(noteItems.noteId, id)).run();
     tx.delete(noteLinks).where(eq(noteLinks.noteId, id)).run();
@@ -290,7 +294,7 @@ function terms(q: string | undefined): string[] {
 }
 
 function haystack(note: NoteView): string {
-  return [note.title, note.body, ...note.items.map((i) => i.text), ...note.links.map((l) => l.label)]
+  return [note.title, note.body, ...note.items.map((i) => i.text), ...note.links.map((l) => l.label), ...(note.attachments ?? []).map((a) => a.name)]
     .filter(Boolean)
     .join("\n")
     .toLowerCase();
